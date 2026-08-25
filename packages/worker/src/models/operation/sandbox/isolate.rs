@@ -1,10 +1,9 @@
 use super::capture::{INLINE_OUTPUT_PREVIEW_BYTES, read_text_preview, text_preview_from_bytes};
 use super::error::SandboxError;
 use super::{
-    DirectoryRule, EnvRule, ExecutionResult, ResourceLimits, RunOptions, SandboxManager,
-    SandboxStatus,
+    DirectoryOptions, DirectoryRule, EnvRule, ExecutionResult, ResourceLimits, RunOptions,
+    SandboxManager, SandboxStatus,
 };
-use crate::config::WorkerAppConfig;
 use async_trait::async_trait;
 use common::metrics::Metrics;
 use opentelemetry::KeyValue;
@@ -734,6 +733,32 @@ impl IsolateSandboxManager {
         }
         for rule in &run_options.directory_rules {
             add_directory_rule_args(&mut command, rule);
+        }
+
+        // Debian's openjdk toolchain resolves through /etc: `javac`/`java` are
+        // symlinks into /etc/alternatives, and the JVM reads its security policy
+        // (java.security, cacerts) from /etc/java-*-openjdk and /etc/ssl/certs/java.
+        // isolate's compiled-in default dir rules (box,bin,dev,lib,lib64,proc,
+        // tmp,usr) omit /etc, so Java compile and run fail with "No such file or
+        // directory" / "Error loading java.security file" without it. Mount /etc
+        // read-only for every step so Java works alongside c/cpp/python3, whose
+        // relative symlinks stay under /usr. This exposes /etc to contestant exec
+        // steps: /etc/passwd is world-readable (not secret) and /etc/shadow (0640)
+        // stays unreadable to the box uid, matching standard isolate-based judges.
+        // Skip if a caller already supplied an explicit /etc rule.
+        let has_etc_rule = run_options.directory_rules.iter().any(|rule| {
+            let inside = rule.inside_path.to_string_lossy();
+            inside == "/etc" || inside == "etc"
+        });
+        if !has_etc_rule {
+            add_directory_rule_args(
+                &mut command,
+                &DirectoryRule {
+                    inside_path: PathBuf::from("/etc"),
+                    outside_path: Some(PathBuf::from("/etc")),
+                    options: DirectoryOptions::default(),
+                },
+            );
         }
 
         let rewritten_argv: Vec<String> = argv
