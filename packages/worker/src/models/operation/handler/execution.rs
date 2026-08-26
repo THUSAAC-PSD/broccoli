@@ -845,7 +845,7 @@ async fn release_channel_keepalive(keepalive: KeepAlive) {
         file,
         consumer_done,
     } = keepalive;
-    // Held writer; `None` means dropped. Re-opened in place on the ENXIO path.
+    // Held writer; `None` means dropped. Re-opened in place on the wait path.
     let mut held = Some(file);
     let mut waited = Duration::ZERO;
 
@@ -867,9 +867,17 @@ async fn release_channel_keepalive(keepalive: KeepAlive) {
                 drop(probe);
                 return;
             }
-            Err(e) if e.raw_os_error() == Some(libc::ENXIO) => {
-                // No reader present right now. Whether to keep waiting depends on
-                // there being an IOConfig-identified consumer to converge on:
+            // The FIFO is gone (operation cleanup removed the channels dir): there
+            // is nothing left to serve, and the consumer's own open would fail too,
+            // so there is no wedge to prevent. Stop.
+            Err(e) if e.raw_os_error() == Some(libc::ENOENT) => return,
+            // ENXIO -> no reader yet. Any OTHER errno (EMFILE/ENFILE on a momentary
+            // fd-table spike, EINTR, ...) is a transient probe hiccup, NOT proof the
+            // consumer is gone -- treat it identically so a passing spike can never
+            // strand a live consumer, which is the very wedge this routine prevents.
+            Err(_) => {
+                // Keep restoring a writer only while an IOConfig-identified consumer
+                // is still live:
                 //   * `Some(flag)` not yet set -> a real consumer step exists and
                 //     has not opened yet; restore a writer and retry.
                 //   * `Some(flag)` set -> that consumer finished; stop.
@@ -877,36 +885,27 @@ async fn release_channel_keepalive(keepalive: KeepAlive) {
                 //     the communication-evaluator manager pattern: it opens the FIFO
                 //     via a raw `argv` path, invisible to `step_consumed_channels`,
                 //     so there is no "consumer opened" signal to wait for. Spinning
-                //     to MAX_WAIT here would stall the whole layer for 120s every
-                //     time that reader had already come and gone. Match the pre-fix
-                //     behavior instead: release promptly. The `drop` above already
-                //     delivered EOF to any reader still blocked in `read()`.
+                //     would stall the whole layer every time that reader had already
+                //     come and gone. Release promptly instead -- the `drop` above
+                //     already delivered EOF to any reader still blocked in `read()`.
                 let keep_waiting = match &consumer_done {
                     None => false,
                     Some(flag) => !flag.load(Ordering::Acquire),
                 };
-                if !keep_waiting {
-                    return;
-                }
-                if waited >= CHANNEL_RELEASE_MAX_WAIT {
-                    // Runaway guard only (see the const): a consumer that neither
-                    // opened nor finished for this long is a non-FIFO hang; fall
-                    // back to the isolate hard-timeout backstop.
+                if !keep_waiting || waited >= CHANNEL_RELEASE_MAX_WAIT {
+                    // No/finished consumer, or the runaway guard tripped (a non-FIFO
+                    // hang) -> fall back to the isolate hard-timeout backstop.
                     return;
                 }
                 // Consumer identified but not opened yet: restore a writer so its
-                // imminent open() rendezvous succeeds, then retry. Safe against
-                // re-block -- ENXIO proves no reader is currently blocked in read().
-                match open_channel_keepalive(&fifo_path) {
-                    Some(file) => held = Some(file),
-                    None => return, // path gone / unopenable -> backstop
-                }
+                // imminent open() rendezvous succeeds, then retry. A transient
+                // re-open failure just leaves `held` empty for this tick; the next
+                // probe re-checks and terminates promptly on ENOENT if the path is
+                // truly gone, so we retry rather than abandon a live consumer.
+                held = open_channel_keepalive(&fifo_path);
                 tokio::time::sleep(CHANNEL_RELEASE_STEP).await;
                 waited += CHANNEL_RELEASE_STEP;
             }
-            // Path removed (operation cleanup) or any other error: nothing safe to
-            // do here; the backstop covers the pathological remainder.
-            Err(_) => return,
         }
     }
 }
@@ -1253,5 +1252,31 @@ mod channel_keepalive_tests {
             CHANNEL_RELEASE_MAX_WAIT >= Duration::from_secs(660),
             "release ceiling {CHANNEL_RELEASE_MAX_WAIT:?} must exceed the consumer isolate lifetime"
         );
+    }
+
+    // The retry loop keeps a live consumer (`Some(flag)` unset) served across
+    // transient probe hiccups, but a truly-removed FIFO path (operation cleanup)
+    // is terminal: its probe open returns ENOENT and the consumer's own open would
+    // fail too, so release must stop promptly rather than spin to the runaway
+    // ceiling. Removing the dir out from under the loop drives exactly that ENOENT.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn release_returns_when_fifo_path_removed_even_if_consumer_live() {
+        let (dir, fifo) = make_fifo("path-removed");
+        let keepalive = open_channel_keepalive(&fifo).expect("keep-alive opens O_RDWR");
+        // Consumer still "live" (flag unset): only the missing path may end this.
+        let consumer_done = Arc::new(AtomicBool::new(false));
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            release_channel_keepalive(KeepAlive {
+                fifo_path: fifo.clone(),
+                file: keepalive,
+                consumer_done: Some(consumer_done),
+            }),
+        )
+        .await
+        .expect("release must return promptly when the FIFO path is gone (ENOENT)");
     }
 }
