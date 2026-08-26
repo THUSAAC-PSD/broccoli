@@ -563,17 +563,45 @@ impl SandboxManager for IsolateSandboxManager {
                 }
                 Err(e) => return Err(e),
                 Ok(mut exec) => {
-                    if attempt < MAX_TRANSIENT_RETRIES && is_transient_exec_failure(&exec) {
-                        let backoff_ms = 25u64 << attempt;
+                    if is_transient_exec_failure(&exec) {
+                        if attempt < MAX_TRANSIENT_RETRIES {
+                            let backoff_ms = 25u64 << attempt;
+                            tracing::warn!(
+                                box_id = %box_id,
+                                attempt = attempt + 1,
+                                backoff_ms,
+                                stderr_preview =
+                                    %exec.stderr.chars().take(120).collect::<String>(),
+                                "Transient exec failure (EAGAIN), retrying after backoff",
+                            );
+                            tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                            continue;
+                        }
+                        // Retries exhausted but the guest still cannot exec: the
+                        // host is momentarily out of PID/thread headroom (execve
+                        // EAGAIN, exit 127). That is a worker-saturation fault,
+                        // never the contestant's program, so tag it as an internal
+                        // sandbox error. The evaluator maps InternalError to a
+                        // retryable SystemError (bounded by max_system_error_retries,
+                        // self-healing) instead of a terminal RuntimeError that
+                        // permanently blames correct code. In-sandbox backoff cannot
+                        // outlast sustained saturation; a SystemError requeue re-runs
+                        // the submission later, once pressure eases. Mirrors the
+                        // redirect-vanished `infra_failure` path below.
                         tracing::warn!(
                             box_id = %box_id,
-                            attempt = attempt + 1,
-                            backoff_ms,
+                            max_retries = MAX_TRANSIENT_RETRIES,
                             stderr_preview = %exec.stderr.chars().take(120).collect::<String>(),
-                            "Transient exec failure (EAGAIN), retrying after backoff",
+                            "Exec failure (EAGAIN) persisted past retries; tagging as internal \
+                             sandbox error for SystemError retry",
                         );
-                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                        continue;
+                        exec.sandbox_status = SandboxStatus::InternalError;
+                        exec.status = "XX".to_string();
+                        exec.message = format!(
+                            "guest exec failed with EAGAIN after {MAX_TRANSIENT_RETRIES} retries \
+                             (worker saturated; internal error)"
+                        );
+                        return Ok(exec);
                     }
                     // With `--cg`, `exec.time_used` is the box cgroup's cumulative
                     // CPU since --init: persist it as the new prior, then report
@@ -1004,6 +1032,46 @@ mod tests {
             libc::ENOENT
         )));
         assert!(!is_fork_eagain(&std::io::Error::other("not an os error")));
+    }
+
+    #[test]
+    fn transient_exec_failure_matches_execve_eagain_only() {
+        // The exact signature isolate emits when the guest cannot execve because
+        // the host is out of PID/thread headroom: exit 127 + `execve(...)` +
+        // `Resource temporarily unavailable` (EAGAIN). This is the observed
+        // saturation artifact that must be reclassified to a retryable
+        // SystemError, never a terminal RuntimeError.
+        let eagain = ExecutionResult {
+            exit_code: Some(127),
+            stderr: "execve(\"./main\"): Resource temporarily unavailable".to_string(),
+            ..Default::default()
+        };
+        assert!(is_transient_exec_failure(&eagain));
+
+        // Near-misses must NOT match: a genuine exit-127 from the guest without
+        // the EAGAIN marker is a real RuntimeError and must stay one.
+        let real_127 = ExecutionResult {
+            exit_code: Some(127),
+            stderr: "bash: ./main: No such file or directory".to_string(),
+            ..Default::default()
+        };
+        assert!(!is_transient_exec_failure(&real_127));
+
+        // EAGAIN text but a clean exit code is not an exec failure.
+        let clean_exit = ExecutionResult {
+            exit_code: Some(0),
+            stderr: "Resource temporarily unavailable".to_string(),
+            ..Default::default()
+        };
+        assert!(!is_transient_exec_failure(&clean_exit));
+
+        // A different nonzero exit with the marker is likewise not the exec path.
+        let other_exit = ExecutionResult {
+            exit_code: Some(1),
+            stderr: "execve(\"./main\"): Resource temporarily unavailable".to_string(),
+            ..Default::default()
+        };
+        assert!(!is_transient_exec_failure(&other_exit));
     }
 
     #[test]
