@@ -250,11 +250,14 @@ pub async fn run_contest_code(
     enforce_queue_depth_admission(&state).await?;
 
     let contest_id = id;
-    let txn = state.db.begin().await?;
-
-    let contest_model = find_contest(&txn, contest_id).await?;
-    let _problem = find_problem(&txn, problem_id).await?;
-    if !is_problem_in_contest(&txn, contest_id, problem_id).await? {
+    // No wrapping transaction: independent read validations + a single-row
+    // INSERT. Holding a pooled txn connection open across the later
+    // `require_contest_participant(&state.db)` acquisition deadlocked the core
+    // pool under sustained load — see `submission::create_contest_submission`
+    // for the full analysis. Each step runs on the pool directly.
+    let contest_model = find_contest(&state.db, contest_id).await?;
+    let _problem = find_problem(&state.db, problem_id).await?;
+    if !is_problem_in_contest(&state.db, contest_id, problem_id).await? {
         return Err(AppError::NotFound(
             "Problem not found in this contest".into(),
         ));
@@ -300,8 +303,7 @@ pub async fn run_contest_code(
         ..Default::default()
     };
 
-    let model = new_code_run.insert(&txn).await?;
-    txn.commit().await?;
+    let model = new_code_run.insert(&state.db).await?;
 
     let response = build_code_run_response(&state.db, model).await?;
 

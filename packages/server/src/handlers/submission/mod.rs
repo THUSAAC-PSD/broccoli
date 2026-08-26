@@ -88,18 +88,25 @@ pub async fn create_submission(
         state.config.submission.rate_limit_per_minute,
     )
     .await?;
-    // UP#39 backpressure-on-post: shed load before opening a txn so
+    // UP#39 backpressure-on-post: shed load before touching the DB so
     // the rejected request never holds a connection or a row lock.
     enforce_queue_depth_admission(&state).await?;
 
-    let txn = state.db.begin().await?;
-
-    let problem = find_problem(&txn, problem_id).await?;
+    // No wrapping transaction. These are independent read validations followed
+    // by a single-row INSERT (atomic on its own), so a txn buys no real
+    // consistency here (READ COMMITTED, no row locks). Holding a pooled txn
+    // connection open across the later `&state.db` acquisition
+    // (`fetch_resource_enablements`) and the slow WASM `before_submission`
+    // dispatch caused a core-pool self-deadlock once concurrent submits reached
+    // the pool size: every request parked `idle in transaction` while waiting to
+    // check out a second connection that never freed. Run each step on the pool
+    // directly so a request never holds two connections at once.
+    let problem = find_problem(&state.db, problem_id).await?;
     // Gate on problem read access (contest membership or problem-edit
     // permission), same as viewing the problem. Without this a contestant can
     // probe and submit against hidden/unreleased problems by guessing IDs, which
     // is a stronger information oracle than viewing since it runs secret tests.
-    require_problem_read_access(&txn, &auth_user, problem_id).await?;
+    require_problem_read_access(&state.db, &auth_user, problem_id).await?;
     let known_languages: std::collections::HashSet<String> = state
         .registries
         .language_resolver_registry
@@ -162,8 +169,7 @@ pub async fn create_submission(
         ..Default::default()
     };
 
-    let model = new_submission.insert(&txn).await?;
-    txn.commit().await?;
+    let model = new_submission.insert(&state.db).await?;
 
     fire_after_submission_hooks(
         &state,
@@ -499,12 +505,18 @@ pub async fn create_contest_submission(
     enforce_queue_depth_admission(&state).await?;
 
     let contest_id = id;
-    let txn = state.db.begin().await?;
+    // No wrapping transaction: see `create_submission` for the full rationale.
+    // Holding a pooled txn connection open across the subsequent `&state.db`
+    // acquisitions (`require_contest_participant`, `fetch_resource_enablements`)
+    // and the slow WASM `before_submission` dispatch deadlocked the core pool
+    // under sustained contest load (all connections parked `idle in
+    // transaction`, each request then blocking to check out a second connection
+    // that never freed). Every step runs on the pool directly so no request
+    // holds two connections at once.
+    let contest_model = find_contest(&state.db, contest_id).await?;
 
-    let contest_model = find_contest(&txn, contest_id).await?;
-
-    let problem = find_problem(&txn, problem_id).await?;
-    if !is_problem_in_contest(&txn, contest_id, problem_id).await? {
+    let problem = find_problem(&state.db, problem_id).await?;
+    if !is_problem_in_contest(&state.db, contest_id, problem_id).await? {
         return Err(AppError::NotFound(
             "Problem not found in this contest".into(),
         ));
@@ -562,8 +574,7 @@ pub async fn create_contest_submission(
         ..Default::default()
     };
 
-    let model = new_submission.insert(&txn).await?;
-    txn.commit().await?;
+    let model = new_submission.insert(&state.db).await?;
 
     fire_after_submission_hooks(
         &state,
