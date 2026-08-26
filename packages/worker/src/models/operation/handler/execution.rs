@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{Instrument, debug, error, info, instrument, warn};
 
@@ -212,26 +213,32 @@ impl OperationHandler {
         // deadlock). Each channel is a named FIFO the producer step writes and the
         // consumer step reads via a concurrent `open(O_RDONLY)`, which blocks in
         // the kernel until *some* writer opens the O_WRONLY end. If the producer
-        // never opens it (its exec fork/spawn EAGAIN-exhausts, artifact missing),
-        // the consumer blocks forever -> the whole operation hangs and the queue
+        // never opens it (its exec fork/spawn EAGAIN-exhausts, artifact missing) or
+        // resolves before the consumer's isolate even reaches its stdin open, the
+        // consumer blocks forever -> the whole operation hangs and the queue
         // message is orphaned. We hold an O_RDWR fd on each producer's FIFO here:
         // O_RDWR never blocks on open, so the consumer's rendezvous always
-        // succeeds, and dropping the fd the instant the producer's future resolves
-        // (success OR failure) delivers EOF -- a finished producer's own writes are
-        // already flushed, a failed producer yields empty input. The fd MUST close
-        // on producer-resolution rather than after the layer: the consumer runs
-        // concurrently in the SAME layer and needs EOF to finish, so a writer held
-        // past `join_all` would starve every normal solution into a deadlock. A
-        // failed producer that resolves before the consumer even opens is the one
-        // residual race; the worker-side isolate `--wait` hard timeout is the
-        // backstop that turns it into a self-healing SystemError, never a hang.
-        let mut channel_keepalives: HashMap<String, Vec<std::fs::File>> = HashMap::new();
+        // succeeds. The fd is NOT dropped at producer-resolve -- that was the bug:
+        // under burst the checker opens its stdin AFTER the (failed or fast)
+        // producer has resolved, so the writer was already gone. Instead the fd is
+        // handed to `release_channel_keepalive`, which drops it only once the
+        // consumer has actually opened the FIFO (detected with a flicker-safe
+        // O_WRONLY|O_NONBLOCK probe) and then delivers EOF. The per-consumer
+        // `done` flag lets the release routine stop promptly when the consumer has
+        // already finished, instead of spinning to the fallback deadline.
+        let mut channel_keepalives: HashMap<String, Vec<KeepAlive>> = HashMap::new();
+        let mut consumer_flags: HashMap<String, Arc<AtomicBool>> = HashMap::new();
         if let Some(ref dir) = shared_channels_dir {
             let mut producer_of: HashMap<String, String> = HashMap::new();
+            let mut consumer_of: HashMap<String, String> = HashMap::new();
             for task in &operation.tasks {
                 for ch in step_produced_channels(task, &channel_names) {
                     // First writer wins; a channel has a single logical producer.
                     producer_of.entry(ch).or_insert_with(|| task.id.clone());
+                }
+                for ch in step_consumed_channels(task, &channel_names) {
+                    // First reader wins; the fused pipeline has a single consumer.
+                    consumer_of.entry(ch).or_insert_with(|| task.id.clone());
                 }
             }
             for channel in &operation.channels {
@@ -242,10 +249,20 @@ impl OperationHandler {
                 if let Some(producer_id) = producer_of.get(&channel.name)
                     && let Some(file) = open_channel_keepalive(&dir.join(&channel.name))
                 {
+                    let consumer_done = consumer_of.get(&channel.name).map(|consumer_id| {
+                        consumer_flags
+                            .entry(consumer_id.clone())
+                            .or_default()
+                            .clone()
+                    });
                     channel_keepalives
                         .entry(producer_id.clone())
                         .or_default()
-                        .push(file);
+                        .push(KeepAlive {
+                            fifo_path: dir.join(&channel.name),
+                            file,
+                            consumer_done,
+                        });
                 }
             }
         }
@@ -277,9 +294,14 @@ impl OperationHandler {
                     });
 
                     // Hand this step the keep-alive fds for any channels it
-                    // produces; they drop -- delivering EOF to the concurrent
-                    // consumer -- the moment its future resolves, below.
+                    // produces. They are released -- delivering EOF to the
+                    // concurrent consumer -- only once the consumer has opened the
+                    // FIFO (see `release_channel_keepalive`), not merely when this
+                    // producer resolves. `own_done` is this step's consumer flag (if
+                    // it reads a channel); we raise it before releasing so a paired
+                    // producer's release routine can stop promptly.
                     let produced_keepalives = channel_keepalives.remove(task_id);
+                    let own_done = consumer_flags.get(task_id).cloned();
                     let step_future = self.execute_step_with_deps(
                         task,
                         &environments,
@@ -290,7 +312,14 @@ impl OperationHandler {
                     );
                     futures.push(async move {
                         let result = step_future.await;
-                        drop(produced_keepalives);
+                        if let Some(flag) = &own_done {
+                            flag.store(true, Ordering::Release);
+                        }
+                        if let Some(keepalives) = produced_keepalives {
+                            for keepalive in keepalives {
+                                release_channel_keepalive(keepalive).await;
+                            }
+                        }
                         result
                     });
                 }
@@ -714,6 +743,23 @@ impl OperationHandler {
     }
 }
 
+/// A producer's keep-alive writer on one channel FIFO, plus the metadata the
+/// release routine needs to close it at the right moment. See
+/// `release_channel_keepalive`.
+struct KeepAlive {
+    /// Path of the channel FIFO this keep-alive holds open.
+    fifo_path: PathBuf,
+    /// The O_RDWR keep-alive fd -- a writer, so a consumer's `open(O_RDONLY)`
+    /// rendezvous never blocks. The release loop drops and re-opens it in place.
+    file: std::fs::File,
+    /// Raised once the consumer step has finished, letting the release routine
+    /// stop instead of spinning when there is no longer a reader to unblock.
+    /// `None` when the channel has no consumer we can detect from `IOConfig` (an
+    /// argv-opened reader); the release routine then does not run its retry loop
+    /// at all and releases promptly, matching the pre-fix behavior.
+    consumer_done: Option<Arc<AtomicBool>>,
+}
+
 /// Channels this step *produces* (writes): any output redirect (stdout/stderr)
 /// bound to a `Pipe` whose name is a declared operation channel. The consumer
 /// side (a `Pipe` on `stdin`) is deliberately excluded -- only a producer's
@@ -728,6 +774,129 @@ fn step_produced_channels(step: &Step, channel_names: &HashSet<String>) -> Vec<S
         }
     }
     produced
+}
+
+/// Channels this step *consumes* (reads): a `Pipe` on `stdin` whose name is a
+/// declared operation channel. Mirror of `step_produced_channels`; used to map a
+/// channel to the consumer whose completion releases the producer's keep-alive.
+fn step_consumed_channels(step: &Step, channel_names: &HashSet<String>) -> Vec<String> {
+    let mut consumed = Vec::new();
+    if let IOTarget::Pipe { name } = &step.io.stdin
+        && channel_names.contains(name)
+    {
+        consumed.push(name.clone());
+    }
+    consumed
+}
+
+/// Release a producer's channel keep-alive, delivering EOF to the consumer only
+/// after the consumer has actually opened the FIFO.
+///
+/// Dropping the keep-alive the instant the producer resolved (the original code)
+/// races the consumer: under fork/exec (EAGAIN) pressure the checker's isolate
+/// reaches its `open(/channels/<name>, O_RDONLY)` *after* a failed or fast
+/// producer has already resolved, so the last writer is gone and the open blocks
+/// with no writer -- a ~10-minute hang until the isolate wall-time backstop.
+///
+/// This routine instead keeps a writer present until the consumer is observed as
+/// a reader, exploiting two FIFO facts (empirically verified):
+///   * `open(O_WRONLY|O_NONBLOCK)` succeeds iff a reader is present -- including a
+///     consumer blocked in `open(O_RDONLY)` -- and fails `ENXIO` otherwise.
+///   * closing a momentary writer delivers a clean EOF (read returns 0) to a
+///     reader blocked in either `open` or `read`.
+///
+/// Each iteration drops our writer (delivering EOF to a consumer already blocked
+/// in `read`) then probes:
+///   * `Ok`  -> a reader is present; closing the probe leaves `writers == 0`, so
+///     the consumer's `open` rendezvous completes and its `read` sees EOF. Any
+///     transient re-block during the open/close flicker is resolved by that final
+///     close, which re-wakes the reader against `writers == 0`. Done.
+///   * `ENXIO` -> no reader. Only channels with an IOConfig-identified consumer
+///     (`consumer_done: Some`) run the retry loop: re-open the keep-alive
+///     (restoring a writer for the consumer's imminent `open`) and retry after a
+///     short sleep, bounded by `MAX_WAIT` (past which we fall back to the isolate
+///     hard-timeout backstop, never worse than before), stopping early once that
+///     consumer's flag is set. A channel with no detectable consumer
+///     (`consumer_done: None`, e.g. an argv-opened reader) releases promptly here
+///     rather than spinning -- there is no "consumer opened" signal to wait for.
+async fn release_channel_keepalive(keepalive: KeepAlive) {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    /// Upper bound on how long we keep restoring the writer while waiting for the
+    /// consumer to open. Comfortably exceeds an isolate stdin-open even under
+    /// heavy fork pressure; only a consumer that neither opens nor finishes for
+    /// this long (a non-FIFO hang) reaches it, and then the backstop still wins.
+    const MAX_WAIT: Duration = Duration::from_secs(120);
+    /// Poll gap between writer restorations while the consumer has not opened.
+    const STEP: Duration = Duration::from_millis(20);
+
+    let KeepAlive {
+        fifo_path,
+        file,
+        consumer_done,
+    } = keepalive;
+    // Held writer; `None` means dropped. Re-opened in place on the ENXIO path.
+    let mut held = Some(file);
+    let mut waited = Duration::ZERO;
+
+    loop {
+        // Drop our writer. If the consumer is already rendezvoused and blocked in
+        // read(), this is the EOF it is waiting for. `take()` (not `= None`) so the
+        // prior iteration's re-open counts as read -- no `unused_assignments`.
+        drop(held.take());
+
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo_path)
+        {
+            Ok(probe) => {
+                // A reader is present (blocked in open, or in read). Closing this
+                // momentary writer leaves writers == 0 -> the consumer's open
+                // rendezvous completes and its read observes EOF.
+                drop(probe);
+                return;
+            }
+            Err(e) if e.raw_os_error() == Some(libc::ENXIO) => {
+                // No reader present right now. Whether to keep waiting depends on
+                // there being an IOConfig-identified consumer to converge on:
+                //   * `Some(flag)` not yet set -> a real consumer step exists and
+                //     has not opened yet; restore a writer and retry.
+                //   * `Some(flag)` set -> that consumer finished; stop.
+                //   * `None` -> the channel has no consumer we can detect. This is
+                //     the communication-evaluator manager pattern: it opens the FIFO
+                //     via a raw `argv` path, invisible to `step_consumed_channels`,
+                //     so there is no "consumer opened" signal to wait for. Spinning
+                //     to MAX_WAIT here would stall the whole layer for 120s every
+                //     time that reader had already come and gone. Match the pre-fix
+                //     behavior instead: release promptly. The `drop` above already
+                //     delivered EOF to any reader still blocked in `read()`.
+                let keep_waiting = match &consumer_done {
+                    None => false,
+                    Some(flag) => !flag.load(Ordering::Acquire),
+                };
+                if !keep_waiting {
+                    return;
+                }
+                if waited >= MAX_WAIT {
+                    // Fall back to the isolate hard-timeout backstop.
+                    return;
+                }
+                // Consumer identified but not opened yet: restore a writer so its
+                // imminent open() rendezvous succeeds, then retry. Safe against
+                // re-block -- ENXIO proves no reader is currently blocked in read().
+                match open_channel_keepalive(&fifo_path) {
+                    Some(file) => held = Some(file),
+                    None => return, // path gone / unopenable -> backstop
+                }
+                tokio::time::sleep(STEP).await;
+                waited += STEP;
+            }
+            // Path removed (operation cleanup) or any other error: nothing safe to
+            // do here; the backstop covers the pathological remainder.
+            Err(_) => return,
+        }
+    }
 }
 
 /// Open a keep-alive fd on a channel FIFO. `O_RDWR` is deliberate: unlike
@@ -855,6 +1024,206 @@ mod channel_keepalive_tests {
 
         drop(keepalive);
         reader.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn consumed_channels_counts_stdin_pipe_only() {
+        let channels: HashSet<String> = ["sol_out".to_string()].into_iter().collect();
+
+        // stdin Pipe on a declared channel -> consumed.
+        let consumer = step_with_io(
+            "check",
+            IOConfig {
+                stdin: IOTarget::Pipe {
+                    name: "sol_out".to_string(),
+                },
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            step_consumed_channels(&consumer, &channels),
+            vec!["sol_out".to_string()]
+        );
+
+        // stdout Pipe (the producer side) is NOT a consumer.
+        let producer = step_with_io(
+            "exec",
+            IOConfig {
+                stdout: IOTarget::Pipe {
+                    name: "sol_out".to_string(),
+                },
+                ..Default::default()
+            },
+        );
+        assert!(step_consumed_channels(&producer, &channels).is_empty());
+
+        // A stdin Pipe that is not a declared channel is a box-local pipe.
+        let box_pipe = step_with_io(
+            "other",
+            IOConfig {
+                stdin: IOTarget::Pipe {
+                    name: "not_a_channel".to_string(),
+                },
+                ..Default::default()
+            },
+        );
+        assert!(step_consumed_channels(&box_pipe, &channels).is_empty());
+    }
+
+    #[cfg(unix)]
+    fn make_fifo(suffix: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "broccoli-release-test-{}-{}",
+            std::process::id(),
+            suffix
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("sol_out");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(status.success(), "mkfifo failed");
+        (dir, fifo)
+    }
+
+    // The bug case: the keep-alive is handed to `release_channel_keepalive` and
+    // the consumer opens the FIFO LATE (after the producer already resolved).
+    // The release routine must keep a writer alive until the late open, then
+    // deliver EOF -- proving no permanent openat hang.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn release_unblocks_a_late_opening_consumer_with_eof() {
+        use std::io::Read;
+
+        let (dir, fifo) = make_fifo("late-open");
+        let keepalive = open_channel_keepalive(&fifo).expect("keep-alive opens O_RDWR");
+        let consumer_done = Arc::new(AtomicBool::new(false));
+
+        let reader_path = fifo.clone();
+        let done = consumer_done.clone();
+        let reader = std::thread::spawn(move || {
+            // Simulate a consumer whose isolate is slow to reach its stdin open.
+            std::thread::sleep(Duration::from_millis(150));
+            let mut f = std::fs::OpenOptions::new()
+                .read(true)
+                .open(&reader_path)
+                .expect("late O_RDONLY open must eventually rendezvous");
+            let mut buf = Vec::new();
+            let n = f.read_to_end(&mut buf).expect("read to EOF");
+            done.store(true, Ordering::Release);
+            (n, buf)
+        });
+
+        // Bound the whole thing well under the 120s fallback: convergence is a
+        // few STEPs after the 150ms open, never the deadline.
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            release_channel_keepalive(KeepAlive {
+                fifo_path: fifo.clone(),
+                file: keepalive,
+                consumer_done: Some(consumer_done.clone()),
+            }),
+        )
+        .await
+        .expect("release must return, not hang");
+
+        let (n, buf) = reader.join().unwrap();
+        assert_eq!(n, 0, "consumer must see clean EOF (empty), got {buf:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The common case: the consumer has already rendezvoused (via the keep-alive
+    // writer) and is blocked in read(). Releasing must deliver EOF by dropping the
+    // writer -- the probe must not re-block it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn release_delivers_eof_to_a_reader_blocked_in_read() {
+        use std::io::Read;
+
+        let (dir, fifo) = make_fifo("blocked-read");
+        let keepalive = open_channel_keepalive(&fifo).expect("keep-alive opens O_RDWR");
+
+        let reader_path = fifo.clone();
+        let reader = std::thread::spawn(move || {
+            // Opens immediately (rendezvous with the keep-alive writer), then
+            // blocks in read() until the writer goes away.
+            let mut f = std::fs::OpenOptions::new()
+                .read(true)
+                .open(&reader_path)
+                .expect("O_RDONLY open rendezvous with keep-alive");
+            let mut buf = Vec::new();
+            let n = f.read_to_end(&mut buf).expect("read to EOF");
+            (n, buf)
+        });
+
+        // Give the reader time to reach its blocking read().
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            release_channel_keepalive(KeepAlive {
+                fifo_path: fifo.clone(),
+                file: keepalive,
+                consumer_done: None,
+            }),
+        )
+        .await
+        .expect("release must return, not hang");
+
+        let (n, buf) = reader.join().unwrap();
+        assert_eq!(n, 0, "reader must see EOF (empty), got {buf:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // When the consumer has already finished (its `done` flag is set) and there is
+    // no reader to unblock, release must return promptly instead of spinning to
+    // the 120s fallback.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn release_returns_promptly_when_consumer_already_done() {
+        let (dir, fifo) = make_fifo("already-done");
+        let keepalive = open_channel_keepalive(&fifo).expect("keep-alive opens O_RDWR");
+        let consumer_done = Arc::new(AtomicBool::new(true));
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            release_channel_keepalive(KeepAlive {
+                fifo_path: fifo.clone(),
+                file: keepalive,
+                consumer_done: Some(consumer_done),
+            }),
+        )
+        .await
+        .expect("release must not spin to the fallback when the consumer is done");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Regression guard: a channel with no IOConfig-identifiable consumer
+    // (`consumer_done: None`, e.g. the communication-evaluator manager that opens
+    // the FIFO via a raw argv path) and no reader currently present must release
+    // PROMPTLY -- it must NOT run the restore-writer retry loop and stall the whole
+    // layer up to MAX_WAIT (120s). Bounding the await at 2s proves no spin.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn release_returns_promptly_when_no_identifiable_consumer() {
+        let (dir, fifo) = make_fifo("no-consumer");
+        let keepalive = open_channel_keepalive(&fifo).expect("keep-alive opens O_RDWR");
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            release_channel_keepalive(KeepAlive {
+                fifo_path: fifo.clone(),
+                file: keepalive,
+                consumer_done: None,
+            }),
+        )
+        .await
+        .expect("release must not spin when there is no detectable consumer to wait for");
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
