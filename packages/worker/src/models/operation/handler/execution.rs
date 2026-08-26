@@ -789,6 +789,17 @@ fn step_consumed_channels(step: &Step, channel_names: &HashSet<String>) -> Vec<S
     consumed
 }
 
+/// Runaway guard for `release_channel_keepalive`'s writer-restore loop. NOT a
+/// functional timeout -- the consumer-done flag is the real bound; this only caps
+/// a pathological consumer that neither opens nor finishes. Must exceed the
+/// consumer isolate's max lifetime (`worker_hard_timeout`, ~630s for a 600s-wall
+/// checker) so a live-but-slow consumer is never pre-empted (the original 120s
+/// ceiling did not, and wedged the FIFO until the isolate wall-time). See
+/// `release_channel_keepalive`.
+const CHANNEL_RELEASE_MAX_WAIT: Duration = Duration::from_secs(900);
+/// Poll gap between writer restorations while the consumer has not opened.
+const CHANNEL_RELEASE_STEP: Duration = Duration::from_millis(20);
+
 /// Release a producer's channel keep-alive, delivering EOF to the consumer only
 /// after the consumer has actually opened the FIFO.
 ///
@@ -811,24 +822,23 @@ fn step_consumed_channels(step: &Step, channel_names: &HashSet<String>) -> Vec<S
 ///     the consumer's `open` rendezvous completes and its `read` sees EOF. Any
 ///     transient re-block during the open/close flicker is resolved by that final
 ///     close, which re-wakes the reader against `writers == 0`. Done.
-///   * `ENXIO` -> no reader. Only channels with an IOConfig-identified consumer
-///     (`consumer_done: Some`) run the retry loop: re-open the keep-alive
+///   * `ENXIO` -> no reader yet. Only channels with an IOConfig-identified
+///     consumer (`consumer_done: Some`) run the retry loop: re-open the keep-alive
 ///     (restoring a writer for the consumer's imminent `open`) and retry after a
-///     short sleep, bounded by `MAX_WAIT` (past which we fall back to the isolate
-///     hard-timeout backstop, never worse than before), stopping early once that
-///     consumer's flag is set. A channel with no detectable consumer
-///     (`consumer_done: None`, e.g. an argv-opened reader) releases promptly here
-///     rather than spinning -- there is no "consumer opened" signal to wait for.
+///     short sleep, stopping the instant that consumer's flag is set. A channel
+///     with no detectable consumer (`consumer_done: None`, e.g. an argv-opened
+///     reader) releases promptly here -- there is no "consumer opened" signal.
+///
+/// The functional bound is that consumer flag, not a clock: `CHANNEL_RELEASE_MAX_WAIT`
+/// is only a runaway guard, deliberately set ABOVE the consumer isolate's maximum
+/// lifetime (`worker_hard_timeout` = its `--wall-time` + `--extra-time` + margin)
+/// so a live-but-slow consumer is NEVER pre-empted. The original fixed ceiling sat
+/// BELOW that lifetime (120s vs a 600s checker wall), so under burst the checker
+/// reached its `open()` after release had already abandoned the writer -- wedging
+/// the FIFO until the 600s isolate wall-time. Raising it above the lifetime closes
+/// that window while the flag still makes the common path return in a few `STEP`s.
 async fn release_channel_keepalive(keepalive: KeepAlive) {
     use std::os::unix::fs::OpenOptionsExt;
-
-    /// Upper bound on how long we keep restoring the writer while waiting for the
-    /// consumer to open. Comfortably exceeds an isolate stdin-open even under
-    /// heavy fork pressure; only a consumer that neither opens nor finishes for
-    /// this long (a non-FIFO hang) reaches it, and then the backstop still wins.
-    const MAX_WAIT: Duration = Duration::from_secs(120);
-    /// Poll gap between writer restorations while the consumer has not opened.
-    const STEP: Duration = Duration::from_millis(20);
 
     let KeepAlive {
         fifo_path,
@@ -878,8 +888,10 @@ async fn release_channel_keepalive(keepalive: KeepAlive) {
                 if !keep_waiting {
                     return;
                 }
-                if waited >= MAX_WAIT {
-                    // Fall back to the isolate hard-timeout backstop.
+                if waited >= CHANNEL_RELEASE_MAX_WAIT {
+                    // Runaway guard only (see the const): a consumer that neither
+                    // opened nor finished for this long is a non-FIFO hang; fall
+                    // back to the isolate hard-timeout backstop.
                     return;
                 }
                 // Consumer identified but not opened yet: restore a writer so its
@@ -889,8 +901,8 @@ async fn release_channel_keepalive(keepalive: KeepAlive) {
                     Some(file) => held = Some(file),
                     None => return, // path gone / unopenable -> backstop
                 }
-                tokio::time::sleep(STEP).await;
-                waited += STEP;
+                tokio::time::sleep(CHANNEL_RELEASE_STEP).await;
+                waited += CHANNEL_RELEASE_STEP;
             }
             // Path removed (operation cleanup) or any other error: nothing safe to
             // do here; the backstop covers the pathological remainder.
@@ -1117,7 +1129,7 @@ mod channel_keepalive_tests {
             (n, buf)
         });
 
-        // Bound the whole thing well under the 120s fallback: convergence is a
+        // Bound the whole thing well under the runaway ceiling: convergence is a
         // few STEPs after the 150ms open, never the deadline.
         tokio::time::timeout(
             Duration::from_secs(10),
@@ -1180,7 +1192,7 @@ mod channel_keepalive_tests {
 
     // When the consumer has already finished (its `done` flag is set) and there is
     // no reader to unblock, release must return promptly instead of spinning to
-    // the 120s fallback.
+    // the runaway ceiling.
     #[cfg(unix)]
     #[tokio::test]
     async fn release_returns_promptly_when_consumer_already_done() {
@@ -1206,7 +1218,7 @@ mod channel_keepalive_tests {
     // (`consumer_done: None`, e.g. the communication-evaluator manager that opens
     // the FIFO via a raw argv path) and no reader currently present must release
     // PROMPTLY -- it must NOT run the restore-writer retry loop and stall the whole
-    // layer up to MAX_WAIT (120s). Bounding the await at 2s proves no spin.
+    // layer up to CHANNEL_RELEASE_MAX_WAIT. Bounding the await at 2s proves no spin.
     #[cfg(unix)]
     #[tokio::test]
     async fn release_returns_promptly_when_no_identifiable_consumer() {
@@ -1225,5 +1237,21 @@ mod channel_keepalive_tests {
         .expect("release must not spin when there is no detectable consumer to wait for");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Regression guard for the burst-wedge root cause: the writer-restore ceiling
+    // is a runaway guard, NOT a functional timeout, so it MUST sit above the
+    // consumer isolate's maximum lifetime. Otherwise a live-but-slow consumer
+    // (its isolate reaches `open()` late under fork/exec pressure) is abandoned
+    // mid-flight and the FIFO wedges until the 600s isolate wall-time. The worst
+    // case consumer is the checker: --wall-time 600s + --extra-time + the worker
+    // hard-timeout margin. The original 120s ceiling failed this; assert a floor
+    // safely above the checker lifetime.
+    #[test]
+    fn release_ceiling_exceeds_consumer_isolate_lifetime() {
+        assert!(
+            CHANNEL_RELEASE_MAX_WAIT >= Duration::from_secs(660),
+            "release ceiling {CHANNEL_RELEASE_MAX_WAIT:?} must exceed the consumer isolate lifetime"
+        );
     }
 }
