@@ -800,6 +800,28 @@ const CHANNEL_RELEASE_MAX_WAIT: Duration = Duration::from_secs(900);
 /// Poll gap between writer restorations while the consumer has not opened.
 const CHANNEL_RELEASE_STEP: Duration = Duration::from_millis(20);
 
+/// True iff the FIFO behind `file` has bytes queued for reading right now.
+///
+/// `file` is the O_RDWR keep-alive fd, so it is itself a writer -> the pipe can
+/// never report POLLHUP here (writers != 0). POLLIN therefore means *real
+/// buffered producer output*, never an end-of-stream artifact. A zero timeout
+/// makes this a non-blocking readiness snapshot.
+#[cfg(unix)]
+fn fifo_has_buffered_input(file: &std::fs::File) -> bool {
+    use std::os::unix::io::AsRawFd;
+
+    let mut pfd = libc::pollfd {
+        fd: file.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // 0ms timeout: never blocks. On any poll error report "no data" so release
+    // proceeds exactly as before -- we never hold the FIFO open for bytes we
+    // cannot confirm are actually queued.
+    let rc = unsafe { libc::poll(&mut pfd, 1, 0) };
+    rc > 0 && (pfd.revents & libc::POLLIN) != 0
+}
+
 /// Release a producer's channel keep-alive, delivering EOF to the consumer only
 /// after the consumer has actually opened the FIFO.
 ///
@@ -850,6 +872,30 @@ async fn release_channel_keepalive(keepalive: KeepAlive) {
     let mut waited = Duration::ZERO;
 
     loop {
+        // Preserve the producer's buffered output. If the producer already wrote
+        // its bytes and exited but the consumer has not opened yet -- common for a
+        // small output that fits the pipe buffer (the producer never needs a reader
+        // to drain, so it finishes first), when the checker isolate is slow to reach
+        // its stdin open under fork/exec pressure -- then dropping this O_RDWR fd
+        // would take readers to zero and the kernel would DISCARD those bytes. The
+        // late-opening consumer would then read empty input -> a permanent spurious
+        // WrongAnswer. While bytes are still queued, keep this reader alive and let
+        // the consumer drain them first; our fd's writer side keeps the consumer's
+        // open() rendezvous unblocked throughout, so this never reintroduces the
+        // openat wedge. Only wait when an IOConfig consumer is identified (that
+        // bounds the wait on a real step); argv-opened readers (`None`, the
+        // communication-evaluator manager) keep the original prompt-release path.
+        if let Some(f) = held.as_ref()
+            && let Some(flag) = consumer_done.as_ref()
+            && !flag.load(Ordering::Acquire)
+            && waited < CHANNEL_RELEASE_MAX_WAIT
+            && fifo_has_buffered_input(f)
+        {
+            tokio::time::sleep(CHANNEL_RELEASE_STEP).await;
+            waited += CHANNEL_RELEASE_STEP;
+            continue;
+        }
+
         // Drop our writer. If the consumer is already rendezvoused and blocked in
         // read(), this is the EOF it is waiting for. `take()` (not `= None`) so the
         // prior iteration's re-open counts as read -- no `unused_assignments`.
@@ -1143,6 +1189,68 @@ mod channel_keepalive_tests {
 
         let (n, buf) = reader.join().unwrap();
         assert_eq!(n, 0, "consumer must see clean EOF (empty), got {buf:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The data-loss counterpart to the late-open EOF test: the producer writes its
+    // output and exits BEFORE the consumer opens -- a small payload that fits the
+    // pipe buffer, so the producer never needs a reader to drain and can finish
+    // first. Releasing must NOT discard those buffered bytes: the late-opening
+    // consumer must read exactly the producer's output, then EOF. Dropping the
+    // O_RDWR keep-alive while bytes are still queued takes readers to zero and the
+    // kernel discards the buffer -- the root cause of the burst false-WrongAnswers
+    // (a fast AC solution's output vanishing into an empty comparison).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn release_preserves_buffered_output_for_a_late_opening_consumer() {
+        use std::io::{Read, Write};
+
+        let (dir, fifo) = make_fifo("late-open-data");
+        let keepalive = open_channel_keepalive(&fifo).expect("keep-alive opens O_RDWR");
+
+        // Producer writes then closes while the keep-alive is the only reader: the
+        // bytes sit in the pipe buffer. Models the fast solution isolate finishing
+        // before the slow checker isolate reaches its stdin open under load.
+        {
+            let mut w = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&fifo)
+                .expect("producer O_WRONLY open rendezvous with keep-alive reader");
+            w.write_all(b"42\n").expect("producer write");
+        } // producer closed
+
+        let consumer_done = Arc::new(AtomicBool::new(false));
+        let reader_path = fifo.clone();
+        let done = consumer_done.clone();
+        let reader = std::thread::spawn(move || {
+            // Consumer opens LATE, after the producer already wrote and exited.
+            std::thread::sleep(Duration::from_millis(150));
+            let mut f = std::fs::OpenOptions::new()
+                .read(true)
+                .open(&reader_path)
+                .expect("late O_RDONLY open must rendezvous");
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf).expect("read to EOF");
+            done.store(true, Ordering::Release);
+            buf
+        });
+
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            release_channel_keepalive(KeepAlive {
+                fifo_path: fifo.clone(),
+                file: keepalive,
+                consumer_done: Some(consumer_done.clone()),
+            }),
+        )
+        .await
+        .expect("release must return, not hang");
+
+        let buf = reader.join().unwrap();
+        assert_eq!(
+            buf, b"42\n",
+            "consumer must receive the producer's buffered bytes, not empty (got {buf:?})"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
