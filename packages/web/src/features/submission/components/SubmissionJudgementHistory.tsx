@@ -47,7 +47,10 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
     () => new Set(),
   );
 
-  const { data: systemOverview } = useSystemOverview();
+  // Worker list only feeds the admin worker-pin dropdown below, so only fetch
+  // (and poll) it for system admins. Without this gate the admin-only overview
+  // endpoint 403-loops for every contestant viewing a submission.
+  const { data: systemOverview } = useSystemOverview({ enabled: canPinWorker });
   const liveWorkers = useMemo(
     () => (systemOverview?.workers ?? []).filter((w) => !w.stale),
     [systemOverview],
