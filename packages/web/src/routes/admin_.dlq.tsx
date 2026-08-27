@@ -33,10 +33,19 @@ export default function AdminDlqPage() {
     useState<DlqResolvedFilter>('unresolved');
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  const stats = useDlqStats();
-  const list = useDlqList({ page, perPage: PER_PAGE, resolvedFilter });
+  // Gate the polling queries on the same permission as the render guard below.
+  // React runs these hooks before the early Unauthorized return, so without
+  // the gate an unauthorized viewer would 403-loop /dlq and /dlq/stats.
+  const canManageDlq = !!user?.permissions.includes(DLQ_MANAGE);
+  const stats = useDlqStats({ enabled: canManageDlq });
+  const list = useDlqList({
+    page,
+    perPage: PER_PAGE,
+    resolvedFilter,
+    enabled: canManageDlq,
+  });
 
-  if (!user || !user.permissions.includes(DLQ_MANAGE)) {
+  if (!canManageDlq) {
     return <Unauthorized />;
   }
 

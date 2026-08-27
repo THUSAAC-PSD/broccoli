@@ -8,6 +8,7 @@ interface Params {
   perPage: number;
   resolvedFilter: DlqResolvedFilter;
   messageType?: string;
+  enabled?: boolean;
 }
 
 const REFETCH_INTERVAL_MS = 10_000;
@@ -17,11 +18,16 @@ export function useDlqList({
   perPage,
   resolvedFilter,
   messageType,
+  enabled = true,
 }: Params) {
   const apiFetch = useApiFetch();
 
   return useQuery({
     queryKey: ['dlq', 'list', { page, perPage, resolvedFilter, messageType }],
+    // `/dlq` requires dlq:manage. Callers that render before their own
+    // permission check must pass `enabled: false`, or this poll 403-loops for
+    // unauthorized viewers (hooks run before an early Unauthorized return).
+    enabled,
     refetchInterval: REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
     queryFn: async (): Promise<DlqListResponse> => {

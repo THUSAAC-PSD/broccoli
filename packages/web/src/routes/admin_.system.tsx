@@ -21,9 +21,15 @@ import { useSystemOverview } from '@/features/system/hooks/useSystemOverview';
 export default function AdminSystemPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const { data, isLoading, error } = useSystemOverview();
+  // Gate the poll on the same permission as the render guard below: hooks run
+  // before the early Unauthorized return, so without this an unauthorized
+  // viewer would 403-loop /admin/system/overview.
+  const canViewSystem = !!user?.permissions.includes(SYSTEM_VIEW);
+  const { data, isLoading, error } = useSystemOverview({
+    enabled: canViewSystem,
+  });
 
-  if (!user || !user.permissions.includes(SYSTEM_VIEW)) {
+  if (!canViewSystem) {
     return <Unauthorized />;
   }
 

@@ -52,12 +52,18 @@ export default function PluginsPage() {
     [searchParams, setSearchParams],
   );
 
+  // Gate the fetch on the same permission as the render guard below: the hook
+  // runs before the early Unauthorized return, so without this an unauthorized
+  // viewer would 403 on /admin/plugins.
+  const canManagePlugins = !!user?.permissions.includes(PLUGIN_MANAGE);
+
   const {
     data: plugins,
     isLoading,
     error,
   } = useQuery({
     queryKey: ['admin-plugins'],
+    enabled: canManagePlugins,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/admin/plugins');
       if (error) throw error;
@@ -141,7 +147,7 @@ export default function PluginsPage() {
     }
   }, [apiClient, queryClient, reloadAllPlugins]);
 
-  if (!user || !user.permissions.includes(PLUGIN_MANAGE)) {
+  if (!canManagePlugins) {
     return <Unauthorized />;
   }
 
