@@ -198,16 +198,67 @@ pub(crate) fn precheck_verdict(
         }
         if let Some(exit_code) = compile_result.sandbox_result.exit_code {
             if exit_code != 0 {
+                // A genuine compile error always carries the compiler's
+                // diagnostics -- gcc, g++, javac and py_compile all report the
+                // source problem on stderr (a few tools use stdout). A non-zero
+                // exit is an infrastructure fault, NOT a diagnosable source error,
+                // in two shapes, both of which must become a retryable SystemError
+                // rather than a terminal CompileError that pins a permanent wrong
+                // verdict on valid code under load:
+                //   (a) NO output on either stream -- the compiler died before it
+                //       could say anything;
+                //   (b) output that is the signature of the toolchain failing to
+                //       run at all (JVM thread-init EAGAIN, cc1 fork failure,
+                //       native OOM) rather than a source diagnostic -- observed:
+                //       a Java compile that cannot spawn its VM threads under
+                //       transient per-uid RLIMIT_NPROC pressure prints an
+                //       "unable to create native thread" / "Error occurred during
+                //       initialization of VM" block and exits 1. See
+                //       `compile_output_is_infra_fault`.
+                // The InternalError guard above covers the clobbered-box case
+                // (missing redirect files); this covers the completed non-zero
+                // exit. (Compare the exec arm, which by contrast treats empty
+                // present output as a legitimate WrongAnswer -- a program may print
+                // nothing, but a compiler that actually ran never stays silent
+                // about why it rejected source.)
+                let diagnostics = opt_nonempty(&compile_result.sandbox_result.stderr)
+                    .or_else(|| opt_nonempty(&compile_result.sandbox_result.stdout));
+                let Some(diagnostics) = diagnostics else {
+                    return Some(TestCaseVerdict {
+                        test_case_id,
+                        verdict: Verdict::SystemError,
+                        score: 0.0,
+                        time_used_ms: None,
+                        memory_used_kb: None,
+                        message: Some(format!(
+                            "Compilation exited with status {exit_code} but produced no diagnostics (transient infrastructure fault)"
+                        )),
+                        stdout: None,
+                        stderr: None,
+                    });
+                };
+                if compile_output_is_infra_fault(&diagnostics) {
+                    return Some(TestCaseVerdict {
+                        test_case_id,
+                        verdict: Verdict::SystemError,
+                        score: 0.0,
+                        time_used_ms: None,
+                        memory_used_kb: None,
+                        message: truncate_stderr(
+                            &diagnostics,
+                            "Compilation could not run (transient infrastructure fault)",
+                        ),
+                        stdout: None,
+                        stderr: None,
+                    });
+                }
                 return Some(TestCaseVerdict {
                     test_case_id,
                     verdict: Verdict::CompileError,
                     score: 0.0,
                     time_used_ms: None,
                     memory_used_kb: None,
-                    message: truncate_stderr(
-                        &compile_result.sandbox_result.stderr,
-                        "Compilation failed",
-                    ),
+                    message: truncate_stderr(&diagnostics, "Compilation failed"),
                     stdout: None,
                     stderr: None,
                 });
@@ -375,6 +426,59 @@ fn opt_nonempty(s: &str) -> Option<String> {
     }
 }
 
+/// Whether a **failed compile step's** captured output is the signature of an
+/// infrastructure fault rather than a genuine, diagnosable source error.
+///
+/// A real source rejection from any supported compiler (gcc/g++/javac/py_compile)
+/// names the offending construct: `error: expected ';'`, a `SyntaxError`
+/// traceback, and so on. It never reports that the toolchain itself could not
+/// start. When a compile step fails under host pressure the driver instead emits
+/// an OS/runtime fault. Observed under a Java burst: the `javac` JVM cannot spawn
+/// its helper threads and prints
+///
+/// ```text
+/// [0.028s][warning][os,thread] Failed to start thread "Unknown thread" -
+///     pthread_create failed (EAGAIN) for attributes: stacksize: 1024k ...
+/// Error occurred during initialization of VM
+/// java.lang.OutOfMemoryError: unable to create native thread: possibly out of
+///     memory or process/resource limits reached
+/// ```
+///
+/// then exits non-zero -- indistinguishable from a source `CompileError` by exit
+/// code alone, but it is transient infrastructure (per-uid `RLIMIT_NPROC` /
+/// thread exhaustion), not the contestant's fault. The C/C++ drivers show the
+/// same class of fault when they cannot fork their backend (`cannot execute
+/// 'cc1'`, `Resource temporarily unavailable`, `Cannot allocate memory`).
+///
+/// Classifying these as a terminal `CompileError` pins a permanent wrong verdict
+/// on valid code; classifying them as a retryable `SystemError` lets the server's
+/// SystemError-retry reaper requeue the judgement so it self-heals once pressure
+/// clears. Every marker below only appears when the *compiler process itself*
+/// failed to run -- none is producible by a compiler diagnosing submitted source
+/// -- so this is safe against demoting a real `CompileError` to infra on the
+/// compile path. Match is case-insensitive.
+pub fn compile_output_is_infra_fault(output: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        // A JVM (javac is itself a Java program) that cannot create its native
+        // threads or otherwise initialize under thread/memory pressure.
+        "unable to create native thread",
+        "failed to start thread",
+        "failed to start the native thread",
+        "pthread_create failed",
+        "error occurred during initialization of vm",
+        "cannot create gc thread",
+        "insufficient memory for the java runtime environment",
+        // Native allocation / fork-exec failures shared by the C/C++ drivers and
+        // the interpreters (strerror(ENOMEM)/strerror(EAGAIN) text, driver fork).
+        "cannot allocate memory",
+        "resource temporarily unavailable",
+        "cannot fork",
+        "out of system resources",
+    ];
+    let haystack = output.to_ascii_lowercase();
+    MARKERS.iter().any(|marker| haystack.contains(marker))
+}
+
 fn truncate_stderr(stderr: &str, fallback: &str) -> Option<String> {
     if stderr.is_empty() {
         Some(fallback.into())
@@ -481,6 +585,114 @@ mod tests {
         );
         let v = precheck_verdict(1, &op(vec![("compile", compile)])).unwrap();
         assert_eq!(v.verdict, Verdict::SystemError);
+    }
+
+    #[test]
+    fn precheck_compile_nonzero_without_diagnostics_is_system_error() {
+        // Under burst, a compile can complete with a non-zero exit yet emit NO
+        // diagnostics on either stream -- observed when a Java compile fails to
+        // spawn its VM threads under transient per-uid RLIMIT_NPROC pressure and
+        // javac exits 1 writing nothing. This is NOT tagged InternalError (isolate
+        // saw a clean non-zero exit, no missing files), so the InternalError guard
+        // does not fire. A genuine source error ALWAYS carries the compiler's
+        // diagnostics (gcc/g++/javac/py_compile all write to stderr), so silence
+        // means the compiler never diagnosed anything -> retryable infra fault, not
+        // a terminal CompileError that pins a permanent wrong verdict on valid code.
+        let compile = task(
+            false,
+            ExecutionResult {
+                exit_code: Some(1),
+                status: "RE".into(),
+                stderr: String::new(),
+                stdout: String::new(),
+                ..Default::default()
+            },
+        );
+        let v = precheck_verdict(1, &op(vec![("compile", compile)])).unwrap();
+        assert_eq!(v.verdict, Verdict::SystemError);
+    }
+
+    #[test]
+    fn precheck_compile_nonzero_with_stdout_diagnostics_is_compile_error() {
+        // A compiler that reports errors on STDOUT (not stderr) still failed for a
+        // diagnosable source reason: any output present -> terminal CompileError.
+        // Guards the silent-infra reclassification from swallowing real errors.
+        let compile = task(
+            false,
+            ExecutionResult {
+                exit_code: Some(1),
+                status: "RE".into(),
+                stderr: String::new(),
+                stdout: "error: syntax".into(),
+                ..Default::default()
+            },
+        );
+        let v = precheck_verdict(1, &op(vec![("compile", compile)])).unwrap();
+        assert_eq!(v.verdict, Verdict::CompileError);
+        assert!(v.message.unwrap().contains("syntax"));
+    }
+
+    #[test]
+    fn precheck_compile_jvm_thread_eagain_is_system_error() {
+        // Verbatim javac output captured under an N=96/CONC=48 Java burst: the
+        // compile JVM cannot spawn its helper threads under transient per-uid
+        // RLIMIT_NPROC pressure and exits 1 WITH output -- a VM-init fault, not a
+        // source diagnostic. It must reclassify to a retryable SystemError, not the
+        // terminal CompileError that pinned ~10% of valid submissions before the
+        // signature check. This is the case the empty-diagnostics gate missed.
+        let compile = task(
+            false,
+            ExecutionResult {
+                exit_code: Some(1),
+                status: "RE".into(),
+                stderr: "[0.028s][warning][os,thread] Failed to start thread \"Unknown thread\" \
+                         - pthread_create failed (EAGAIN) for attributes: stacksize: 1024k, \
+                         guardsize: 0k, detached.\nError occurred during initialization of VM\n\
+                         java.lang.OutOfMemoryError: unable to create native thread: possibly out \
+                         of memory or process/resource limits reached"
+                    .into(),
+                ..Default::default()
+            },
+        );
+        let v = precheck_verdict(1, &op(vec![("compile", compile)])).unwrap();
+        assert_eq!(v.verdict, Verdict::SystemError);
+    }
+
+    #[test]
+    fn precheck_compile_gcc_fork_failure_is_system_error() {
+        // The C/C++ drivers show the same infra class when they cannot fork their
+        // backend under pressure. Must also reclassify to SystemError.
+        let compile = task(
+            false,
+            ExecutionResult {
+                exit_code: Some(1),
+                status: "RE".into(),
+                stderr: "gcc: fatal error: cannot execute 'cc1': posix_spawn: \
+                         Resource temporarily unavailable\ncompilation terminated."
+                    .into(),
+                ..Default::default()
+            },
+        );
+        let v = precheck_verdict(1, &op(vec![("compile", compile)])).unwrap();
+        assert_eq!(v.verdict, Verdict::SystemError);
+    }
+
+    #[test]
+    fn compile_output_infra_signature_does_not_match_real_diagnostics() {
+        // Guard the reverse direction: a genuine source diagnostic must NOT trip
+        // the infra signature, or real compile errors would loop forever.
+        assert!(!compile_output_is_infra_fault(
+            "error: expected ';' before '}' token"
+        ));
+        assert!(!compile_output_is_infra_fault(
+            "Main.java:3: error: cannot find symbol\n  System.out.printn(x);"
+        ));
+        assert!(!compile_output_is_infra_fault(
+            "  File \"sol.py\", line 2\n    print(\nSyntaxError: unexpected EOF while parsing"
+        ));
+        assert!(compile_output_is_infra_fault(
+            "Error occurred during initialization of VM"
+        ));
     }
 
     #[test]
