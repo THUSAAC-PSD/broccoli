@@ -17,6 +17,11 @@ Done already (for reference on the pattern):
 - `Verdict::severity` — canonical table now lives only in
   `broccoli_types::types::Verdict`; `common::Verdict` delegates and carries a
   drift-pin test.
+- `plugin-core/src/http.rs` — the `PluginHttpAuth`/`PluginHttpRequest`/
+  `PluginHttpResponse` proxy DTOs now re-export `broccoli_types::types::*`
+  instead of redefining them verbatim, so the host proxy and the guest SDK share
+  one type (the old pair serialized compatibly only by hand — a silent
+  serde-drift trap).
 
 ## Open items
 
@@ -36,37 +41,31 @@ Done already (for reference on the pattern):
    comment cites the guest source). `broccoli-types` exists precisely to hold
    shared host/guest code; the SET-list semantics belong there once.
 
-3. **Repoint `plugin-core/src/http.rs` at `broccoli-types`**. `PluginHttpAuth` /
-   `PluginHttpRequest` are redefined verbatim
-   (`packages/broccoli-types/src/types/http.rs:4-66` vs
-   `packages/plugin-core/src/http.rs:2-38`) even though plugin-core already
-   depends on broccoli-types. Serde shapes are kept in sync by hand today.
-
-4. **Extism host-fn prologue macro**. The deserialize-input → lock UserData →
+3. **Extism host-fn prologue macro**. The deserialize-input → lock UserData →
    open-span prologue is hand-rolled ~18 times across
    `packages/server/src/host_funcs/*.rs`. A generic wrapper or macro collapses
    hundreds of lines and makes new host fns harder to get wrong.
 
-5. **Generic problem-file upload handler**.
+4. **Generic problem-file upload handler**.
    `packages/server/src/handlers/additional_file.rs` is a near-verbatim copy of
    `handlers/attachment.rs` (same multipart loop, filename/path validation,
    txn + re-check; only a `language` field differs). Low-level helpers are
    already shared; extract the handler-level orchestration.
 
-6. **Parametrized sandbox test harness**.
+5. **Parametrized sandbox test harness**.
    `packages/worker/tests/worker_mock_sandbox.rs` (1,539 lines) and
    `worker_isolate_sandbox.rs` (898 lines) were cloned from each other on the
    same day and have drifted in coverage (newer cases exist only in the mock
    suite). A harness generic over `SandboxManager` restores parity.
 
-7. **Sync/async result-wait loop skeletons**. `services/operation_batch.rs`
+6. **Sync/async result-wait loop skeletons**. `services/operation_batch.rs`
    (`next_operation_result[_async]`) vs `services/evaluate_batch/result_wait.rs`
    (`next_evaluate_result[_async]`) remain parallel ~300-line skeletons after
    the windowed-session extraction, differing only in extension policy and
    channel types. Both already carry a matching drain-delivered-result fix —
    next shared fix should trigger the generic unification that was deferred.
 
-8. **Shared API-client auth/retry protocol** (defensible split, lowest
+7. **Shared API-client auth/retry protocol** (defensible split, lowest
    priority). `packages/cli-core/src/client.rs` (sync ureq) vs
    `packages/stress-test/src/client.rs` (async reqwest) both maintain login +
    token storage + retry-on-401 against the same server API.
