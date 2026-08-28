@@ -1,6 +1,6 @@
 use broccoli_server_sdk::types::{
     AfterJudgingEvent, DetachedSubmissionCompletion, OnSubmissionInput, OnSubmissionOutput,
-    SourceFile, TestCaseBodyRef, TestCaseRow,
+    SourceFile, TestCaseBodyRef, TestCaseRow, sanitize_text_field,
 };
 use chrono::Utc;
 use common::{SubmissionStatus, Verdict};
@@ -265,12 +265,21 @@ async fn mark_submission_dispatch_system_error(
     error_message: &str,
     judge_epoch: i32,
 ) -> anyhow::Result<()> {
+    // Scrub embedded NULs before this direct-by-id write. Judged error text
+    // can carry an embedded `\0` (e.g. a plugin forwarding raw worker/compiler
+    // stderr); Postgres rejects a NUL in a text column, so an unsanitized
+    // update would return `Err` here and short-circuit before the resilient,
+    // sanitized `mark_submission_system_error_with_epoch` below ever runs -
+    // leaving the submission stuck non-terminal in a re-dispatch loop. Mirror
+    // the sanitization the epoch-guarded path already applies.
+    let safe_code = sanitize_text_field(error_code);
+    let safe_message = sanitize_text_field(error_message);
     if judgement_id > 0 {
         let active = submission_judgement::ActiveModel {
             id: Set(judgement_id),
             status: Set(SubmissionStatus::SystemError),
-            error_code: Set(Some(error_code.to_string())),
-            error_message: Set(Some(error_message.to_string())),
+            error_code: Set(Some(safe_code.as_ref().to_string())),
+            error_message: Set(Some(safe_message.as_ref().to_string())),
             is_finalized: Set(true),
             finalized_at: Set(Some(Utc::now())),
             ..Default::default()
