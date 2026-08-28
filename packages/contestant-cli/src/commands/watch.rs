@@ -942,12 +942,24 @@ fn open_problem_externally(
     document.push_str(body);
     document.push('\n');
 
+    // Unpredictable filename in the world-writable temp dir. A fixed name
+    // (public contest id + pid, both discoverable) let a co-located user
+    // pre-plant a symlink at the path so `fs::write` would follow it and clobber
+    // a victim-writable file. Mirror test.rs::ScratchDir's random nonce, and
+    // create_new so we refuse to follow/overwrite any pre-existing entry.
+    let nonce: u64 = rand::random();
     let path = std::env::temp_dir().join(format!(
-        "broccoli-problem-{}-{}.md",
+        "broccoli-problem-{}-{}-{:016x}.md",
         app.contest_id,
-        std::process::id()
+        std::process::id(),
+        nonce
     ));
-    if std::fs::write(&path, &document).is_err() {
+    let write_result = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, document.as_bytes()));
+    if write_result.is_err() {
         app.flash = Some("Could not write temp file for the viewer".to_string());
         return Ok(());
     }
