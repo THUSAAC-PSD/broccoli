@@ -359,20 +359,39 @@ pub async fn reply_clarification(
     let now = chrono::Utc::now();
     let txn = state.db.begin().await?;
 
+    // Only admins may publish a reply to ALL participants - the same gate the
+    // create path and toggle_reply_public enforce. A non-admin author/recipient
+    // may reply, but their supplied `is_public` is forced false; otherwise they
+    // could broadcast arbitrary content to every participant. Forcing it here (as
+    // the create path does) is why the documented `is_public` field had no effect:
+    // replies were pinned private and an admin had to make a second toggle call.
+    let reply_public = is_admin && payload.is_public;
+
     let new_reply = clarification_reply::ActiveModel {
         clarification_id: Set(clarification_id),
         author_id: Set(auth_user.user_id),
         content: Set(sanitize_db_text(payload.content.trim())),
-        is_public: Set(false),
+        is_public: Set(reply_public),
         created_at: Set(now),
         ..Default::default()
     };
     new_reply.insert(&txn).await?;
 
+    // The parent `reply_is_public` is the "ANY reply is public" aggregate
+    // (see toggle_reply_public), not the latest reply's own flag. Recompute it
+    // across every reply - including the one just inserted - instead of clobbering
+    // it to false, which would drop an already-public earlier reply's aggregate.
+    let any_reply_public = clarification_reply::Entity::find()
+        .filter(clarification_reply::Column::ClarificationId.eq(clarification_id))
+        .filter(clarification_reply::Column::IsPublic.eq(true))
+        .count(&txn)
+        .await?
+        > 0;
+
     let mut active: clarification::ActiveModel = existing.into();
     active.reply_content = Set(Some(sanitize_db_text(payload.content.trim())));
     active.reply_author_id = Set(Some(auth_user.user_id));
-    active.reply_is_public = Set(false);
+    active.reply_is_public = Set(any_reply_public);
     active.replied_at = Set(Some(now));
     active.updated_at = Set(now);
     let model = active.update(&txn).await?;
