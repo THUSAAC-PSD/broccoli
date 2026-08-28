@@ -18,7 +18,9 @@ impl MigrationName for Migration {
 }
 
 /// DDL that MUST succeed - a failure is a real schema error and should fail boot
-/// loudly rather than be swallowed.
+/// loudly rather than be swallowed. Pure schema evolution only; the
+/// `broccoli_plugin` role apparatus lives in [`PLUGIN_ROLE_DDL`] because it can
+/// legitimately fail (privilege) and must degrade rather than abort boot.
 const REQUIRED_DDL: &[&str] = &[
     // Legacy unique constraints dropped after their columns became non-unique.
     r#"ALTER TABLE IF EXISTS "user" DROP CONSTRAINT IF EXISTS user_username_key"#,
@@ -42,54 +44,89 @@ const REQUIRED_DDL: &[&str] = &[
     // Refresh-token reuse detection: a rotated token is retained with this set
     // rather than deleted, so a replay can be detected as theft.
     r#"ALTER TABLE IF EXISTS "refresh_tokens" ADD COLUMN IF NOT EXISTS "revoked_at" TIMESTAMPTZ"#,
-    // --- The `broccoli_plugin` role -----------------------------------------
-    // A NOLOGIN role the app role is a MEMBER of. As created HERE it has only
-    // SELECT on core; the read deny-list + write grants were later opened by
-    // product decision, so the CURRENT effective grants are set by m0003 (reads)
-    // and m0004 (writes) -- see those migrations. As a non-owner it still cannot
-    // DROP/ALTER core tables regardless. A plugin's OWN tables (created via raw
-    // `CREATE TABLE` under this role) are owned by `broccoli_plugin`, so the
-    // plugin retains full read/write/DDL on them.
-    "DO $$ BEGIN CREATE ROLE broccoli_plugin NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;",
-    "GRANT broccoli_plugin TO CURRENT_USER",
-    "GRANT USAGE, CREATE ON SCHEMA public TO broccoli_plugin",
-    "GRANT SELECT ON ALL TABLES IN SCHEMA public TO broccoli_plugin",
-    "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO broccoli_plugin",
-    // Existing-DB upgrade: bundled plugin tables created before this change are
-    // owned by the app role, which would leave them read-only under
-    // `broccoli_plugin`. Reassign just those tables (never core) to the role so
-    // the plugins keep write access; on a fresh DB the plugin's own
-    // `CREATE TABLE` already creates them owned by the role, so these are
-    // idempotent no-ops. `REASSIGN OWNED` is deliberately NOT used -- it would
-    // also hand core tables to the role and re-open DROP/ALTER.
-    "ALTER TABLE IF EXISTS submission_limit_claim OWNER TO broccoli_plugin",
-    "ALTER TABLE IF EXISTS cooldown_claim OWNER TO broccoli_plugin",
-    "ALTER TABLE IF EXISTS print_job OWNER TO broccoli_plugin",
-    "ALTER TABLE IF EXISTS print_station OWNER TO broccoli_plugin",
-    // --- SQL-capability read narrowing: curated view + sensitive-table revokes -
-    // `GRANT SELECT ON ALL TABLES` above lets raw plugin SQL read EVERY core
-    // table, including credentials, auth tokens, authz config, and OTHER plugins'
-    // private rows. Revoke SELECT on those (a deny-list layered on the blanket
-    // grant) and expose only a curated, PII-free view of `user`. The revoke runs
-    // per table inside an exception-guarded loop so a table that does not exist
-    // yet is skipped rather than failing boot.
+    // Curated, PII-free projection of `user` for plugin reads. The VIEW itself is
+    // role-independent schema (required); the GRANT on it to `broccoli_plugin`
+    // lives in PLUGIN_ROLE_DDL since it needs the role to exist.
     r#"CREATE OR REPLACE VIEW plugin_user_public AS SELECT id, username FROM "user" WHERE deleted_at IS NULL"#,
-    "GRANT SELECT ON plugin_user_public TO broccoli_plugin",
-    r#"DO $$
-       DECLARE t text;
-       BEGIN
-         FOREACH t IN ARRAY ARRAY[
-           'user', 'refresh_tokens', 'role', 'role_permission', 'user_role',
-           'plugin', 'plugin_config', 'plugin_storage', 'idempotency_key',
-           'dead_letter_message'
-         ] LOOP
-           BEGIN
-             EXECUTE format('REVOKE SELECT ON %I FROM broccoli_plugin', t);
-           EXCEPTION WHEN undefined_table THEN NULL;
-           END;
-         END LOOP;
-       END $$;"#,
 ];
+
+/// The `broccoli_plugin` least-privilege role apparatus, as ONE exception-guarded
+/// PL/pgSQL block so it degrades instead of aborting boot.
+///
+/// `broccoli_plugin` is a NOLOGIN group role the app role is a MEMBER of. As
+/// created HERE it has only SELECT on core; the read deny-list + write grants
+/// were later opened by product decision, so the CURRENT effective grants are set
+/// by m0003 (reads) and m0004 (writes). As a non-owner it still cannot DROP/ALTER
+/// core tables. A plugin's OWN tables (created via raw `CREATE TABLE` under this
+/// role) are owned by `broccoli_plugin`, so the plugin keeps full read/write/DDL
+/// on them.
+///
+/// CREATE ROLE needs the CREATEROLE attribute, which a locked-down / managed app
+/// role (table DDL but no CREATEROLE) may lack. Aborting boot there would defeat
+/// the runtime fail-closed degrade (`RestrictedPluginAuth::AppRoleDegraded`
+/// disables raw plugin SQL when the restricted login is likewise unprovisionable
+/// -- see `database::provision_restricted_plugin_login`). So on
+/// `insufficient_privilege` we skip the whole apparatus with a loud warning and
+/// let the deployment boot degraded; the raw-SQL capability is then disabled at
+/// runtime. Any other error still propagates and fails boot. Runs OUTSIDE a
+/// transaction (see `use_transaction`), and the PL/pgSQL BEGIN/EXCEPTION blocks
+/// provide savepoint-scoped recovery for the per-statement guards.
+const PLUGIN_ROLE_DDL: &str = r#"
+DO $$
+DECLARE
+  t text;
+BEGIN
+  -- Provision the group role, or degrade the entire apparatus if we cannot.
+  BEGIN
+    CREATE ROLE broccoli_plugin NOLOGIN;
+  EXCEPTION
+    WHEN duplicate_object THEN NULL; -- already provisioned; (re)apply grants
+    WHEN insufficient_privilege THEN
+      RAISE WARNING 'broccoli_plugin role not provisioned: the application role lacks CREATEROLE. Raw plugin SQL (host.db.*) will be disabled at runtime (fail-closed degrade). Grant the app role CREATEROLE, or set database.plugin_url to a dedicated non-privileged role, to enable it.';
+      RETURN;
+  END;
+
+  -- Grants: best-effort w.r.t. privilege. If the role exists but the app role
+  -- cannot grant to it, degrade rather than abort.
+  BEGIN
+    GRANT broccoli_plugin TO CURRENT_USER;
+    GRANT USAGE, CREATE ON SCHEMA public TO broccoli_plugin;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO broccoli_plugin;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO broccoli_plugin;
+    -- Existing-DB upgrade: bundled plugin tables created before this change are
+    -- owned by the app role, leaving them read-only under broccoli_plugin.
+    -- Reassign just those tables (never core) so the plugins keep write access;
+    -- on a fresh DB the plugin's own CREATE TABLE already owns them, so these are
+    -- idempotent no-ops. REASSIGN OWNED is deliberately NOT used -- it would also
+    -- hand core tables to the role and re-open DROP/ALTER.
+    ALTER TABLE IF EXISTS submission_limit_claim OWNER TO broccoli_plugin;
+    ALTER TABLE IF EXISTS cooldown_claim OWNER TO broccoli_plugin;
+    ALTER TABLE IF EXISTS print_job OWNER TO broccoli_plugin;
+    ALTER TABLE IF EXISTS print_station OWNER TO broccoli_plugin;
+    GRANT SELECT ON plugin_user_public TO broccoli_plugin;
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      RAISE WARNING 'broccoli_plugin grants skipped (insufficient privilege): %', SQLERRM;
+  END;
+
+  -- SQL-capability read narrowing: the blanket GRANT SELECT above lets raw plugin
+  -- SQL read EVERY core table (credentials, auth tokens, authz config, other
+  -- plugins' private rows). Revoke SELECT on those (a deny-list layered on the
+  -- grant); a table that does not exist yet is skipped.
+  FOREACH t IN ARRAY ARRAY[
+    'user', 'refresh_tokens', 'role', 'role_permission', 'user_role',
+    'plugin', 'plugin_config', 'plugin_storage', 'idempotency_key',
+    'dead_letter_message'
+  ] LOOP
+    BEGIN
+      EXECUTE format('REVOKE SELECT ON %I FROM broccoli_plugin', t);
+    EXCEPTION
+      WHEN undefined_table THEN NULL;
+      WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+END $$;
+"#;
 
 /// Best-effort DDL/DML: a failure is logged but does not fail boot, matching the
 /// prior `let _ =` behavior for the optional extension and the one-time backfill.
@@ -143,6 +180,11 @@ impl MigrationTrait for Migration {
         for stmt in REQUIRED_DDL {
             db.execute_unprepared(stmt).await?;
         }
+
+        // Role apparatus last: it references the view/tables created above, and it
+        // self-degrades on insufficient privilege (see PLUGIN_ROLE_DDL). `?` still
+        // propagates any UNEXPECTED error (syntax, connectivity) to fail boot.
+        db.execute_unprepared(PLUGIN_ROLE_DDL).await?;
 
         Ok(())
     }

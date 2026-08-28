@@ -27,20 +27,30 @@ impl MigrationName for Migration {
     }
 }
 
-const DDL: &[&str] = &[
-    "GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO broccoli_plugin",
-    "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT INSERT, UPDATE, DELETE ON TABLES TO broccoli_plugin",
-    "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO broccoli_plugin",
-    "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO broccoli_plugin",
-];
+/// The write grants, wrapped in ONE exception-guarded PL/pgSQL block so an absent
+/// `broccoli_plugin` role (m0001 skipped provisioning it on a non-CREATEROLE app
+/// role, the fail-closed degrade) or an insufficient-privilege grant degrades to
+/// a logged skip instead of aborting boot. The BEGIN/EXCEPTION savepoint keeps
+/// the caught error from poisoning this migration's transaction.
+const DDL: &str = r#"
+DO $$
+BEGIN
+  GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO broccoli_plugin;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT INSERT, UPDATE, DELETE ON TABLES TO broccoli_plugin;
+  GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO broccoli_plugin;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO broccoli_plugin;
+EXCEPTION
+  WHEN undefined_object THEN
+    RAISE WARNING 'broccoli_plugin role absent; skipping plugin write grants (degraded deployment)';
+  WHEN insufficient_privilege THEN
+    RAISE WARNING 'insufficient privilege for plugin write grants; skipping';
+END $$;
+"#;
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        for stmt in DDL {
-            db.execute_unprepared(stmt).await?;
-        }
+        manager.get_connection().execute_unprepared(DDL).await?;
         Ok(())
     }
 

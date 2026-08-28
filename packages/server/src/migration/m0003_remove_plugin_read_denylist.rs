@@ -35,9 +35,27 @@ impl MigrationName for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // Tolerate an absent `broccoli_plugin` role: on a locked-down app role
+        // without CREATEROLE, m0001 skips provisioning the role (fail-closed
+        // degrade), so this grant would raise undefined_object and abort boot.
+        // Guard it in a PL/pgSQL block so a missing role / insufficient privilege
+        // degrades to a logged skip. The BEGIN/EXCEPTION savepoint keeps the
+        // caught error from poisoning this migration's transaction.
         manager
             .get_connection()
-            .execute_unprepared("GRANT SELECT ON ALL TABLES IN SCHEMA public TO broccoli_plugin")
+            .execute_unprepared(
+                r#"
+                DO $$
+                BEGIN
+                  GRANT SELECT ON ALL TABLES IN SCHEMA public TO broccoli_plugin;
+                EXCEPTION
+                  WHEN undefined_object THEN
+                    RAISE WARNING 'broccoli_plugin role absent; skipping plugin read grant (degraded deployment)';
+                  WHEN insufficient_privilege THEN
+                    RAISE WARNING 'insufficient privilege for plugin read grant; skipping';
+                END $$;
+                "#,
+            )
             .await?;
         Ok(())
     }
