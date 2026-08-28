@@ -320,7 +320,7 @@ pub(crate) fn handle_submission_status(
           AND sj.judge_epoch = s.judge_epoch \
          WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
          AND s.status = 'Judged' AND sj.verdict IS NOT NULL \
-         ORDER BY created_at DESC LIMIT 1",
+         ORDER BY s.created_at DESC LIMIT 1",
         p.bind(user_id),
         p.bind(problem_id),
         p.bind(contest_id)
