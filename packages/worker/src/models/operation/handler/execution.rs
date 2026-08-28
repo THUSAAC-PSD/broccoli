@@ -306,9 +306,7 @@ impl OperationHandler {
                             flag.store(true, Ordering::Release);
                         }
                         if let Some(keepalives) = produced_keepalives {
-                            for keepalive in keepalives {
-                                release_channel_keepalive(keepalive).await;
-                            }
+                            release_channel_keepalives(keepalives).await;
                         }
                         result
                     });
@@ -825,6 +823,21 @@ fn resolve_channel_roles(
         }
     }
     (producer_of, consumer_of)
+}
+
+/// Release all of a producer step's channel keep-alives CONCURRENTLY.
+///
+/// A single producer may own several channels -- the communication-evaluator
+/// manager (`num_processes >= 2`) writes `m_to_c0..m_to_c{n-1}`, one per
+/// contestant process. Each `release_channel_keepalive` legitimately waits for
+/// ITS channel's consumer to finish (see that fn), so releasing them one-by-one
+/// would head-of-line block: a slow consumer on the first channel would delay EOF
+/// delivery to every later channel's consumer, and a correct-but-EOF-dependent
+/// peer already blocked in its final `read()` could blow its wall-time -> a
+/// spurious TLE. The releases are independent (distinct FIFOs, distinct
+/// done-flags), so join them and let each converge on its own consumer's flag.
+async fn release_channel_keepalives(keepalives: Vec<KeepAlive>) {
+    join_all(keepalives.into_iter().map(release_channel_keepalive)).await;
 }
 
 /// Runaway guard for `release_channel_keepalive`'s writer-restore loop. NOT a
@@ -1476,5 +1489,87 @@ mod channel_keepalive_tests {
         )
         .await
         .expect("release must return promptly when the FIFO path is gone (ENOENT)");
+    }
+
+    // Head-of-line-blocking regression: a producer step that owns MULTIPLE
+    // channels must release them concurrently, not one-after-another. This is the
+    // communication-evaluator `num_processes >= 2` topology -- `run_manager`
+    // produces `m_to_c0..m_to_c{n-1}`, each read by a DIFFERENT contestant. Each
+    // per-channel release legitimately waits for its own consumer's done-flag, so
+    // a sequential release lets a slow consumer on the first channel delay EOF
+    // delivery to every later channel's consumer. A correct-but-EOF-dependent peer
+    // process, already blocked in its final read(), would then sit idle behind the
+    // slow one and can blow its wall-time -> spurious TLE. Here channel A's
+    // consumer never finishes within the assertion window while channel B's
+    // consumer is already blocked in read(); B MUST receive EOF promptly, proving
+    // its release is not queued behind A.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn release_keepalives_do_not_head_of_line_block() {
+        use std::io::Read;
+
+        let (dir_a, fifo_a) = make_fifo("hol-slow");
+        let (dir_b, fifo_b) = make_fifo("hol-ready");
+        let ka_a = open_channel_keepalive(&fifo_a).expect("A keep-alive opens O_RDWR");
+        let ka_b = open_channel_keepalive(&fifo_b).expect("B keep-alive opens O_RDWR");
+
+        // A's consumer is slow: its flag stays unset (and no reader opens A), so
+        // `release_channel_keepalive(A)` alone would spin re-opening until the flag
+        // flips. B's consumer is ready NOW, blocked in read() awaiting EOF.
+        let flag_a = Arc::new(AtomicBool::new(false));
+        let flag_b = Arc::new(AtomicBool::new(false));
+
+        let b_path = fifo_b.clone();
+        let b_done = flag_b.clone();
+        let b_reader = std::thread::spawn(move || {
+            let mut f = std::fs::OpenOptions::new()
+                .read(true)
+                .open(&b_path)
+                .expect("B O_RDONLY rendezvous with keep-alive");
+            let mut buf = Vec::new();
+            let n = f.read_to_end(&mut buf).expect("B read to EOF");
+            b_done.store(true, Ordering::Release);
+            n
+        });
+        // Let B's reader reach its blocking read().
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Release A (slow) FIRST, then B (ready), together. A sequential release
+        // would block on A and never reach B within the window.
+        let releaser = tokio::spawn(release_channel_keepalives(vec![
+            KeepAlive {
+                fifo_path: fifo_a.clone(),
+                file: ka_a,
+                consumer_done: Some(flag_a.clone()),
+            },
+            KeepAlive {
+                fifo_path: fifo_b.clone(),
+                file: ka_b,
+                consumer_done: Some(flag_b.clone()),
+            },
+        ]));
+
+        // B must get EOF and set its flag promptly, even though A is still pending.
+        let served_b = tokio::time::timeout(Duration::from_secs(2), async {
+            while !flag_b.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        assert!(
+            served_b.is_ok(),
+            "B's consumer must receive EOF without waiting behind slow channel A"
+        );
+
+        // Let A finish so the releaser returns and nothing leaks.
+        flag_a.store(true, Ordering::Release);
+        tokio::time::timeout(Duration::from_secs(5), releaser)
+            .await
+            .expect("releaser returns once A's consumer is done")
+            .expect("release task did not panic");
+
+        assert_eq!(b_reader.join().unwrap(), 0, "B must have seen clean EOF");
+        let _ = std::fs::remove_dir_all(&dir_a);
+        let _ = std::fs::remove_dir_all(&dir_b);
     }
 }
