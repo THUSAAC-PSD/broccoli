@@ -22,6 +22,13 @@ Done already (for reference on the pattern):
   instead of redefining them verbatim, so the host proxy and the guest SDK share
   one type (the old pair serialized compatibly only by hand — a silent
   serde-drift trap).
+- `broccoli_types::types::push_judge_sets` / `push_double_opt[_str]` — the
+  judged `SET`-list builder is single-sourced behind a `SqlBindSink` trait; the
+  guest SDK (`server-sdk/src/sdk/shared.rs`) and the host mirror
+  (`server/src/host_funcs/submissions.rs`) share the builder while each keeps
+  its own bind policy (guest scrubs NUL eagerly at bind time; host defers to the
+  `sql::execute_on_pool` choke point). Golden tests pin the exact SET-list/arg
+  contract against drift.
 
 ## Open items
 
@@ -35,37 +42,34 @@ Done already (for reference on the pattern):
    (cargo's per-tree test binaries are why the fork happened; a shared crate is
    the sanctioned way around that).
 
-2. **Move `push_judge_sets` / `push_double_opt[_str]` into `broccoli-types`**.
-   `packages/server-sdk/src/sdk/shared.rs:49-108` is mirrored verbatim in
-   `packages/server/src/host_funcs/submissions.rs:69-128` (the host copy's doc
-   comment cites the guest source). `broccoli-types` exists precisely to hold
-   shared host/guest code; the SET-list semantics belong there once.
-
-3. **Extism host-fn prologue macro**. The deserialize-input → lock UserData →
+2. **Extism host-fn prologue macro**. The deserialize-input → lock UserData →
    open-span prologue is hand-rolled ~18 times across
    `packages/server/src/host_funcs/*.rs`. A generic wrapper or macro collapses
    hundreds of lines and makes new host fns harder to get wrong.
 
-4. **Generic problem-file upload handler**.
+3. **Generic problem-file upload handler**.
    `packages/server/src/handlers/additional_file.rs` is a near-verbatim copy of
    `handlers/attachment.rs` (same multipart loop, filename/path validation,
-   txn + re-check; only a `language` field differs). Low-level helpers are
-   already shared; extract the handler-level orchestration.
+   txn + re-check; only a `language` field differs), and both share the
+   `file`-field + `validate_flat_filename` core with `handlers/config_upload.rs`
+   (rule-of-three). Low-level helpers are already shared; extract the
+   handler-level orchestration (e.g. `take_required_file` +
+   `resolve_virtual_path`).
 
-5. **Parametrized sandbox test harness**.
+4. **Parametrized sandbox test harness**.
    `packages/worker/tests/worker_mock_sandbox.rs` (1,539 lines) and
    `worker_isolate_sandbox.rs` (898 lines) were cloned from each other on the
    same day and have drifted in coverage (newer cases exist only in the mock
    suite). A harness generic over `SandboxManager` restores parity.
 
-6. **Sync/async result-wait loop skeletons**. `services/operation_batch.rs`
+5. **Sync/async result-wait loop skeletons**. `services/operation_batch.rs`
    (`next_operation_result[_async]`) vs `services/evaluate_batch/result_wait.rs`
    (`next_evaluate_result[_async]`) remain parallel ~300-line skeletons after
    the windowed-session extraction, differing only in extension policy and
    channel types. Both already carry a matching drain-delivered-result fix —
    next shared fix should trigger the generic unification that was deferred.
 
-7. **Shared API-client auth/retry protocol** (defensible split, lowest
+6. **Shared API-client auth/retry protocol** (defensible split, lowest
    priority). `packages/cli-core/src/client.rs` (sync ureq) vs
    `packages/stress-test/src/client.rs` (async reqwest) both maintain login +
    token storage + retry-on-401 against the same server API.

@@ -14,7 +14,8 @@
 //! module only ADDS the structured path.
 
 use broccoli_server_sdk::types::{
-    SubmissionStatus, SubmissionUpdate, TestCaseResultRow, Verdict, sanitize_result_text_field,
+    SubmissionStatus, SubmissionUpdate, TestCaseResultRow, push_judge_sets,
+    sanitize_result_text_field,
 };
 use extism::host_fn;
 use sea_orm::DatabaseConnection;
@@ -51,6 +52,14 @@ impl Params {
     }
 }
 
+impl broccoli_server_sdk::types::SqlBindSink for Params {
+    fn bind_value(&mut self, value: JsonValue) -> String {
+        // No NUL scrubbing here: every statement runs through
+        // sql::execute_on_pool, which strips NUL at the shared choke point.
+        self.bind(value)
+    }
+}
+
 /// Deserialized view of the `HostDbResponse` envelope returned by
 /// `sql::execute_on_pool`, so `submission_update`'s multi-statement flow can read
 /// rows-affected and propagate a DB error verbatim to the guest.
@@ -60,71 +69,6 @@ struct ExecEnvelope {
     data: Option<JsonValue>,
     #[serde(default)]
     error: Option<String>,
-}
-
-/// Verbatim port of the guest SDK's `shared::push_judge_sets`: builds the shared
-/// `SET` column list for both the `submission` cache row and the mirrored
-/// `submission_judgement` row from a `SubmissionUpdate`.
-#[allow(clippy::too_many_arguments)]
-fn push_judge_sets(
-    p: &mut Params,
-    sets: &mut Vec<String>,
-    status: &Option<SubmissionStatus>,
-    verdict: &Option<Option<Verdict>>,
-    score: &Option<f64>,
-    time_used: &Option<Option<i32>>,
-    memory_used: &Option<Option<i32>>,
-    compile_output: &Option<Option<String>>,
-    error_code: &Option<Option<String>>,
-    error_message: &Option<Option<String>>,
-) {
-    if let Some(status) = status {
-        sets.push(format!("status = {}", p.bind(status.as_str())));
-        if status.is_terminal() {
-            sets.push("judged_at = NOW()".into());
-        }
-    }
-
-    match verdict {
-        Some(Some(v)) => sets.push(format!("verdict = {}", p.bind(v.to_db_str()))),
-        Some(None) => sets.push("verdict = NULL".into()),
-        None => {}
-    }
-
-    if let Some(score) = score {
-        let val = if score.is_finite() { *score } else { 0.0 };
-        sets.push(format!("score = {}", p.bind(val)));
-    }
-
-    push_double_opt(p, sets, "time_used", time_used);
-    push_double_opt(p, sets, "memory_used", memory_used);
-    push_double_opt_str(p, sets, "compile_output", compile_output);
-    push_double_opt_str(p, sets, "error_code", error_code);
-    push_double_opt_str(p, sets, "error_message", error_message);
-}
-
-fn push_double_opt(p: &mut Params, sets: &mut Vec<String>, col: &str, val: &Option<Option<i32>>) {
-    match val {
-        Some(Some(v)) => sets.push(format!("{col} = {}", p.bind(*v))),
-        Some(None) => sets.push(format!("{col} = NULL")),
-        None => {}
-    }
-}
-
-fn push_double_opt_str(
-    p: &mut Params,
-    sets: &mut Vec<String>,
-    col: &str,
-    val: &Option<Option<String>>,
-) {
-    match val {
-        Some(Some(v)) => sets.push(format!(
-            "{col} = {}",
-            p.bind(sanitize_result_text_field(v).as_ref())
-        )),
-        Some(None) => sets.push(format!("{col} = NULL")),
-        None => {}
-    }
 }
 
 fn ok_affected(n: u64) -> Result<String, extism::Error> {
