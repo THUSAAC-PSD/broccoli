@@ -414,6 +414,14 @@ pub async fn bulk_add_participants(
         }
     }
 
+    // A user can be referenced more than once (the same username listed twice,
+    // or a freshly-created user also named in `usernames`). Dedupe by user id
+    // so each user is enrolled at most once: a second insert of the same
+    // (contest_id, user_id) would raise a unique violation which, caught inside
+    // this transaction, would abort the whole batch (see the enrol loop below).
+    let mut seen_enroll_uids = std::collections::HashSet::new();
+    users_to_enroll.retain(|(uid, _)| seen_enroll_uids.insert(*uid));
+
     let user_ids_to_check: Vec<i32> = users_to_enroll.iter().map(|(id, _)| *id).collect();
     let already_enrolled_ids: std::collections::HashSet<i32> = if !user_ids_to_check.is_empty() {
         contest_user::Entity::find()
@@ -442,31 +450,45 @@ pub async fn bulk_add_participants(
                     username: name,
                 });
             }
+            continue;
+        }
+
+        let new_cu = contest_user::ActiveModel {
+            contest_id: Set(contest_id),
+            user_id: Set(uid),
+            registered_at: Set(now),
+        };
+        // ON CONFLICT DO NOTHING instead of catching a UniqueConstraintViolation:
+        // a caught constraint error aborts the surrounding transaction (Postgres
+        // has no implicit savepoint), so one already-enrolled user would roll the
+        // whole batch back and enrol nobody. A conflict here instead reports 0
+        // rows affected, which we classify as "already enrolled" (a user enrolled
+        // concurrently, despite the pre-check under the contest lock).
+        let inserted = contest_user::Entity::insert(new_cu)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::columns([
+                    contest_user::Column::ContestId,
+                    contest_user::Column::UserId,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            .exec_without_returning(&txn)
+            .await?;
+
+        if created_user_ids.contains(&uid) {
+            continue;
+        }
+        if inserted == 0 {
+            already_enrolled.push(BulkParticipantAdded {
+                user_id: uid,
+                username: name,
+            });
         } else {
-            let new_cu = contest_user::ActiveModel {
-                contest_id: Set(contest_id),
-                user_id: Set(uid),
-                registered_at: Set(now),
-            };
-            match new_cu.insert(&txn).await {
-                Ok(_) => {
-                    if !created_user_ids.contains(&uid) {
-                        added.push(BulkParticipantAdded {
-                            user_id: uid,
-                            username: name,
-                        });
-                    }
-                }
-                Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
-                    if !created_user_ids.contains(&uid) {
-                        already_enrolled.push(BulkParticipantAdded {
-                            user_id: uid,
-                            username: name,
-                        });
-                    }
-                }
-                Err(e) => return Err(e.into()),
-            }
+            added.push(BulkParticipantAdded {
+                user_id: uid,
+                username: name,
+            });
         }
     }
 
