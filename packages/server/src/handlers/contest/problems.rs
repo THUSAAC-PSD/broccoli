@@ -380,6 +380,19 @@ pub async fn bulk_delete_contest_problems(
         )));
     }
 
+    // Mirror remove_contest_problem's per-association config cleanup. Every other
+    // path that destroys a contest_problem link deletes the link's
+    // per-contest-problem plugin config too: single remove_contest_problem here,
+    // delete_contest via the contest_problem_by_contest pattern, and delete_problem
+    // via contest_problem_by_problem. Bulk delete skipped it, orphaning that config
+    // - and because config is keyed by (contest_id, problem_id), re-adding the same
+    // problem to the contest would silently resurrect the stale, admin-removed
+    // config. Every id here is already validated to be in the contest above.
+    for &problem_id in &payload.problem_ids {
+        delete_config_by_target(&txn, &ConfigTarget::contest_problem(contest_id, problem_id))
+            .await?;
+    }
+
     let result = contest_problem::Entity::delete_many()
         .filter(contest_problem::Column::ContestId.eq(contest_id))
         .filter(contest_problem::Column::ProblemId.is_in(payload.problem_ids))
