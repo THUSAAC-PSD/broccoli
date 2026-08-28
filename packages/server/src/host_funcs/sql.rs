@@ -140,6 +140,49 @@ pub fn set_plugin_db_restricted_fallback(
     let _ = PLUGIN_DB_RESTRICTED_FALLBACK.set(RestrictedFallback { url, login });
 }
 
+/// Set once, at startup, when the restricted plugin SQL pool could only degrade
+/// to privileged app-role auth (no dedicated login role, no operator-managed
+/// `database.plugin_url`). In that state the SQL text guard would be the SOLE
+/// barrier against a role escape, and the guard is best-effort lexer defense, not
+/// an engine-level boundary -- so raw plugin SQL (`host.db.*`) is refused outright
+/// (fail CLOSED) rather than run as the privileged application role. The
+/// server-owned STRUCTURED host functions (submission/storage/config) are
+/// unaffected: they run on the separate privileged pool by design, not on
+/// plugin-authored SQL. See [`crate::database::RestrictedPluginAuth`].
+static RAW_PLUGIN_SQL_DISABLED: OnceLock<bool> = OnceLock::new();
+
+/// Fail closed: disable the raw `sql` capability (`host.db.*`) for this process.
+/// Idempotent; call at startup when the restricted pool degraded to app-role auth.
+pub fn disable_raw_plugin_sql() {
+    let _ = RAW_PLUGIN_SQL_DISABLED.set(true);
+}
+
+fn raw_plugin_sql_disabled() -> bool {
+    RAW_PLUGIN_SQL_DISABLED.get().copied().unwrap_or(false)
+}
+
+/// Gate for every raw plugin SQL / transaction entry point. Pure in `disabled`
+/// so it is unit-testable without touching the process-global `OnceLock`.
+fn raw_sql_gate(disabled: bool, plugin_id: &str) -> Result<(), extism::Error> {
+    if disabled {
+        tracing::warn!(
+            plugin_id,
+            "Refused a raw plugin SQL call: the restricted database login could not \
+             be provisioned, so host.db.* is disabled (fail-closed) rather than run \
+             as the privileged application role"
+        );
+        return Err(extism::Error::msg(
+            "raw plugin SQL (host.db.*) is disabled on this server: the restricted, \
+             least-privilege database login could not be provisioned, so plugin SQL \
+             is refused rather than executed as the privileged application role. \
+             Grant the application role CREATEROLE, or set database.plugin_url to a \
+             dedicated non-privileged role, to enable the raw SQL capability. \
+             (Structured host functions are unaffected.)",
+        ));
+    }
+    Ok(())
+}
+
 /// Resolve the (url, login-override) a fresh fallback connection should use for
 /// `role`. The restricted role prefers the dedicated-login target when set; the
 /// privileged role always uses the app-role fallback URL.
@@ -841,6 +884,7 @@ host_fn!(pub db_execute(user_data: (String, DatabaseConnection); sql: String, ar
     let span = super::host_fn_span("db_execute", &plugin_id);
     let _enter = span.enter();
 
+    raw_sql_gate(raw_plugin_sql_disabled(), &plugin_id)?;
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
     reject_role_escalation(&plugin_id, &sql)?;
     let args = sanitize_sql_text("args", &plugin_id, args);
@@ -906,6 +950,7 @@ host_fn!(pub db_query(user_data: (String, DatabaseConnection); sql: String, args
     let span = super::host_fn_span("db_query", &plugin_id);
     let _enter = span.enter();
 
+    raw_sql_gate(raw_plugin_sql_disabled(), &plugin_id)?;
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
     reject_role_escalation(&plugin_id, &sql)?;
     let args = sanitize_sql_text("args", &plugin_id, args);
@@ -970,6 +1015,8 @@ host_fn!(pub db_begin(user_data: (String, DatabaseConnection, TransactionMap); _
     let span = super::host_fn_span("db_begin", &plugin_id);
     let _enter = span.enter();
 
+    raw_sql_gate(raw_plugin_sql_disabled(), &plugin_id)?;
+
     // Per-plugin cap on concurrently open transactions, checked BEFORE
     // checking out a pool connection: each open transaction pins one plugin
     // DB pool connection, so without a cap a plugin that keeps opening
@@ -1021,6 +1068,7 @@ host_fn!(pub db_query_in(user_data: (String, DatabaseConnection, TransactionMap)
     let span = super::host_fn_span("db_query_in", &plugin_id);
     let _enter = span.enter();
 
+    raw_sql_gate(raw_plugin_sql_disabled(), &plugin_id)?;
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
     reject_role_escalation(&plugin_id, &sql)?;
     let args = sanitize_sql_text("args", &plugin_id, args);
@@ -1062,6 +1110,7 @@ host_fn!(pub db_execute_in(user_data: (String, DatabaseConnection, TransactionMa
     let span = super::host_fn_span("db_execute_in", &plugin_id);
     let _enter = span.enter();
 
+    raw_sql_gate(raw_plugin_sql_disabled(), &plugin_id)?;
     let sql = sanitize_sql_text("sql", &plugin_id, sql);
     reject_role_escalation(&plugin_id, &sql)?;
     let args = sanitize_sql_text("args", &plugin_id, args);
@@ -1433,6 +1482,25 @@ mod tests {
                 "should have allowed: {sql}"
             );
         }
+    }
+
+    #[test]
+    fn raw_sql_gate_fails_closed_only_when_disabled() {
+        // Enabled (the normal path: a dedicated login or an operator plugin_url):
+        // raw SQL is allowed through to the per-statement guard.
+        assert!(raw_sql_gate(false, "p").is_ok());
+        // Degraded to app-role auth: raw SQL is refused outright, with a message
+        // that points the operator at the two supported remedies.
+        let err = raw_sql_gate(true, "p").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("host.db.*") && msg.contains("disabled"),
+            "{msg}"
+        );
+        assert!(
+            msg.contains("CREATEROLE") && msg.contains("plugin_url"),
+            "{msg}"
+        );
     }
 
     #[test]

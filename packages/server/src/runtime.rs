@@ -102,6 +102,28 @@ impl ServerRuntime {
         let plugin_db = restricted.pool;
         let restricted_fb_url = restricted.fallback_url;
         let restricted_fb_login = restricted.fallback_login;
+        // Fail CLOSED on the degrade path: when the restricted pool could NOT be
+        // put behind a least-privilege login (no operator `plugin_url`, and the
+        // auto-provisioned `broccoli_plugin_login` could not be created/connected),
+        // it authenticates as the privileged APP role. On that path the SQL text
+        // guard is the SOLE barrier against a role escape — and a text guard on a
+        // hand-rolled lexer is best-effort defense-in-depth, not a sound boundary.
+        // Rather than run raw plugin `host.db.*` SQL as the app role, DISABLE the
+        // raw SQL capability outright (structured `host.submission/storage/config`
+        // fns are unaffected — they intentionally use the privileged pool). Operator
+        // must grant the app role CREATEROLE or set `database.plugin_url` to restore it.
+        if restricted.auth == crate::database::RestrictedPluginAuth::AppRoleDegraded {
+            warn!(
+                "Restricted plugin DB pool degraded to the privileged application role \
+                 (no database.plugin_url, and broccoli_plugin_login could not be \
+                 provisioned). DISABLING raw plugin SQL (host.db.*) to avoid executing \
+                 plugin SQL as the privileged role; the SQL text guard alone is not a \
+                 sound privilege boundary. Grant the application role CREATEROLE or set \
+                 database.plugin_url to a dedicated non-privileged role to re-enable it. \
+                 Structured host functions (submission/storage/config) are unaffected."
+            );
+            crate::host_funcs::sql::disable_raw_plugin_sql();
+        }
         // Second, PRIVILEGED plugin pool (same URL, no `SET ROLE`), used only by
         // the gated core-WRITE host fns (`host.submission.*`, `host.storage.*`,
         // `config:write`). The `plugin_db` above is restricted to the read-only

@@ -192,6 +192,41 @@ fn warn_provision_failed(e: &sea_orm::DbErr) {
     );
 }
 
+/// How the RESTRICTED plugin SQL pool ended up authenticating -- which decides
+/// whether raw plugin SQL (`host.db.*`) is safe to run at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RestrictedPluginAuth {
+    /// Auto-provisioned dedicated NOINHERIT login `broccoli_plugin_login`: a role
+    /// escape lands on a powerless role at the ENGINE, independent of the SQL text
+    /// guard. Raw plugin SQL is safe to enable.
+    DedicatedLogin,
+    /// Operator-configured `database.plugin_url`: a DBA-managed role the operator
+    /// vouches for. Raw plugin SQL is enabled; the isolation is the operator's call.
+    OperatorUrl,
+    /// Neither was available, so the pool degraded to the privileged APP role with
+    /// only the best-effort SQL text guard defending it. The caller MUST fail
+    /// closed -- disable raw plugin SQL rather than execute it as the privileged
+    /// role (see `host_funcs::sql::disable_raw_plugin_sql`).
+    AppRoleDegraded,
+}
+
+/// Single source of truth for [`RestrictedPluginAuth`]: an operator-configured URL
+/// is trusted as-is; otherwise a dedicated login means engine-level isolation and
+/// its absence means we fell back to the app role. Pure, so the classification is
+/// unit-testable without a live database.
+pub fn classify_restricted_auth(
+    operator_url_configured: bool,
+    has_dedicated_login: bool,
+) -> RestrictedPluginAuth {
+    if operator_url_configured {
+        RestrictedPluginAuth::OperatorUrl
+    } else if has_dedicated_login {
+        RestrictedPluginAuth::DedicatedLogin
+    } else {
+        RestrictedPluginAuth::AppRoleDegraded
+    }
+}
+
 /// How the restricted plugin pool should authenticate, and the fresh-connection
 /// fallback that must match it: the pool itself, the URL it connected on, and the
 /// login override it used (`None` = app-role auth).
@@ -199,6 +234,9 @@ pub struct RestrictedPluginPool {
     pub pool: DatabaseConnection,
     pub fallback_url: String,
     pub fallback_login: Option<PluginLoginOverride>,
+    /// How the pool authenticated. `AppRoleDegraded` means the caller must disable
+    /// raw plugin SQL (fail closed). See [`RestrictedPluginAuth`].
+    pub auth: RestrictedPluginAuth,
 }
 
 /// Resolve and open the RESTRICTED plugin pool: point it at a DBA-managed
@@ -222,7 +260,13 @@ pub async fn resolve_restricted_plugin_pool(
             provision_restricted_plugin_login(privileged).await,
         ),
     };
-    connect_restricted_pool_with_fallback(app_url, primary_url, login, max_connections).await
+    let mut resolved =
+        connect_restricted_pool_with_fallback(app_url, primary_url, login, max_connections).await?;
+    // An operator-configured `plugin_url` is trusted as-is; otherwise the presence
+    // of a dedicated login decides engine isolation vs. an app-role degrade.
+    resolved.auth =
+        classify_restricted_auth(plugin_url.is_some(), resolved.fallback_login.is_some());
+    Ok(resolved)
 }
 
 /// Connect the restricted pool on `primary_url`/`primary_login`, falling back to
@@ -239,19 +283,23 @@ async fn connect_restricted_pool_with_fallback(
         Ok(pool) => Ok(RestrictedPluginPool {
             pool,
             fallback_url: primary_url,
+            // Provisional (operator URLs are upgraded to `OperatorUrl` by the
+            // caller, which alone knows whether a `plugin_url` was configured).
+            auth: classify_restricted_auth(false, primary_login.is_some()),
             fallback_login: primary_login,
         }),
         Err(e) if primary_login.is_some() => {
             tracing::warn!(
                 error = %e,
                 "Restricted plugin pool could not connect as the dedicated login role; \
-                 falling back to app-role auth (the SQL text guard remains the defense)"
+                 falling back to app-role auth (raw plugin SQL will be disabled)"
             );
             let pool = init_plugin_db(app_url, max_connections, None).await?;
             Ok(RestrictedPluginPool {
                 pool,
                 fallback_url: app_url.to_string(),
                 fallback_login: None,
+                auth: RestrictedPluginAuth::AppRoleDegraded,
             })
         }
         Err(e) => Err(e),
@@ -427,6 +475,35 @@ pub async fn init_db_with_max_connections(
 mod tests {
     use super::*;
     use sea_orm::ConnectionTrait;
+
+    /// Pure classification of the restricted pool's end-state — the single input
+    /// to the runtime's raw-SQL fail-closed decision. Operator `plugin_url` wins
+    /// over an auto-provisioned login (a DBA-managed role is authoritative); a
+    /// dedicated login is the auto-provisioned secure path; only the no-url,
+    /// no-login case degrades to the privileged app role, where the caller MUST
+    /// disable raw plugin SQL. No container needed.
+    #[test]
+    fn classify_restricted_auth_covers_all_end_states() {
+        // operator_url wins even if a login also exists (url is authoritative).
+        assert_eq!(
+            classify_restricted_auth(true, true),
+            RestrictedPluginAuth::OperatorUrl
+        );
+        assert_eq!(
+            classify_restricted_auth(true, false),
+            RestrictedPluginAuth::OperatorUrl
+        );
+        // no url, dedicated login provisioned -> secure auto path.
+        assert_eq!(
+            classify_restricted_auth(false, true),
+            RestrictedPluginAuth::DedicatedLogin
+        );
+        // no url, no login -> the degrade path the caller must fail closed on.
+        assert_eq!(
+            classify_restricted_auth(false, false),
+            RestrictedPluginAuth::AppRoleDegraded
+        );
+    }
 
     /// The plugin role may now READ and WRITE (DML) any core table by product
     /// decision (m0003 reads, m0004 writes), but core schema DDL (`DROP`/`ALTER`)
@@ -716,6 +793,12 @@ mod tests {
         assert!(
             resolved.fallback_login.is_none(),
             "must have downgraded to app-role auth"
+        );
+        assert_eq!(
+            resolved.auth,
+            RestrictedPluginAuth::AppRoleDegraded,
+            "a refused dedicated login must classify as the app-role degrade path so \
+             the caller fails raw plugin SQL closed"
         );
         assert_eq!(
             resolved.fallback_url, url,
