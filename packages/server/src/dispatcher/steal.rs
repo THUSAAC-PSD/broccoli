@@ -646,6 +646,23 @@ async fn claim_deferred_judgements(
             .filter(submission_judgement::Column::Id.is_in(plan.redispatch_ids.clone()))
             .exec(&txn)
             .await?;
+
+        // This deferred re-dispatch reuses the SAME judgement id and only bumps
+        // its epoch (unlike the submission-first steal, which opens a fresh
+        // judgement). `clear_judgement_columns` above wipes the judgement row's
+        // own summary columns, but the failed attempt's per-testcase rows in
+        // `test_case_result` are keyed by `judgement_id` and survive. The
+        // re-judge appends new rows at the bumped epoch, and the submission read
+        // (`build_*` in handlers/submission/response.rs) selects test_case_result
+        // by `judgement_id` alone - no epoch filter - so both attempts' rows
+        // would surface as duplicated per-testcase results. Wipe the stale rows,
+        // mirroring `clear_current_submission_results` (submission-first steal)
+        // and `requeue_judgement_for_system_error_retry` (system-error retry).
+        // `plan.redispatch_ids` here ARE judgement ids, so delete directly.
+        test_case_result::Entity::delete_many()
+            .filter(test_case_result::Column::JudgementId.is_in(plan.redispatch_ids.clone()))
+            .exec(&txn)
+            .await?;
     }
 
     for row in &plan.exhausted_rows {
@@ -1457,6 +1474,63 @@ mod deferred_steal_db_tests {
             submission.owner_server_id.as_deref(),
             Some("live-server"),
             "the stealing server takes ownership of the submission row"
+        );
+    }
+
+    /// Regression: the deferred steal REUSES the same judgement id and only
+    /// bumps its epoch, so the failed attempt's `test_case_result` rows must be
+    /// wiped on re-dispatch. The submission read selects test_case_result by
+    /// `judgement_id` alone (no `judge_epoch` filter), so a surviving prior-epoch
+    /// row would surface alongside the re-judge's rows as duplicated per-testcase
+    /// results under one judgement.
+    #[tokio::test]
+    async fn deferred_redispatch_wipes_stale_testcase_results() {
+        let (_pg, db) = start_pg().await;
+        let sub_id = seed_submission(&db, SubmissionStatus::Running, 0).await;
+        seed_stale_deferred_judgement(&db, sub_id, 0, 0).await;
+        let jid = current_judgement(&db, sub_id).await.id;
+
+        // The prior attempt left a per-testcase row under this judgement id at
+        // the pre-bump epoch.
+        test_case_result::ActiveModel {
+            submission_id: Set(sub_id),
+            judgement_id: Set(Some(jid)),
+            judge_epoch: Set(0),
+            verdict: Set(common::Verdict::Accepted),
+            score: Set(1.0),
+            created_at: Set(chrono::Utc::now()),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .expect("seed stale test_case_result");
+
+        let claimed = claim_deferred_judgements(&db, "live-server", 60, 10, 5)
+            .await
+            .expect("claim deferred judgements");
+        assert_eq!(
+            claimed.len(),
+            1,
+            "the stale deferred judgement is reclaimed"
+        );
+
+        let judgement = current_judgement(&db, sub_id).await;
+        assert_eq!(
+            judgement.id, jid,
+            "the deferred steal reuses the same judgement id (not a fresh row)"
+        );
+        assert_eq!(judgement.judge_epoch, 1, "judgement epoch is bumped to 1");
+
+        // The stale prior-attempt row must be gone so the re-judge starts clean
+        // and the submission view can't show duplicated per-testcase results.
+        let remaining = test_case_result::Entity::find()
+            .filter(test_case_result::Column::JudgementId.eq(Some(jid)))
+            .all(&db)
+            .await
+            .expect("query test_case_result");
+        assert!(
+            remaining.is_empty(),
+            "the failed attempt's per-testcase results are wiped on deferred re-dispatch"
         );
     }
 
