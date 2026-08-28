@@ -383,9 +383,12 @@ fn sanitize_nul_bytes(s: String, plugin_id: &str, sql: &str) -> String {
 /// Handling per lexical region:
 /// - `-- line` and `/* block */` comments (block comments nest, as in Postgres):
 ///   replaced by a space.
-/// - `'string'` (with `''` and, after an `E'` prefix, `\` escapes) and
-///   `"quoted identifier"` (with `""` escapes): replaced by a space. Their bodies
-///   are data/identifiers, never commands.
+/// - `'string'` (with `''` and, after a standalone `E'` prefix, `\` escapes):
+///   replaced by a space -- its body is data, never a command.
+/// - `"quoted identifier"`: flattened to a single token (non-identifier chars ->
+///   `_`), not dropped. A column named `"set role"` collapses to `set_role`
+///   (harmless), but a function called via a quoted name -- `"set_config"(..)` --
+///   keeps its `set_config` token so the role-escape check still fires.
 /// - `$tag$ ... $tag$` dollar-quoted bodies: emitted **verbatim** (wrapped in
 ///   spaces), so a role change smuggled into a `CREATE FUNCTION`/`DO` body is
 ///   still seen. `$1` positional params and a lone `$` stay ordinary text.
@@ -429,9 +432,18 @@ fn scrub_sql_for_guard(sql: &str) -> Result<String, ()> {
                 }
                 out.push(' ');
             }
-            // "quoted identifier" -- an identifier, never a command keyword.
+            // "quoted identifier": flatten to a SINGLE token (every non-ident
+            // char, including the "" escape, becomes '_'). A quoted identifier is
+            // one identifier, never a multi-word command -- so a column named
+            // "set role" must collapse to `set_role` (NOT the SET ROLE keyword
+            // pair). But it CAN be a function name: `"set_config"('role',..)` is
+            // the built-in set_config called via a quoted identifier, a real role
+            // escape. Dropping the body (as a bare space) hid that token and let
+            // the call through; keeping it as one token means the downstream
+            // set_config match still fires.
             '"' => {
                 i += 1;
+                let start = i;
                 loop {
                     if i >= n {
                         return Err(());
@@ -441,18 +453,34 @@ fn scrub_sql_for_guard(sql: &str) -> Result<String, ()> {
                             i += 2;
                             continue;
                         }
-                        i += 1;
                         break;
                     }
                     i += 1;
                 }
                 out.push(' ');
+                for &ch in &chars[start..i] {
+                    out.push(if ch.is_ascii_alphanumeric() || ch == '_' {
+                        ch
+                    } else {
+                        '_'
+                    });
+                }
+                out.push(' ');
+                i += 1;
             }
-            // 'string literal' -- '' always escapes a quote; a preceding E/e also
-            // enables backslash escapes. We only ever risk consuming too much
-            // (Err -> fail closed), never too little (which would fail open).
+            // 'string literal' -- '' always escapes a quote; backslash escapes
+            // apply ONLY to a standalone E'...' string (Postgres). The `E`/`e`
+            // must be its own token: a string abutting a token that merely ENDS
+            // in e (a typed literal like name'..', or LIKE'..') is a plain
+            // string, not an escape string. Requiring the char before the e/E to
+            // be a non-identifier char avoids both reading past the real closing
+            // quote (a ';'-smuggle fail-OPEN) and Err-ing on a valid string that
+            // ends in a backslash (a fail-CLOSED false positive).
             '\'' => {
-                let backslash = i > 0 && matches!(chars[i - 1], 'e' | 'E');
+                let prev_is_e = i > 0 && matches!(chars[i - 1], 'e' | 'E');
+                let e_is_standalone = prev_is_e
+                    && !(i >= 2 && (chars[i - 2].is_ascii_alphanumeric() || chars[i - 2] == '_'));
+                let backslash = e_is_standalone;
                 i += 1;
                 loop {
                     if i >= n {
@@ -1298,6 +1326,18 @@ mod tests {
             "SELECT $$abc",
             "SELECT /* abc",
             "SELECT \"abc",
+            // the built-in set_config called via a QUOTED identifier is a real
+            // role escape -- dropping the quoted body used to hide it
+            "SELECT \"set_config\"('role','none',false)",
+            "SELECT pg_catalog.\"set_config\"('role','none',false)",
+            "SELECT \"pg_catalog\".\"set_config\"('role','none',false)",
+            "SELECT COALESCE(json_agg(t), '[]') FROM (SELECT \"set_config\"('role','none',false)) AS t",
+            "SET \"role\" = 'admin'",
+            "SET \"session_authorization\" = 'admin'",
+            // a standard string abutting a token that ends in `e` (name'..') is
+            // NOT an E-string; the old heuristic read past its close and swallowed
+            // the ';'-smuggled SET ROLE
+            "SELECT name'abc\\'; SET ROLE admin; --'",
         ] {
             assert!(
                 reject_role_escalation("p", sql).is_err(),
@@ -1340,10 +1380,20 @@ mod tests {
             // '' and E'\' escapes inside a string keep the lexer in the string
             "SELECT 'O''Brien' AS name",
             "SELECT E'line\\n' AS x",
-            // a quoted identifier that merely looks like a command is a column
+            // a quoted identifier that merely looks like a command is a column:
+            // it flattens to ONE token, never the SET ROLE keyword pair
             "SELECT \"set role\" FROM weird_table",
+            "SELECT \"role\", x FROM t",
+            "UPDATE t SET \"role\" = $1 WHERE id = $2",
+            "INSERT INTO t (\"role\") VALUES ($1)",
             // dollar-quoted DATA with no role keyword stays allowed
             "INSERT INTO t(doc) VALUES ($$ hello ; world $$)",
+            // a standard string after an e-ending token, ending in a backslash,
+            // is valid and must not be mis-read as an E-string (was Err before)
+            "SELECT name'C:\\'",
+            "SELECT p FROM t WHERE p LIKE'abc\\'",
+            // a genuine standalone E-string still honors its backslash escapes
+            "SELECT E'a\\'b' AS x",
         ] {
             assert!(
                 reject_role_escalation("p", sql).is_ok(),
