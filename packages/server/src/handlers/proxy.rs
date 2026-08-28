@@ -79,6 +79,29 @@ async fn is_token_fresh(state: &AppState, user_id: i32, iat: i64) -> Result<bool
     }
 }
 
+/// Whether a caller request header may be forwarded to a plugin handler.
+///
+/// Never forward the caller's *platform* credentials: a plugin receives identity
+/// via the `auth` field, not raw headers. The access JWT rides `Authorization:
+/// Bearer …` and the long-lived HttpOnly refresh token rides `Cookie`, so both
+/// are dropped. A non-Bearer `Authorization` scheme (e.g. the print plugin's
+/// `PrintStation <token>` station secret) is NOT a platform credential — it is a
+/// plugin-scoped secret the client deliberately addresses to the plugin — so it
+/// passes through. An undecodable `Authorization` value is treated as a
+/// credential and dropped.
+fn is_forwardable_header(name: &str, value: Option<&str>) -> bool {
+    if name.eq_ignore_ascii_case("cookie") {
+        return false;
+    }
+    if name.eq_ignore_ascii_case("authorization") {
+        return match value {
+            Some(v) => !v.trim_start().to_ascii_lowercase().starts_with("bearer "),
+            None => false,
+        };
+    }
+    true
+}
+
 async fn handle_plugin_request_impl(
     state: AppState,
     plugin_id: String,
@@ -175,13 +198,7 @@ async fn handle_plugin_request_impl(
         query,
         headers: headers
             .iter()
-            // Never forward the caller's credentials to a plugin: it receives
-            // identity via `auth`. `Authorization` carries the access JWT and
-            // `Cookie` carries the long-lived HttpOnly refresh token.
-            .filter(|(k, _)| {
-                !k.as_str().eq_ignore_ascii_case("authorization")
-                    && !k.as_str().eq_ignore_ascii_case("cookie")
-            })
+            .filter(|(k, v)| is_forwardable_header(k.as_str(), v.to_str().ok()))
             .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
             .collect(),
         body: serde_json::from_str(&body).ok(),
@@ -342,3 +359,57 @@ proxy_handler!(
     "tracePluginRequest",
     "TRACE proxy to plugin route"
 );
+
+#[cfg(test)]
+mod tests {
+    use super::is_forwardable_header;
+
+    #[test]
+    fn drops_platform_bearer_token() {
+        // The access JWT must never reach a plugin, in any case variant.
+        assert!(!is_forwardable_header(
+            "authorization",
+            Some("Bearer abc.def.ghi")
+        ));
+        assert!(!is_forwardable_header("Authorization", Some("bearer abc")));
+        assert!(!is_forwardable_header(
+            "authorization",
+            Some("  Bearer  abc")
+        ));
+    }
+
+    #[test]
+    fn always_drops_cookie() {
+        // Carries the long-lived HttpOnly refresh token.
+        assert!(!is_forwardable_header("cookie", Some("refresh=xyz")));
+        assert!(!is_forwardable_header("Cookie", None));
+    }
+
+    #[test]
+    fn forwards_non_bearer_authorization_scheme() {
+        // The print plugin's station secret is addressed to the plugin, not a
+        // platform credential — it must pass through so `authenticate_station`
+        // can validate it.
+        assert!(is_forwardable_header(
+            "authorization",
+            Some("PrintStation tok-7f3a")
+        ));
+        assert!(is_forwardable_header("Authorization", Some("ApiKey k123")));
+    }
+
+    #[test]
+    fn drops_undecodable_authorization() {
+        // A value we cannot read as UTF-8 is treated as a credential and dropped.
+        assert!(!is_forwardable_header("authorization", None));
+    }
+
+    #[test]
+    fn forwards_ordinary_headers() {
+        assert!(is_forwardable_header(
+            "content-type",
+            Some("application/json")
+        ));
+        assert!(is_forwardable_header("x-forwarded-for", Some("10.0.0.1")));
+        assert!(is_forwardable_header("accept", Some("*/*")));
+    }
+}
