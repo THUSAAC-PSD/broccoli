@@ -60,9 +60,12 @@ impl WorkerRuntime {
 
         let (metrics, prometheus_registry) =
             common::observability::init_metrics(&config.observability.otlp.service_name);
-        let queue_consumer_count = 2;
+        // Reflect the real permit ceiling: run_consume_loop admits work through a
+        // single Semaphore::new(max_concurrency.max(1)). The gauge previously
+        // multiplied by a phantom queue_consumer_count = 2, reporting twice the
+        // permits that actually exist and skewing saturation dashboards.
         metrics.worker_permits_max.add(
-            (capacity.max_concurrency * queue_consumer_count) as i64,
+            capacity.max_concurrency.max(1) as i64,
             &[opentelemetry::KeyValue::new(
                 "worker_id",
                 config.worker.id.clone(),
