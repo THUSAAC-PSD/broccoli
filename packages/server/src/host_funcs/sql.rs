@@ -388,7 +388,11 @@ fn sanitize_nul_bytes(s: String, plugin_id: &str, sql: &str) -> String {
 /// - `"quoted identifier"`: flattened to a single token (non-identifier chars ->
 ///   `_`), not dropped. A column named `"set role"` collapses to `set_role`
 ///   (harmless), but a function called via a quoted name -- `"set_config"(..)` --
-///   keeps its `set_config` token so the role-escape check still fires.
+///   keeps its `set_config` token so the role-escape check still fires. A
+///   `U&"..."` Unicode-escape identifier is fail-CLOSED (rejected): Postgres
+///   decodes its `\XXXX` escapes into the real name at parse time, so flattening
+///   the literal text would compare `_0073et_config` while Postgres runs
+///   `set_config`.
 /// - `$tag$ ... $tag$` dollar-quoted bodies: emitted **verbatim** (wrapped in
 ///   spaces), so a role change smuggled into a `CREATE FUNCTION`/`DO` body is
 ///   still seen. `$1` positional params and a lone `$` stay ordinary text.
@@ -442,6 +446,23 @@ fn scrub_sql_for_guard(sql: &str) -> Result<String, ()> {
             // the call through; keeping it as one token means the downstream
             // set_config match still fires.
             '"' => {
+                // U&"..." / u&"..." is a Unicode-escape identifier: Postgres
+                // decodes \XXXX / \+XXXXXX into the REAL identifier at parse time,
+                // so `U&"\0073et_config"` is the built-in set_config. The literal
+                // flatten below compares the pre-decode text (`_0073et_config`),
+                // which no longer matches the keyword -- a fail-OPEN role escape.
+                // Plugins never need the escape syntax (a UTF-8 identifier can be
+                // written directly, `"café"`), so fail CLOSED on the whole class.
+                // The `U`/`u` must be its own token abutting `&"` with no gap, per
+                // Postgres' rule; that is exactly `chars[i-2..=i-1] == ['u'|'U','&']`
+                // with a non-identifier char (or start) before it.
+                let unicode_ident = i >= 2
+                    && chars[i - 1] == '&'
+                    && matches!(chars[i - 2], 'u' | 'U')
+                    && !(i >= 3 && (chars[i - 3].is_ascii_alphanumeric() || chars[i - 3] == '_'));
+                if unicode_ident {
+                    return Err(());
+                }
                 i += 1;
                 let start = i;
                 loop {
@@ -1338,6 +1359,13 @@ mod tests {
             // NOT an E-string; the old heuristic read past its close and swallowed
             // the ';'-smuggled SET ROLE
             "SELECT name'abc\\'; SET ROLE admin; --'",
+            // U&"..." Unicode-escape identifiers decode to the real name at parse
+            // time, so flattening the literal escape text (`_0073et_config`) would
+            // miss the keyword. `\0073`=s -> set_config; `\0072`=r -> role. Both
+            // execute a role escape as a single statement, so both fail CLOSED.
+            "SELECT U&\"\\0073et_config\"('role','none',false)",
+            "SET U&\"\\0072ole\" = 'postgres'",
+            "SET u&\"\\0072ole\" TO 'postgres'",
         ] {
             assert!(
                 reject_role_escalation("p", sql).is_err(),
@@ -1394,6 +1422,11 @@ mod tests {
             "SELECT p FROM t WHERE p LIKE'abc\\'",
             // a genuine standalone E-string still honors its backslash escapes
             "SELECT E'a\\'b' AS x",
+            // the U&" fail-closed must NOT over-block a plain `&` (bitwise AND)
+            // that merely abuts a normal quoted identifier: the `U`/`u` has to be
+            // its OWN token for Postgres to read a Unicode-escape identifier
+            "SELECT id & \"role\" FROM t",
+            "SELECT nu&\"x\" FROM t",
         ] {
             assert!(
                 reject_role_escalation("p", sql).is_ok(),
