@@ -942,11 +942,8 @@ fn open_problem_externally(
     document.push_str(body);
     document.push('\n');
 
-    // Unpredictable filename in the world-writable temp dir. A fixed name
-    // (public contest id + pid, both discoverable) let a co-located user
-    // pre-plant a symlink at the path so `fs::write` would follow it and clobber
-    // a victim-writable file. Mirror test.rs::ScratchDir's random nonce, and
-    // create_new so we refuse to follow/overwrite any pre-existing entry.
+    // Random nonce + create_new: a predictable name in the shared temp dir lets a
+    // co-located user pre-plant a symlink for the write to follow (cf. ScratchDir).
     let nonce: u64 = rand::random();
     let path = std::env::temp_dir().join(format!(
         "broccoli-problem-{}-{}-{:016x}.md",

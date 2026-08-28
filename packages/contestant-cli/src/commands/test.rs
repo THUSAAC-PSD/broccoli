@@ -132,9 +132,8 @@ pub fn run(args: TestArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // The server hard-caps custom_test_cases at 10 (see code_run.rs); sending
-    // more is rejected outright. Cap to the first 10 for the remote path and tell
-    // the user (local `--local` mode, handled above, runs all of them).
+    // Server hard-caps custom_test_cases at 10 (code_run.rs); cap the remote path
+    // to match and warn. `--local` (above) runs all samples.
     const MAX_REMOTE_SAMPLES: usize = 10;
     let selected: &[_] = if samples.len() > MAX_REMOTE_SAMPLES {
         println!(

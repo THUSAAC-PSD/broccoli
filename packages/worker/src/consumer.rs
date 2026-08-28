@@ -108,11 +108,8 @@ impl WorkerConsumer {
         }
 
         if let Some(dedup) = self.dedup.as_ref() {
-            // Size the dedup claim's TTL to this operation's own runtime
-            // (summed step wall/time limits + slack), floored at the configured
-            // `worker.dedup_ttl_secs` fallback. A flat TTL either expired mid-run
-            // for a long operation (letting a redelivery run it concurrently) or
-            // lingered for hours after a short one.
+            // Per-operation TTL (step limits + slack, floored at the fallback) so
+            // the claim outlives the run without lingering long after it finishes.
             let ttl_secs = task_dedup_ttl_secs(&task, dedup.fallback_ttl_secs());
             match dedup.try_claim_with_ttl(&task_id, ttl_secs).await {
                 ClaimOutcome::Claimed => {

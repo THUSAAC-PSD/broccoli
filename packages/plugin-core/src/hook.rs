@@ -151,13 +151,8 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
 
         match call_result {
             Ok(output_bytes) => match serde_json::from_slice::<serde_json::Value>(&output_bytes) {
-                // Non-JSON output (empty/garbage from a broken guest build). The
-                // former `call::<_, Value>` path surfaced this as
-                // PluginError::Serialization -> outer Err -> Reject, so a Blocking
-                // gate (cooldown / submission-limit) failed CLOSED. Parsing
-                // straight into HookResponse conflated this with the wrong-shape
-                // case below and let a malformed response silently PASS the gate;
-                // restore the fail-closed Reject for genuinely unparseable bytes.
+                // Unparseable output from a broken guest: fail closed so a Blocking
+                // gate (cooldown / submission-limit) rejects rather than passes.
                 Err(e) => {
                     tracing::error!(
                         plugin_id = %self.plugin_id,
@@ -171,10 +166,8 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
                     });
                     Ok(GenericHookAction::Reject(detail.to_string()))
                 }
-                // Valid JSON of the wrong shape was already treated as a pass by
-                // the old path (it deserialized to Value, then failed to coerce),
-                // so preserve that: a plugin that returns some other valid JSON
-                // object does not block the request.
+                // Valid JSON of the wrong shape is a pass: not every plugin
+                // implements every hook, and that must not block the request.
                 Ok(value) => match serde_json::from_value::<HookResponse>(value) {
                     Ok(hook_response) => Ok(into_hook_action(hook_response, &event.topic)),
                     Err(e) => {

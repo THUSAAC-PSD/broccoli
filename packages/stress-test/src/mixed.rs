@@ -138,14 +138,9 @@ pub fn effective_rate(config: &MixedConfig, next_sequence: u64) -> u32 {
     }
 
     let burst_ops = config.rate as u64 * config.final_burst_duration.as_secs().max(1);
-    // Key the final-burst window off the ACTUAL number of operations this run
-    // executes, not config.total. run() iterates `0..planned_operations(config)`;
-    // in --duration mode that is far larger than config.total (which stays at its
-    // --total default), so `config.total.saturating_sub(next_sequence)` saturated
-    // to 0 for essentially every sequence, making `remaining <= burst_ops` true
-    // from the first op and pacing the WHOLE run at the boosted rate (the steady
-    // phase never ran and --duration was silently ignored). planned_operations ==
-    // config.total in pure --total mode, so that path is unchanged.
+    // Base the burst window on the real op count: run() iterates
+    // 0..planned_operations(config), which in --duration mode far exceeds
+    // config.total (they are equal only in --total mode).
     let total = planned_operations(config);
     let remaining = total.saturating_sub(next_sequence);
     if remaining <= burst_ops {
