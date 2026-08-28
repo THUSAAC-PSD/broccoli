@@ -159,12 +159,20 @@ fn request_id_from_headers(headers: &HeaderMap) -> String {
         .unwrap_or_else(|| Uuid::now_v7().to_string())
 }
 
-fn route_for_request<B>(request: &Request<B>) -> String {
+/// Low-cardinality `http.route` label for metrics: the matched route TEMPLATE
+/// (`/problems/{id}`), never the raw URI path. An unmatched request (a 404, or a
+/// path with no route) collapses to a single `"<unmatched>"` bucket instead of
+/// minting a fresh time series per distinct URI. Falling back to
+/// `request.uri().path()` let any scanner hitting `/random/1`, `/random/2`, ...
+/// mint unbounded `http.route` series and blow up metric cardinality. The raw
+/// path is still logged (a log line's cardinality is free), just not used as a
+/// metric attribute.
+fn route_label_for_request<B>(request: &Request<B>) -> String {
     request
         .extensions()
         .get::<MatchedPath>()
         .map(|mp| mp.as_str().to_owned())
-        .unwrap_or_else(|| request.uri().path().to_owned())
+        .unwrap_or_else(|| "<unmatched>".to_owned())
 }
 
 fn stress_run_id_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -197,7 +205,8 @@ async fn observability_middleware(
     let request_body_size = content_length_from_headers(request.headers());
 
     let method = request.method().to_string();
-    let route = route_for_request(&request);
+    let route = route_label_for_request(&request);
+    let path = request.uri().path().to_owned();
     let started = Instant::now();
     let in_flight_attrs = [
         KeyValue::new("http.request.method", method.clone()),
@@ -243,7 +252,8 @@ async fn observability_middleware(
 
     info!(
         method = %method,
-        path = %route,
+        path = %path,
+        route = %route,
         request_id = %request_id,
         run_id = stress_run_id.as_deref().unwrap_or(""),
         trace_id = trace_id.as_deref().unwrap_or(""),
