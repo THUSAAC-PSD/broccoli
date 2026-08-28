@@ -647,6 +647,31 @@ mod tests {
     }
 
     #[test]
+    fn final_burst_window_uses_planned_ops_in_duration_mode() {
+        // Regression: --duration mode with a small `total`. planned_operations is
+        // 18*10 + 2*10*3 = 240; the boost must fire only for the last
+        // rate*burst_secs = 20 ops (seq >= 220), NOT from config.total(100).
+        let config = MixedConfig {
+            total: 100,
+            duration: Some(Duration::from_secs(20)),
+            rate: 10,
+            concurrency: 10,
+            per_job_timeout: Duration::from_secs(30),
+            seed: 1,
+            contestants: 0,
+            final_burst_duration: Duration::from_secs(2),
+            final_burst_multiplier: 3,
+        };
+
+        assert_eq!(planned_operations(&config), 240);
+        // Mid-run stays at the steady rate (pre-fix this saturated to the boost).
+        assert_eq!(effective_rate(&config, 150), 10);
+        assert_eq!(effective_rate(&config, 219), 10);
+        // Tail boosts.
+        assert_eq!(effective_rate(&config, 220), 30);
+    }
+
+    #[test]
     fn duration_sets_planned_operations_from_rate() {
         let config = MixedConfig {
             total: 999,
