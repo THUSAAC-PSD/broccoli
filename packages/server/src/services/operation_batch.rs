@@ -1038,7 +1038,14 @@ async fn target_worker_is_live(redis: Option<&redis::Client>, worker_id: &str) -
     let key = format!("{}{worker_id}", common::worker::WORKER_HEARTBEAT_KEY_PREFIX);
     let exists: Result<i64, redis::RedisError> =
         redis::cmd("EXISTS").arg(&key).query_async(&mut conn).await;
-    matches!(exists, Ok(n) if n > 0)
+    match exists {
+        Ok(n) => n > 0,
+        // Fail OPEN (see doc above): a lookup error keeps the pin rather than
+        // mis-routing a legitimately pinned task off its target worker on a
+        // transient Redis hiccup. `matches!(exists, Ok(n) if n > 0)` silently
+        // failed CLOSED, contradicting this function's documented contract.
+        Err(_) => true,
+    }
 }
 
 /// Clamp a plugin-authored operation priority into broccoli_queue's valid
