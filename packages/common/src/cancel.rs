@@ -7,6 +7,11 @@ use tokio::sync::Mutex;
 pub const CANCEL_KEY_TTL_SECS: usize = 21_600;
 const BATCH_CANCEL_NEGATIVE_CACHE_TTL: Duration = Duration::from_millis(50);
 const BATCH_CANCEL_POSITIVE_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Once the batch-cancel cache reaches this many entries, an insert first drops
+/// all expired entries. Without it a completed batch's entry (never re-queried)
+/// would linger for the whole process lifetime, so the map grew unbounded across
+/// a multi-day contest's worth of distinct batch ids.
+const BATCH_CANCEL_CACHE_SWEEP_THRESHOLD: usize = 1024;
 
 const BULK_SET_CANCEL_KEYS_LUA: &str = r#"
 for i = 1, #KEYS do
@@ -137,11 +142,20 @@ impl RedisCancelChecker {
         } else {
             BATCH_CANCEL_NEGATIVE_CACHE_TTL
         };
-        self.batch_cancel_cache.lock().await.insert(
+        let now = Instant::now();
+        let mut guard = self.batch_cancel_cache.lock().await;
+        // Bound growth: the lazy per-lookup eviction never fires for a batch that
+        // finishes and is never queried again, so purge expired entries whenever
+        // the map crosses the threshold. Most entries are 50ms negatives, so this
+        // keeps the live set close to what was touched in the last ~60s.
+        if guard.len() >= BATCH_CANCEL_CACHE_SWEEP_THRESHOLD {
+            guard.retain(|_, entry| entry.expires_at > now);
+        }
+        guard.insert(
             batch_id.to_string(),
             BatchCancelCacheEntry {
                 cancelled,
-                expires_at: Instant::now() + ttl,
+                expires_at: now + ttl,
             },
         );
     }
