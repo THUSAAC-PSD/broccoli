@@ -67,8 +67,11 @@ ufw --force reset >/dev/null
 ufw default deny incoming
 ufw default allow outgoing
 # Admin SSH allowed on both 22 and 2222 so we always have at least one path.
+# Scope BOTH ports to the admin source IP: `ufw allow 2222/tcp` (no source)
+# world-opened the alternate SSH port on every interface — including the
+# gateway's public one — defeating the point of locking down port 22.
 ufw allow from "${ADMIN_IP}" to any port 22 proto tcp comment 'admin ssh 22'
-ufw allow 2222/tcp comment 'admin ssh 2222 (campus bypass)'
+ufw allow from "${ADMIN_IP}" to any port 2222 proto tcp comment 'admin ssh 2222 (campus bypass)'
 ufw allow from "${VPC_CIDR}" comment 'vpc internal'
 # Gateway also accepts public 80/443 for the API entry
 if [[ "${ROLE}" == "gateway" ]]; then
