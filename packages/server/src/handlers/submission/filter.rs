@@ -10,7 +10,7 @@ use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
 use crate::models::submission::*;
 use crate::state::AppState;
-use crate::utils::contest::{find_contest, is_contest_participant};
+use crate::utils::contest::{check_contest_access, find_contest, is_contest_participant};
 use crate::utils::judging::files_from_json;
 
 use super::response::{VisibilityContext, submission_score_for_status};
@@ -24,6 +24,16 @@ pub(super) async fn require_submission_visible(
     if !can_view_all && sub.user_id != auth_user.user_id {
         if let Some(contest_id) = sub.contest_id {
             let contest_model = find_contest(db, contest_id).await?;
+
+            // Enforce the contest activation window here too, exactly as the list
+            // path and every other contest read path do via check_contest_access:
+            // a deactivated/archived (or not-yet-activated) contest is 404 for
+            // non-managers. This only TIGHTENS - the is_participant &&
+            // submissions_visible requirement below still stands on top, so the
+            // public branch of check_contest_access can't widen peer visibility;
+            // it just closes the hole where an enrolled participant kept reading
+            // peers' submissions after the contest left its window.
+            check_contest_access(db, auth_user, &contest_model).await?;
             let is_participant = is_contest_participant(db, contest_id, auth_user.user_id).await?;
 
             if !is_participant || !contest_model.submissions_visible {
