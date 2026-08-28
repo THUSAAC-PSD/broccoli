@@ -72,7 +72,7 @@ pub(super) async fn find_submission<C: ConnectionTrait>(
 /// attachments so the prior verdict is preserved as version history.
 ///
 /// Caller is responsible for committing the surrounding transaction.
-pub(super) async fn open_rejudge_judgement(
+pub(crate) async fn open_rejudge_judgement(
     txn: &DatabaseTransaction,
     sub: &submission::Model,
     triggered_by_user_id: i32,

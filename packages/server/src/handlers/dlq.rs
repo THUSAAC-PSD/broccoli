@@ -6,19 +6,19 @@ use axum::{
 };
 use broccoli_server_sdk::permissions as perm;
 use common::{DlqMessageType, SubmissionStatus};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
-    TransactionTrait,
-};
+use sea_orm::sea_query::{Expr, LockType};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, TransactionTrait};
 use tracing::{info, instrument, warn};
 
 use crate::dispatcher::queue_depth::enforce_queue_depth_admission;
 use crate::dlq::{DlqService, ResolveResult, dlq_service};
+use crate::entity::judgement_reset::ClearJudgementColumns;
 use crate::entity::{dead_letter_message, submission};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
+use crate::handlers::submission::open_rejudge_judgement;
 use crate::models::dlq::*;
 use crate::models::shared::Pagination;
 use crate::state::AppState;
@@ -189,7 +189,12 @@ pub async fn retry_dlq_message(
         ));
     };
 
+    // Lock the submission FOR UPDATE, mirroring the admin rejudge handlers:
+    // it serializes this retry against a concurrent rejudge/steal on the same
+    // submission so the judgement-lineage demote+insert below can't race into
+    // a duplicate `is_current` row.
     let sub = submission::Entity::find_by_id(submission_id)
+        .lock(LockType::Update)
         .one(&txn)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Submission {} not found", submission_id)))?;
@@ -201,20 +206,45 @@ pub async fn retry_dlq_message(
         )));
     }
 
-    let submission_update = submission::ActiveModel {
-        id: Set(submission_id),
-        // UP#37: DLQ retry resets the submission into the durable-accept
-        // state. The claim fiber (UP#38) will promote `Queued` to
-        // `Pending` and re-dispatch via the plugin path - no need to
-        // spawn here, which also avoids losing the retry if the api
-        // crashes between txn commit and the spawned task running.
-        status: Set(SubmissionStatus::Queued),
-        error_code: Set(None),
-        error_message: Set(None),
-        ..Default::default()
-    };
-    submission_update
-        .update(&txn)
+    // A DLQ retry is an immediate rejudge: prepare the judgement lineage
+    // exactly as the admin rejudge path (`open_rejudge_judgement`) does.
+    // Without this, the still-`is_current`, now-finalized judgement left by
+    // the SystemError terminalization stays current; the claim fiber's
+    // `ensure_active_judgement_id` then finds no non-finalized current row,
+    // tries to INSERT a fresh `is_current=true` judgement, and collides with
+    // the partial unique index `idx_submission_judgement_one_current` - the
+    // insert error is swallowed and the submission dispatches with
+    // judgement id=0 (all judgement writes no-op; the versioned judgement is
+    // stranded at SystemError). Demoting the stale judgement and inserting a
+    // fresh one at a bumped epoch closes that.
+    let new_epoch = sub.judge_epoch.saturating_add(1);
+    open_rejudge_judgement(
+        &txn,
+        &sub,
+        auth_user.user_id,
+        sub.target_worker_id.clone(),
+        None,
+        new_epoch,
+        true, // apply_immediately: the retried judgement is the displayed verdict
+    )
+    .await?;
+
+    // Reset the submission into the durable-accept (`Queued`) state at the
+    // new epoch. The claim fiber (UP#38) promotes it to `Pending` and
+    // re-dispatches, adopting the fresh judgement inserted above - no
+    // handler-side spawn, so an api crash between commit and dispatch can't
+    // lose the retry. `clear_judgement_columns` NULLs every judged-output
+    // column (including error_code/error_message) from the single source of
+    // truth in `entity::judgement_reset`.
+    submission::Entity::update_many()
+        .clear_judgement_columns()
+        .col_expr(
+            submission::Column::Status,
+            Expr::value(SubmissionStatus::Queued.to_string()),
+        )
+        .col_expr(submission::Column::JudgeEpoch, Expr::value(new_epoch))
+        .filter(submission::Column::Id.eq(submission_id))
+        .exec(&txn)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to reset submission status: {}", e)))?;
 
@@ -400,6 +430,7 @@ pub async fn bulk_retry_dlq(
             };
 
             let sub = match submission::Entity::find_by_id(submission_id)
+                .lock(LockType::Update)
                 .one(&txn)
                 .await
             {
@@ -427,16 +458,39 @@ pub async fn bulk_retry_dlq(
                 continue;
             }
 
-            let submission_update = submission::ActiveModel {
-                id: Set(submission_id),
-                // UP#37: durable-accept reset - see single-message
-                // `retry_dlq_message` for the gap being closed.
-                status: Set(SubmissionStatus::Queued),
-                error_code: Set(None),
-                error_message: Set(None),
-                ..Default::default()
-            };
-            if let Err(e) = submission_update.update(&txn).await {
+            // Immediate-rejudge lineage prep - see single-message
+            // `retry_dlq_message` for the full narrative of the id=0
+            // dispatch gap this closes.
+            let new_epoch = sub.judge_epoch.saturating_add(1);
+            if let Err(e) = open_rejudge_judgement(
+                &txn,
+                &sub,
+                auth_user.user_id,
+                sub.target_worker_id.clone(),
+                None,
+                new_epoch,
+                true,
+            )
+            .await
+            {
+                errors.push(BulkRetryError {
+                    id: *id,
+                    error: format!("Failed to open rejudge judgement: {e:?}"),
+                });
+                continue;
+            }
+
+            if let Err(e) = submission::Entity::update_many()
+                .clear_judgement_columns()
+                .col_expr(
+                    submission::Column::Status,
+                    Expr::value(SubmissionStatus::Queued.to_string()),
+                )
+                .col_expr(submission::Column::JudgeEpoch, Expr::value(new_epoch))
+                .filter(submission::Column::Id.eq(submission_id))
+                .exec(&txn)
+                .await
+            {
                 errors.push(BulkRetryError {
                     id: *id,
                     error: format!("Failed to reset submission: {e}"),
