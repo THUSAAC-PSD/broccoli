@@ -58,7 +58,10 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/db" "$WORK/blobs"
 PSQL=(psql "$dburl" -v ON_ERROR_STOP=1 -At)
 
-echo ">> exporting from $dburl"
+# Redact the password before printing so a captured stdout (tee/CI log) never
+# leaks the DB credential (import-problems.sh likewise never echoes $dburl).
+safe_dburl="$(printf '%s' "$dburl" | sed -E 's#(://[^:/@]+):[^@]*@#\1:****@#')"
+echo ">> exporting from $safe_dburl"
 SRCVER="$("${PSQL[@]}" -c 'show server_version' | awk '{print $1}')"
 
 # Which problems to export (always non-deleted). Default: all. --problems is an
