@@ -64,6 +64,45 @@ fn into_hook_action(response: HookResponse, original_topic: &str) -> GenericHook
     }
 }
 
+/// Interpret a hook guest's raw output bytes into a host action.
+///
+/// Fail-closed on unparseable bytes (a broken guest must not silently pass a
+/// Blocking gate); a valid-JSON wrong-shape response is a pass, since not every
+/// plugin implements every hook.
+fn interpret_hook_output(
+    output_bytes: &[u8],
+    topic: &str,
+    plugin_id: &str,
+    function_name: &str,
+) -> GenericHookAction {
+    match serde_json::from_slice::<serde_json::Value>(output_bytes) {
+        Err(e) => {
+            tracing::error!(
+                plugin_id = %plugin_id,
+                function = %function_name,
+                "Hook returned non-JSON output (fail-closed): {e}",
+            );
+            let detail = serde_json::json!({
+                "code": PLUGIN_RUNTIME_ERROR_CODE,
+                "message": format!("Plugin '{plugin_id}' hook '{function_name}' returned a non-JSON response"),
+                "status_code": 500,
+            });
+            GenericHookAction::Reject(detail.to_string())
+        }
+        Ok(value) => match serde_json::from_value::<HookResponse>(value) {
+            Ok(hook_response) => into_hook_action(hook_response, topic),
+            Err(e) => {
+                tracing::warn!(
+                    plugin_id = %plugin_id,
+                    function = %function_name,
+                    "Hook returned a wrong-shape response, treating as pass: {e}",
+                );
+                GenericHookAction::Pass
+            }
+        },
+    }
+}
+
 pub struct PluginHook<M: PluginManager + ?Sized> {
     plugin_manager: Arc<M>,
     plugin_id: String,
@@ -150,36 +189,12 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
         .await;
 
         match call_result {
-            Ok(output_bytes) => match serde_json::from_slice::<serde_json::Value>(&output_bytes) {
-                // Unparseable output from a broken guest: fail closed so a Blocking
-                // gate (cooldown / submission-limit) rejects rather than passes.
-                Err(e) => {
-                    tracing::error!(
-                        plugin_id = %self.plugin_id,
-                        function = %self.function_name,
-                        "Hook returned non-JSON output (fail-closed): {e}",
-                    );
-                    let detail = serde_json::json!({
-                        "code": PLUGIN_RUNTIME_ERROR_CODE,
-                        "message": format!("Plugin '{}' hook '{}' returned a non-JSON response", self.plugin_id, self.function_name),
-                        "status_code": 500,
-                    });
-                    Ok(GenericHookAction::Reject(detail.to_string()))
-                }
-                // Valid JSON of the wrong shape is a pass: not every plugin
-                // implements every hook, and that must not block the request.
-                Ok(value) => match serde_json::from_value::<HookResponse>(value) {
-                    Ok(hook_response) => Ok(into_hook_action(hook_response, &event.topic)),
-                    Err(e) => {
-                        tracing::warn!(
-                            plugin_id = %self.plugin_id,
-                            function = %self.function_name,
-                            "Hook returned a wrong-shape response, treating as pass: {e}",
-                        );
-                        Ok(GenericHookAction::Pass)
-                    }
-                },
-            },
+            Ok(output_bytes) => Ok(interpret_hook_output(
+                &output_bytes,
+                &event.topic,
+                &self.plugin_id,
+                &self.function_name,
+            )),
             Err(e) => {
                 tracing::error!(
                     plugin_id = %self.plugin_id,
@@ -194,5 +209,50 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
                 Ok(GenericHookAction::Reject(detail.to_string()))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TOPIC: &str = "before_submission";
+
+    #[test]
+    fn non_json_output_fails_closed_reject() {
+        // The regression guard: a broken guest emitting garbage must REJECT so a
+        // Blocking gate (cooldown / submission-limit) blocks, not silently passes.
+        let action = interpret_hook_output(b"kaboom, not json", TOPIC, "p", "f");
+        assert!(matches!(action, GenericHookAction::Reject(_)));
+    }
+
+    #[test]
+    fn empty_output_fails_closed_reject() {
+        let action = interpret_hook_output(b"", TOPIC, "p", "f");
+        assert!(matches!(action, GenericHookAction::Reject(_)));
+    }
+
+    #[test]
+    fn wrong_shape_json_passes() {
+        // Valid JSON with no `action` tag is not a HookResponse -> pass (a plugin
+        // that does not implement this hook must not block the request).
+        let action = interpret_hook_output(br#"{"unrelated":true}"#, TOPIC, "p", "f");
+        assert!(matches!(action, GenericHookAction::Pass));
+    }
+
+    #[test]
+    fn valid_reject_response_rejects() {
+        let action =
+            interpret_hook_output(br#"{"action":"reject","status_code":429}"#, TOPIC, "p", "f");
+        let GenericHookAction::Reject(detail) = action else {
+            panic!("expected reject");
+        };
+        assert!(detail.contains("429"));
+    }
+
+    #[test]
+    fn valid_pass_response_passes() {
+        let action = interpret_hook_output(br#"{"action":"pass"}"#, TOPIC, "p", "f");
+        assert!(matches!(action, GenericHookAction::Pass));
     }
 }
