@@ -111,6 +111,26 @@ const BEST_EFFORT_DDL: &[&str] = &[
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
+    /// Run OUTSIDE a transaction (autocommit per statement).
+    ///
+    /// sea-orm-migration wraps every migration in a single transaction on
+    /// Postgres by default. That is fatal for the BEST_EFFORT_DDL below: once a
+    /// best-effort statement raises (e.g. `CREATE EXTENSION pg_stat_statements`
+    /// on a non-superuser app role, or a Postgres lacking contrib), the whole
+    /// transaction enters the aborted state (SQLSTATE 25P02) and every later
+    /// statement -- including the REQUIRED_DDL -- fails with "current transaction
+    /// is aborted", so `up()` returns Err and the server refuses to boot. The
+    /// Rust-level catch-and-continue swallows the error but CANNOT un-abort the
+    /// Postgres transaction. Disabling the transaction restores the per-statement
+    /// autocommit these DDL had as the prior ad-hoc `let _ =` per-boot block, so a
+    /// best-effort failure genuinely degrades. Every REQUIRED statement is
+    /// idempotent (`IF [NOT] EXISTS` / exception-guarded `DO`), so a mid-list
+    /// required failure simply re-runs cleanly on the next boot (the migration
+    /// record is only written after `up()` returns Ok).
+    fn use_transaction(&self) -> Option<bool> {
+        Some(false)
+    }
+
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let db = manager.get_connection();
 
