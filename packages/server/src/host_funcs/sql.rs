@@ -369,39 +369,155 @@ fn sanitize_nul_bytes(s: String, plugin_id: &str, sql: &str) -> String {
     }
 }
 
-/// Strip `--` line comments and `/* */` block comments so a role-manipulation
-/// keyword cannot hide behind a comment. Not string-literal-aware, but the role
-/// guard fails CLOSED, so at worst this rejects a benign statement whose SQL
-/// text contains a comment marker (plugin-authored SQL structure only -- user
-/// data arrives as bound params, never in the statement text).
-fn strip_sql_comments(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(c) = chars.next() {
+/// Reduce a plugin-authored SQL string to just its top-level lexical text so the
+/// role guard tokenizes real keywords and `;` statement separators only -- never
+/// characters that live inside a string literal, quoted identifier, or comment.
+///
+/// This must be lexically aware, not a naive scan: a `/*` **inside a string
+/// literal** (`SELECT '/*', set_config('role','none',false)`) is not a comment,
+/// and a naive comment stripper that entered comment mode there would swallow the
+/// rest of the statement and hide the `set_config` -- a fail-OPEN escalation.
+/// Likewise a `;` or a `SET ROLE`-looking token inside a string literal is data,
+/// not a command, and must not trip the guard (fail-CLOSED false positive).
+///
+/// Handling per lexical region:
+/// - `-- line` and `/* block */` comments (block comments nest, as in Postgres):
+///   replaced by a space.
+/// - `'string'` (with `''` and, after an `E'` prefix, `\` escapes) and
+///   `"quoted identifier"` (with `""` escapes): replaced by a space. Their bodies
+///   are data/identifiers, never commands.
+/// - `$tag$ ... $tag$` dollar-quoted bodies: emitted **verbatim** (wrapped in
+///   spaces), so a role change smuggled into a `CREATE FUNCTION`/`DO` body is
+///   still seen. `$1` positional params and a lone `$` stay ordinary text.
+///
+/// Returns `Err(())` on any unterminated construct (string, identifier, dollar
+/// quote, or block comment); the caller treats that as blocked, i.e. the guard
+/// fails CLOSED on lexically ambiguous input rather than guessing.
+fn scrub_sql_for_guard(sql: &str) -> Result<String, ()> {
+    let chars: Vec<char> = sql.chars().collect();
+    let n = chars.len();
+    let mut out = String::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        let c = chars[i];
         match c {
-            '-' if chars.peek() == Some(&'-') => {
-                for n in chars.by_ref() {
-                    if n == '\n' {
-                        out.push('\n');
-                        break;
-                    }
-                }
-            }
-            '/' if chars.peek() == Some(&'*') => {
-                chars.next();
-                let mut prev = '\0';
-                for n in chars.by_ref() {
-                    if prev == '*' && n == '/' {
-                        break;
-                    }
-                    prev = n;
+            // -- line comment to end of line (newline kept as a token boundary).
+            '-' if i + 1 < n && chars[i + 1] == '-' => {
+                i += 2;
+                while i < n && chars[i] != '\n' {
+                    i += 1;
                 }
                 out.push(' ');
             }
-            _ => out.push(c),
+            // /* block comment */ -- nestable, matching PostgreSQL.
+            '/' if i + 1 < n && chars[i + 1] == '*' => {
+                let mut depth = 1usize;
+                i += 2;
+                while i < n && depth > 0 {
+                    if chars[i] == '/' && i + 1 < n && chars[i + 1] == '*' {
+                        depth += 1;
+                        i += 2;
+                    } else if chars[i] == '*' && i + 1 < n && chars[i + 1] == '/' {
+                        depth -= 1;
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                if depth > 0 {
+                    return Err(());
+                }
+                out.push(' ');
+            }
+            // "quoted identifier" -- an identifier, never a command keyword.
+            '"' => {
+                i += 1;
+                loop {
+                    if i >= n {
+                        return Err(());
+                    }
+                    if chars[i] == '"' {
+                        if i + 1 < n && chars[i + 1] == '"' {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+                out.push(' ');
+            }
+            // 'string literal' -- '' always escapes a quote; a preceding E/e also
+            // enables backslash escapes. We only ever risk consuming too much
+            // (Err -> fail closed), never too little (which would fail open).
+            '\'' => {
+                let backslash = i > 0 && matches!(chars[i - 1], 'e' | 'E');
+                i += 1;
+                loop {
+                    if i >= n {
+                        return Err(());
+                    }
+                    let d = chars[i];
+                    if backslash && d == '\\' {
+                        i += 2;
+                        continue;
+                    }
+                    if d == '\'' {
+                        if i + 1 < n && chars[i + 1] == '\'' {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+                out.push(' ');
+            }
+            // $tag$ dollar-quoted string $tag$ (tag optional). `$1` positional
+            // params and a lone `$` are ordinary text, not a dollar quote.
+            '$' => {
+                let mut k = i + 1;
+                while k < n && (chars[k].is_ascii_alphanumeric() || chars[k] == '_') {
+                    k += 1;
+                }
+                let empty_tag = k == i + 1;
+                let tag_valid = empty_tag || !chars[i + 1].is_ascii_digit();
+                if k < n && chars[k] == '$' && tag_valid {
+                    let delim: Vec<char> = chars[i..=k].to_vec();
+                    let dlen = delim.len();
+                    let mut p = k + 1;
+                    let mut found = false;
+                    while p + dlen <= n {
+                        if chars[p..p + dlen] == delim[..] {
+                            found = true;
+                            break;
+                        }
+                        p += 1;
+                    }
+                    if !found {
+                        return Err(());
+                    }
+                    // Emit the body verbatim (a role change hidden in a function
+                    // body must still be caught); the $tag$ delimiters become
+                    // spaces so the body is its own token run.
+                    out.push(' ');
+                    out.extend(chars[k + 1..p].iter());
+                    out.push(' ');
+                    i = p + dlen;
+                } else {
+                    out.push('$');
+                    i += 1;
+                }
+            }
+            _ => {
+                out.push(c);
+                i += 1;
+            }
         }
     }
-    out
+    Ok(out)
 }
 
 /// Reject a raw plugin-`sql`-capability statement that changes the session role
@@ -418,47 +534,22 @@ fn strip_sql_comments(sql: &str) -> String {
 /// on the default single-credential deployment.) Applied ONLY to the raw
 /// plugin-authored entry points, never to the server-owned privileged writes.
 fn reject_role_escalation(plugin_id: &str, sql: &str) -> Result<(), extism::Error> {
-    let scrubbed = strip_sql_comments(sql).to_ascii_lowercase();
-    // Tokenize into SQL identifier/keyword tokens (split on any char that is not
-    // part of an identifier). Token-aware matching is both whitespace-/comment-
-    // insensitive (`set_config ('role'..)`, `set/**/role`, tabs) AND precise
-    // (`SET role_id = $1` tokenizes as [set, role_id], which is NOT the
-    // [set, role] sequence, so ordinary DML on a `role*`/`session*` column is
-    // not falsely rejected).
-    let tokens: Vec<&str> = scrubbed
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-        .filter(|t| !t.is_empty())
-        .collect();
-    // A SET/RESET changes the role or session authorization when its target
-    // token -- allowing an optional SESSION/LOCAL scope keyword in between -- is
-    // ROLE, AUTHORIZATION (SET SESSION AUTHORIZATION / RESET SESSION
-    // AUTHORIZATION), or ALL (RESET ALL). Matching the target rather than a
-    // fixed adjacent pair is what catches the scoped forms `SET LOCAL ROLE` /
-    // `SET SESSION ROLE` (SET ROLE needs only role membership, not superuser, so
-    // this is a live escalation), while still leaving `SET role_id = $1` (target
-    // `role_id`, a distinct token) and `SET statement_timeout = 5` untouched.
-    let sets_role_or_auth = tokens.iter().enumerate().any(|(i, &t)| {
-        if t != "set" && t != "reset" {
-            return false;
-        }
-        let target = match tokens.get(i + 1).copied() {
-            Some("local") | Some("session") => tokens.get(i + 2).copied(),
-            other => other,
-        };
-        matches!(target, Some("role") | Some("authorization") | Some("all"))
-    });
-    let blocked =
-        // DO runs arbitrary procedural code; DISCARD [ALL] resets the session
-        // role -- neither is needed by a plugin, so block them as a statement.
-        tokens.first().is_some_and(|t| *t == "do" || *t == "discard")
-        // Direct or function-body/DO-wrapped role & authorization changes,
-        // including the scoped `SET LOCAL/SESSION ROLE` variants.
-        || sets_role_or_auth
-        // `set_config('role',..)` / `pg_catalog.set_config(..)` (any spacing),
-        // and the underscore `session_authorization` GUC form.
-        || tokens
-            .iter()
-            .any(|t| *t == "set_config" || *t == "session_authorization");
+    // Scrub comments and string/identifier bodies so keyword and ';' matching
+    // sees only real top-level SQL text (see `scrub_sql_for_guard`). A lexically
+    // unbalanced statement scrubs to Err and is treated as blocked -- the guard
+    // fails CLOSED rather than guess. Then evaluate each ';'-separated statement
+    // independently: splitting on ';' stops a SET ROLE from hiding behind a
+    // benign earlier statement (`UPDATE t SET x=1; SET ROLE admin`), and lets a
+    // DML SET-clause (`UPDATE ... SET role = $1`, always preceded by UPDATE in
+    // its own statement) be told apart from the standalone `SET role = x`
+    // role-switch GUC command, which has no preceding UPDATE.
+    let blocked = match scrub_sql_for_guard(sql) {
+        Ok(scrubbed) => scrubbed
+            .to_ascii_lowercase()
+            .split(';')
+            .any(statement_changes_role),
+        Err(()) => true,
+    };
     if blocked {
         tracing::warn!(
             plugin_id,
@@ -470,6 +561,76 @@ fn reject_role_escalation(plugin_id: &str, sql: &str) -> Result<(), extism::Erro
         ));
     }
     Ok(())
+}
+
+/// True if a single comment-stripped, lowercased SQL statement changes the
+/// session role/authorization or runs an anonymous code block. Callers pass one
+/// ';'-separated statement (see [`reject_role_escalation`]).
+fn statement_changes_role(stmt: &str) -> bool {
+    // Tokenize into SQL identifier/keyword tokens (split on any char that is not
+    // part of an identifier). Token-aware matching is both whitespace-/comment-
+    // insensitive (`set_config ('role'..)`, `set/**/role`, tabs) AND precise
+    // (`SET role_id = $1` tokenizes as [set, role_id], which is NOT the
+    // [set, role] sequence, so ordinary DML on a `role*`/`session*` column is
+    // not falsely rejected).
+    let tokens: Vec<&str> = stmt
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|t| !t.is_empty())
+        .collect();
+    // DO runs arbitrary procedural code; DISCARD [ALL] resets the session role --
+    // neither is needed by a plugin, so block them as a statement.
+    if tokens
+        .first()
+        .is_some_and(|t| *t == "do" || *t == "discard")
+    {
+        return true;
+    }
+    // `set_config('role',..)` / `pg_catalog.set_config(..)` (any spacing), and the
+    // underscore `session_authorization` GUC form, anywhere in the statement.
+    if tokens
+        .iter()
+        .any(|t| *t == "set_config" || *t == "session_authorization")
+    {
+        return true;
+    }
+    // A SET/RESET changes the role or session authorization when, allowing an
+    // optional SESSION/LOCAL scope keyword first, its command is ROLE, ALL
+    // (RESET ALL), or the two-word SESSION AUTHORIZATION. Matching the target
+    // this way catches the scoped forms `SET LOCAL ROLE`/`SET SESSION ROLE`
+    // (SET ROLE needs only role membership, not superuser -- a live escalation)
+    // AND `SET LOCAL SESSION AUTHORIZATION` (whose command word SESSION collides
+    // with the scope word), while leaving `SET role_id = $1` (target `role_id`,
+    // a distinct token) and `SET statement_timeout = 5` untouched.
+    tokens.iter().enumerate().any(|(i, &t)| {
+        if t != "set" && t != "reset" {
+            return false;
+        }
+        // Window of up to the scope word + a two-word command.
+        let after: Vec<&str> = tokens[i + 1..].iter().take(3).copied().collect();
+        // `SESSION AUTHORIZATION` as an adjacent pair anywhere in the window
+        // (covers plain, `SET LOCAL SESSION AUTHORIZATION`, and the odd
+        // `SET SESSION SESSION AUTHORIZATION`).
+        let session_auth = after.windows(2).any(|w| w == ["session", "authorization"]);
+        // Single-word command target after an optional leading scope word.
+        let scoped = matches!(after.first(), Some(&"local") | Some(&"session"));
+        let target = if scoped {
+            after.get(1).copied()
+        } else {
+            after.first().copied()
+        };
+        let changes =
+            session_auth || matches!(target, Some("role") | Some("authorization") | Some("all"));
+        if !changes {
+            return false;
+        }
+        // A preceding UPDATE (plain UPDATE, INSERT ... ON CONFLICT DO UPDATE, or
+        // MERGE ... WHEN MATCHED THEN UPDATE) makes this SET a DML column
+        // assignment -- `SET role = value` on a column literally named `role` --
+        // not the SET ROLE command. Plugins hold full DML, so that must be
+        // allowed; the ';'-split in the caller stops a second statement from
+        // hiding behind this UPDATE.
+        !tokens[..i].contains(&"update")
+    })
 }
 
 fn sanitize_sql_text(label: &str, plugin_id: &str, sql: String) -> String {
@@ -1113,6 +1274,30 @@ mod tests {
             "-- c\nRESET ROLE",
             "DO $$ BEGIN EXECUTE 'reset role'; END $$",
             "CREATE FUNCTION f() RETURNS void AS $$ RESET ROLE $$ LANGUAGE sql",
+            // a SET ROLE smuggled after a benign statement must NOT hide behind
+            // the earlier UPDATE: each ';'-separated statement is judged alone
+            "UPDATE my_plugin_table SET v = 1 WHERE k = 2; SET ROLE app_role",
+            "SELECT 1; RESET ROLE",
+            "SELECT 1; DISCARD ALL",
+            // a `/*` opened INSIDE a string literal is not a comment: a naive
+            // stripper would enter comment mode and swallow the trailing
+            // set_config, a fail-OPEN escalation. The lexer keeps it in the
+            // string and still sees set_config in top-level text.
+            "SELECT '/*', set_config('role', 'none', false)",
+            "SELECT '/*' AS a, set_config('role','none',false)",
+            // a quote inside a dollar-quoted literal must not open a real string
+            // that swallows the following set_config
+            "SELECT $$'$$, set_config('role','x',false)",
+            // scoped SESSION AUTHORIZATION: the command word SESSION collides
+            // with the scope word, so a scope-skip that consumes only the first
+            // SESSION must still block these
+            "SET LOCAL SESSION AUTHORIZATION app",
+            "SET SESSION SESSION AUTHORIZATION app",
+            // lexically unbalanced input fails CLOSED (treated as blocked)
+            "SELECT 'abc",
+            "SELECT $$abc",
+            "SELECT /* abc",
+            "SELECT \"abc",
         ] {
             assert!(
                 reject_role_escalation("p", sql).is_err(),
@@ -1133,12 +1318,32 @@ mod tests {
             "DELETE FROM my_plugin_table WHERE k = $1",
             // a column named role*/session* must NOT be a false positive
             "UPDATE t SET role_id = $1 WHERE k = $2",
+            // a column literally named `role`: `UPDATE ... SET role = ...` is a
+            // DML assignment (preceded by UPDATE), not the SET ROLE command, so a
+            // plugin with full DML on its own table must be allowed
+            "UPDATE my_plugin_table SET role = $1 WHERE k = $2",
+            "INSERT INTO acl (k, role) VALUES ($1, $2) ON CONFLICT (k) DO UPDATE SET role = $2",
             "INSERT INTO sessions (session_token) VALUES ($1)",
             "SELECT * FROM roles WHERE name = $1",
             "SET statement_timeout = 5000",
             // scope keyword before a NON-role parameter must stay allowed
             "SET LOCAL statement_timeout = 5000",
             "SET SESSION search_path TO my_schema",
+            "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY",
+            // role keywords or ';' that appear INSIDE a string literal are data,
+            // not commands: the lexer neutralizes the literal so they must not
+            // trip the guard (previously false-positive-rejected)
+            "INSERT INTO t(v) VALUES ('hello; discard all')",
+            "UPDATE t SET note = 'apply; set role reviewer' WHERE id = 1",
+            "INSERT INTO audit_log(action) VALUES ('reset all')",
+            "CREATE TABLE t (status text DEFAULT 'set role')",
+            // '' and E'\' escapes inside a string keep the lexer in the string
+            "SELECT 'O''Brien' AS name",
+            "SELECT E'line\\n' AS x",
+            // a quoted identifier that merely looks like a command is a column
+            "SELECT \"set role\" FROM weird_table",
+            // dollar-quoted DATA with no role keyword stays allowed
+            "INSERT INTO t(doc) VALUES ($$ hello ; world $$)",
         ] {
             assert!(
                 reject_role_escalation("p", sql).is_ok(),
