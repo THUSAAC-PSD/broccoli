@@ -17,8 +17,10 @@ use crate::extractors::path::AppPath;
 use crate::models::attachment::{AdditionalFileListResponse, AdditionalFileResponse};
 use crate::state::AppState;
 use crate::upload_limits::LARGE_UPLOAD_LIMIT_BYTES;
-use crate::utils::blob::{BlobMetadata, build_blob_response, stream_field_to_store};
-use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
+use crate::utils::blob::{
+    BlobMetadata, build_blob_response, resolve_virtual_path, stream_field_to_store,
+    take_required_file,
+};
 use crate::utils::soft_delete::SoftDeletable;
 
 pub fn additional_file_upload_body_limit() -> DefaultBodyLimit {
@@ -119,24 +121,12 @@ pub async fn upload_additional_file(
         }
     }
 
-    let (hash, size) =
-        file_result.ok_or_else(|| AppError::Validation("Missing 'file' field".into()))?;
-
-    let filename =
-        file_name.ok_or_else(|| AppError::Validation("File field must have a filename".into()))?;
-    let filename = validate_flat_filename(&filename)
-        .map_err(|e| AppError::Validation(e.message().into()))?
-        .to_string();
+    let (hash, size, filename) = take_required_file(file_result, file_name)?;
 
     let lang = language.ok_or_else(|| AppError::Validation("Missing 'language' field".into()))?;
     validate_language_code(&lang)?;
 
-    let path = match virtual_path {
-        Some(p) if !p.trim().is_empty() => {
-            validate_virtual_path(&p).map_err(|e| AppError::Validation(e.into()))?
-        }
-        _ => validate_virtual_path(&filename).map_err(|e| AppError::Validation(e.into()))?,
-    };
+    let path = resolve_virtual_path(virtual_path.as_deref(), &filename)?;
 
     let content_type = mime_guess::from_path(&filename)
         .first()

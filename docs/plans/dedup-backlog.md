@@ -29,6 +29,13 @@ Done already (for reference on the pattern):
   its own bind policy (guest scrubs NUL eagerly at bind time; host defers to the
   `sql::execute_on_pool` choke point). Golden tests pin the exact SET-list/arg
   contract against drift.
+- `utils::blob::take_required_file` / `resolve_virtual_path` — the
+  post-multipart required-file unwrap+validate and the `path`-else-filename
+  virtual-path resolution are single-sourced out of
+  `handlers/{additional_file,attachment, config_upload}.rs`. The multipart drain
+  loops themselves stay per-handler (each consumes different sibling fields and
+  `next_field()` is single-pass); only the shared post-loop steps were
+  extracted. Unit tests pin the error strings + the blank-path fallback.
 
 ## Open items
 
@@ -47,29 +54,20 @@ Done already (for reference on the pattern):
    `packages/server/src/host_funcs/*.rs`. A generic wrapper or macro collapses
    hundreds of lines and makes new host fns harder to get wrong.
 
-3. **Generic problem-file upload handler**.
-   `packages/server/src/handlers/additional_file.rs` is a near-verbatim copy of
-   `handlers/attachment.rs` (same multipart loop, filename/path validation,
-   txn + re-check; only a `language` field differs), and both share the
-   `file`-field + `validate_flat_filename` core with `handlers/config_upload.rs`
-   (rule-of-three). Low-level helpers are already shared; extract the
-   handler-level orchestration (e.g. `take_required_file` +
-   `resolve_virtual_path`).
-
-4. **Parametrized sandbox test harness**.
+3. **Parametrized sandbox test harness**.
    `packages/worker/tests/worker_mock_sandbox.rs` (1,539 lines) and
    `worker_isolate_sandbox.rs` (898 lines) were cloned from each other on the
    same day and have drifted in coverage (newer cases exist only in the mock
    suite). A harness generic over `SandboxManager` restores parity.
 
-5. **Sync/async result-wait loop skeletons**. `services/operation_batch.rs`
+4. **Sync/async result-wait loop skeletons**. `services/operation_batch.rs`
    (`next_operation_result[_async]`) vs `services/evaluate_batch/result_wait.rs`
    (`next_evaluate_result[_async]`) remain parallel ~300-line skeletons after
    the windowed-session extraction, differing only in extension policy and
    channel types. Both already carry a matching drain-delivered-result fix —
    next shared fix should trigger the generic unification that was deferred.
 
-6. **Shared API-client auth/retry protocol** (defensible split, lowest
+5. **Shared API-client auth/retry protocol** (defensible split, lowest
    priority). `packages/cli-core/src/client.rs` (sync ureq) vs
    `packages/stress-test/src/client.rs` (async reqwest) both maintain login +
    token storage + retry-on-401 against the same server API.

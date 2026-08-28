@@ -10,8 +10,7 @@ use crate::extractors::auth::FreshAuthUser;
 use crate::models::config_upload::ConfigBlobUploadResponse;
 use crate::state::AppState;
 use crate::upload_limits::LARGE_UPLOAD_LIMIT_BYTES;
-use crate::utils::blob::stream_field_to_store;
-use crate::utils::filename::validate_flat_filename;
+use crate::utils::blob::{stream_field_to_store, take_required_file};
 
 pub fn config_upload_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
@@ -70,14 +69,7 @@ pub async fn upload_config_blob(
         }
     }
 
-    let (hash, size) =
-        file_result.ok_or_else(|| AppError::Validation("Missing 'file' field".into()))?;
-
-    let filename =
-        file_name.ok_or_else(|| AppError::Validation("File field must have a filename".into()))?;
-    let filename = validate_flat_filename(&filename)
-        .map_err(|e| AppError::Validation(e.message().into()))?
-        .to_string();
+    let (hash, size, filename) = take_required_file(file_result, file_name)?;
 
     Ok((
         StatusCode::CREATED,

@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::entity::{additional_file, problem_attachment};
 use crate::error::AppError;
+use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 
 pub struct BlobMetadata {
     pub content_hash: String,
@@ -129,6 +130,40 @@ pub fn content_disposition_value(disposition: &str, filename: &str) -> String {
     format!("{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}")
 }
 
+/// Unwrap the required `file` field of a problem-file upload into its blob hash,
+/// size, and a validated flat filename. Every upload handler drains its own
+/// sibling multipart fields (they differ) but ends with this identical required
+/// file field; sharing it keeps the "Missing 'file' field" contract in one place.
+pub fn take_required_file(
+    file_result: Option<(ContentHash, i64)>,
+    file_name: Option<String>,
+) -> Result<(ContentHash, i64, String), AppError> {
+    let (hash, size) =
+        file_result.ok_or_else(|| AppError::Validation("Missing 'file' field".into()))?;
+    let filename =
+        file_name.ok_or_else(|| AppError::Validation("File field must have a filename".into()))?;
+    let filename = validate_flat_filename(&filename)
+        .map_err(|e| AppError::Validation(e.message().into()))?
+        .to_string();
+    Ok((hash, size, filename))
+}
+
+/// Resolve the stored virtual path for an upload: use the client-supplied `path`
+/// field when present and non-blank, else fall back to the upload filename. Both
+/// candidates go through `validate_virtual_path`. Shared by the attachment and
+/// additional-file handlers.
+pub fn resolve_virtual_path(
+    virtual_path: Option<&str>,
+    filename: &str,
+) -> Result<String, AppError> {
+    match virtual_path {
+        Some(p) if !p.trim().is_empty() => {
+            validate_virtual_path(p).map_err(|e| AppError::Validation(e.into()))
+        }
+        _ => validate_virtual_path(filename).map_err(|e| AppError::Validation(e.into())),
+    }
+}
+
 pub async fn stream_field_to_store(
     mut field: axum::extract::multipart::Field<'_>,
     blob_store: &dyn BlobStore,
@@ -179,4 +214,66 @@ pub async fn stream_field_to_store(
     let _ = tokio::fs::remove_file(&temp_path).await;
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_hash() -> ContentHash {
+        ContentHash::from_bytes([0u8; 32])
+    }
+
+    #[test]
+    fn take_required_file_errors_when_file_missing() {
+        let err = take_required_file(None, Some("solution.cpp".into())).unwrap_err();
+        assert!(matches!(err, AppError::Validation(m) if m == "Missing 'file' field"));
+    }
+
+    #[test]
+    fn take_required_file_errors_when_filename_missing() {
+        let err = take_required_file(Some((dummy_hash(), 10)), None).unwrap_err();
+        assert!(matches!(err, AppError::Validation(m) if m == "File field must have a filename"));
+    }
+
+    #[test]
+    fn take_required_file_validates_and_trims_filename() {
+        let (_, size, filename) =
+            take_required_file(Some((dummy_hash(), 42)), Some("  grader.h  ".into())).unwrap();
+        assert_eq!(size, 42);
+        assert_eq!(filename, "grader.h");
+    }
+
+    #[test]
+    fn take_required_file_rejects_invalid_filename() {
+        // Leading-dash argv-injection guard surfaces as a validation error.
+        let err = take_required_file(Some((dummy_hash(), 1)), Some("-o".into())).unwrap_err();
+        assert!(matches!(err, AppError::Validation(_)));
+    }
+
+    #[test]
+    fn resolve_virtual_path_prefers_explicit_path() {
+        assert_eq!(
+            resolve_virtual_path(Some("include/grader.h"), "fallback.h").unwrap(),
+            "include/grader.h"
+        );
+    }
+
+    #[test]
+    fn resolve_virtual_path_falls_back_to_filename_when_blank_or_absent() {
+        assert_eq!(
+            resolve_virtual_path(Some("   "), "fallback.h").unwrap(),
+            "fallback.h"
+        );
+        assert_eq!(
+            resolve_virtual_path(None, "fallback.h").unwrap(),
+            "fallback.h"
+        );
+    }
+
+    #[test]
+    fn resolve_virtual_path_rejects_invalid_candidates() {
+        assert!(resolve_virtual_path(Some("../etc/passwd"), "ok.h").is_err());
+        assert!(resolve_virtual_path(None, "../escape").is_err());
+    }
 }
