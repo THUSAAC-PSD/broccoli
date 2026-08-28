@@ -1,5 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import { useAuth } from '@broccoli/web-sdk/auth';
+import { useAuth, useAuthReady } from '@broccoli/web-sdk/auth';
 import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { PROBLEM_EDIT, SYSTEM_ADMIN } from '@broccoli/web-sdk/permissions';
@@ -35,6 +35,7 @@ export default function ProblemView({
 }: ProblemViewProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const authReady = useAuthReady();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
@@ -82,7 +83,7 @@ export default function ProblemView({
     error,
   } = useQuery({
     queryKey: ['problem', problemId],
-    enabled: Number.isFinite(problemId),
+    enabled: authReady && Number.isFinite(problemId),
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/problems/{id}', {
         params: { path: { id: problemId } },
@@ -94,7 +95,7 @@ export default function ProblemView({
 
   const { data: contestProblems = [] } = useQuery({
     queryKey: ['contest-problems', contestId],
-    enabled: Number.isFinite(contestId),
+    enabled: authReady && Number.isFinite(contestId),
     queryFn: async () => {
       if (!contestId) return [];
       const { data, error } = await apiClient.GET('/contests/{id}/problems', {

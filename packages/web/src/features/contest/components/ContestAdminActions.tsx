@@ -1,5 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import { useAuth } from '@broccoli/web-sdk/auth';
+import { useAuth, useAuthReady } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { CONTEST_MANAGE } from '@broccoli/web-sdk/permissions';
 import { Button } from '@broccoli/web-sdk/ui';
@@ -19,6 +19,7 @@ export function ContestAdminActions() {
   const { contestId } = useParams();
   const { t } = useTranslation();
   const { user } = useAuth();
+  const authReady = useAuthReady();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ export function ContestAdminActions() {
 
   const { data: contest } = useQuery({
     queryKey: ['contest', id],
-    enabled: Number.isFinite(id) && id > 0,
+    enabled: authReady && Number.isFinite(id) && id > 0,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}', {
         params: { path: { id } },

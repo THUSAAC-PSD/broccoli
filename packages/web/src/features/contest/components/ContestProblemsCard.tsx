@@ -1,5 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import { useAuth } from '@broccoli/web-sdk/auth';
+import { useAuth, useAuthReady } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { CONTEST_MANAGE } from '@broccoli/web-sdk/permissions';
 import { Skeleton } from '@broccoli/web-sdk/ui';
@@ -12,6 +12,7 @@ import { useContestInfo } from '@/features/contest/hooks/use-contest-info';
 export function ContestProblemsCard({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const authReady = useAuthReady();
   const apiClient = useApiClient();
   const { contest } = useContestInfo(contestId);
 
@@ -26,7 +27,7 @@ export function ContestProblemsCard({ contestId }: { contestId: number }) {
     error,
   } = useQuery({
     queryKey: ['contest-problems', contestId],
-    enabled: Number.isFinite(contestId) && !shouldBlockByStartTime,
+    enabled: authReady && Number.isFinite(contestId) && !shouldBlockByStartTime,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}/problems', {
         params: { path: { id: contestId } },

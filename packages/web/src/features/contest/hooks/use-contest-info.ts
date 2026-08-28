@@ -1,15 +1,17 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuthReady } from '@broccoli/web-sdk/auth';
 import { useQuery } from '@tanstack/react-query';
 
 export function useContestInfo(contestId: number) {
   const apiClient = useApiClient();
+  const authReady = useAuthReady();
   const {
     data: contest,
     isLoading,
     error,
   } = useQuery({
     queryKey: ['contest', contestId],
-    enabled: Number.isFinite(contestId),
+    enabled: authReady && Number.isFinite(contestId),
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}', {
         params: { path: { id: contestId } },

@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuthReady } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Fragment, useEffect, useState } from 'react';
@@ -25,6 +26,7 @@ const ACCENT = 'hsl(var(--sidebar-ring))';
 
 function useCountdownData(contestId: number) {
   const apiClient = useApiClient();
+  const authReady = useAuthReady();
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -34,7 +36,7 @@ function useCountdownData(contestId: number) {
 
   const { data: contest } = useQuery({
     queryKey: ['contest', contestId],
-    enabled: Number.isFinite(contestId) && contestId > 0,
+    enabled: authReady && Number.isFinite(contestId) && contestId > 0,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}', {
         params: { path: { id: contestId } },

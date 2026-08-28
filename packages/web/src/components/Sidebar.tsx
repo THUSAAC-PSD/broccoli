@@ -1,5 +1,9 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import { useAuth, USER_PERMISSIONS } from '@broccoli/web-sdk/auth';
+import {
+  useAuth,
+  useAuthReady,
+  USER_PERMISSIONS,
+} from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   CONTEST_MANAGE,
@@ -173,6 +177,7 @@ function ContestProblemsGroup() {
   const { contestId: ctxContestId, contestTitle } = useContest();
   const { pathname } = useLocation();
   const apiClient = useApiClient();
+  const authReady = useAuthReady();
 
   const urlContestId = (() => {
     const m = pathname.match(/^\/contests\/(\d+)/);
@@ -183,7 +188,7 @@ function ContestProblemsGroup() {
 
   const { data: contestData } = useQuery({
     queryKey: ['contest', contestId],
-    enabled: !!contestId && !contestTitle,
+    enabled: authReady && !!contestId && !contestTitle,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}', {
         params: { path: { id: contestId! } },
@@ -197,7 +202,7 @@ function ContestProblemsGroup() {
 
   const { data: problems = [] } = useQuery({
     queryKey: ['contest-problems', contestId],
-    enabled: !!contestId,
+    enabled: authReady && !!contestId,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}/problems', {
         params: { path: { id: contestId! } },
