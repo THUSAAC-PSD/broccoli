@@ -22,7 +22,7 @@ use crate::models::shared::{Pagination, escape_like};
 use crate::models::submission::*;
 use crate::state::AppState;
 use crate::utils::contest::{
-    find_contest, is_contest_participant, is_problem_in_contest, require_contest_participant,
+    check_contest_access, find_contest, is_problem_in_contest, require_contest_participant,
     require_contest_running, require_problem_read_access,
 };
 use crate::utils::judging::{files_to_json, validate_code_payload, validate_submission_contract};
@@ -636,10 +636,17 @@ pub async fn list_contest_submissions(
     let contest_model = find_contest(&state.db, contest_id).await?;
 
     let can_view_all = auth_user.has_permission(perm::SUBMISSION_VIEW_ALL);
-    let is_participant = is_contest_participant(&state.db, contest_id, auth_user.user_id).await?;
 
-    if !can_view_all && !is_participant && !contest_model.is_public {
-        return Err(AppError::NotFound("Contest not found".into()));
+    // Gate contest visibility through the shared access check so the activation
+    // window (activate_time/deactivate_time) is enforced here exactly as on every
+    // other contest read path. SUBMISSION_VIEW_ALL still short-circuits it, matching
+    // the prior behaviour where that permission bypassed the gate. The hand-rolled
+    // `is_public` check this replaces skipped the window entirely: a *public but
+    // out-of-window* contest (not yet activated, or deactivated/archived) leaked its
+    // full submission list - usernames, verdicts, scores - to any authenticated
+    // non-participant, and acted as an existence oracle (200-with-data vs 404).
+    if !can_view_all {
+        check_contest_access(&state.db, &auth_user, &contest_model).await?;
     }
 
     let can_see_all = can_view_all || contest_model.submissions_visible;

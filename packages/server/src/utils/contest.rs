@@ -335,3 +335,98 @@ mod problem_read_access_tests {
         assert!(matches!(err, AppError::NotFound(_)));
     }
 }
+
+#[cfg(test)]
+mod contest_access_tests {
+    use sea_orm::{DatabaseBackend, MockDatabase};
+
+    use super::*;
+
+    fn user(permissions: &[&str]) -> AuthUser {
+        AuthUser {
+            user_id: 42,
+            username: "contestant".into(),
+            roles: vec![],
+            permissions: permissions.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+
+    /// `hours` is an offset from now: negative = past, positive = future.
+    fn contest_row(
+        is_public: bool,
+        activate_hours: Option<i64>,
+        deactivate_hours: Option<i64>,
+    ) -> contest::Model {
+        let now = chrono::Utc::now();
+        contest::Model {
+            id: 7,
+            title: "Contest".into(),
+            description: "desc".into(),
+            activate_time: activate_hours.map(|h| now + chrono::Duration::hours(h)),
+            deactivate_time: deactivate_hours.map(|h| now + chrono::Duration::hours(h)),
+            start_time: now - chrono::Duration::hours(2),
+            end_time: now + chrono::Duration::hours(2),
+            is_public,
+            submissions_visible: true,
+            show_compile_output: true,
+            show_participants_list: true,
+            contest_type: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        }
+    }
+
+    /// A public contest whose `deactivate_time` has passed (archived/deactivated)
+    /// is out of its activation window and must 404 for an unprivileged user - even
+    /// though `is_public` is true. This is the invariant `list_contest_submissions`
+    /// relies on: the pre-fix hand-rolled `is_public` gate skipped the window and
+    /// leaked the submission list here. The stubless mock proves the gate rejects
+    /// BEFORE any participant lookup query runs.
+    #[tokio::test]
+    async fn public_but_deactivated_contest_is_not_found_for_unprivileged_user() {
+        let db = MockDatabase::new(DatabaseBackend::Postgres).into_connection();
+        let contest = contest_row(true, Some(-3), Some(-1));
+        let err = check_contest_access(&db, &user(&[]), &contest)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, AppError::NotFound(_)),
+            "public out-of-window contest must be NotFound, got {err:?}"
+        );
+    }
+
+    /// A public contest not yet activated (`activate_time` in the future) is
+    /// likewise out of window and must 404 - an existence oracle otherwise.
+    #[tokio::test]
+    async fn public_not_yet_activated_contest_is_not_found_for_unprivileged_user() {
+        let db = MockDatabase::new(DatabaseBackend::Postgres).into_connection();
+        let contest = contest_row(true, Some(1), None);
+        let err = check_contest_access(&db, &user(&[]), &contest)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    }
+
+    /// The positive control: a public contest inside its window is accessible to
+    /// any authenticated user with no participant lookup (stubless mock).
+    #[tokio::test]
+    async fn public_in_window_contest_is_accessible_to_any_user() {
+        let db = MockDatabase::new(DatabaseBackend::Postgres).into_connection();
+        let contest = contest_row(true, Some(-1), Some(1));
+        check_contest_access(&db, &user(&[]), &contest)
+            .await
+            .expect("in-window public contest must be accessible");
+    }
+
+    /// `contest:manage` short-circuits before the window check, so managers keep
+    /// access to a not-yet-activated private contest.
+    #[tokio::test]
+    async fn contest_manage_bypasses_the_activation_window() {
+        let db = MockDatabase::new(DatabaseBackend::Postgres).into_connection();
+        let contest = contest_row(false, Some(1), None);
+        check_contest_access(&db, &user(&[perm::CONTEST_MANAGE]), &contest)
+            .await
+            .expect("contest:manage bypasses the activation window");
+    }
+}
