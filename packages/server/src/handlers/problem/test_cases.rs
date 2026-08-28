@@ -250,6 +250,12 @@ pub async fn update_test_case(
     }
 
     let txn = state.db.begin().await?;
+    // Take the same per-problem FOR UPDATE lock create/delete/reorder/bulk_delete
+    // hold, so a label change is serialized against them: without it,
+    // ensure_test_case_label_available below is a read-committed TOCTOU (there is
+    // no DB unique index on test_case.label) and two concurrent updates could
+    // both pass the check and commit duplicate labels.
+    find_problem_for_update(&txn, problem_id).await?;
     let existing = find_test_case_for_problem(&txn, problem_id, tc_id).await?;
     let mut active: test_case::ActiveModel = existing.into();
 
