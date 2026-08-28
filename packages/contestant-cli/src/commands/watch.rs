@@ -180,6 +180,9 @@ struct AppData {
     clar_prev: HashMap<String, usize>,
     /// False until the first poll, so existing items don't flash/badge on startup.
     clar_inited: bool,
+    /// False until the first submissions poll, so pre-existing Accepted
+    /// submissions don't flash "✓ Accepted" or steal the cursor on startup.
+    subs_inited: bool,
     /// When `Some`, the in-progress clarification input text.
     compose: Option<String>,
     /// Transient one-line footer status.
@@ -314,6 +317,7 @@ pub fn run(args: WatchArgs) -> anyhow::Result<()> {
         clar_acked: HashMap::new(),
         clar_prev: HashMap::new(),
         clar_inited: false,
+        subs_inited: false,
         compose: None,
         flash: None,
         flash_at: None,
@@ -421,7 +425,14 @@ fn run_event_loop(
                         .map(|s| s.id.clone())
                         .collect();
                     update_submissions(app, &d);
-                    consider(2, notify_new_accept(app, &was_accepted), &mut pending_flash);
+                    if app.subs_inited {
+                        consider(2, notify_new_accept(app, &was_accepted), &mut pending_flash);
+                    } else {
+                        // First poll: adopt existing submissions as the baseline so a
+                        // pre-existing AC doesn't flash or jump the cursor (mirrors
+                        // clar_inited for clarifications).
+                        app.subs_inited = true;
+                    }
                     subs_changed = true;
                 }
                 PollUpdate::Clarifications(d) => {
@@ -1664,6 +1675,7 @@ mod tests {
             clar_acked: HashMap::new(),
             clar_prev: HashMap::new(),
             clar_inited: true,
+            subs_inited: true,
             compose: None,
             flash: None,
             flash_at: None,
