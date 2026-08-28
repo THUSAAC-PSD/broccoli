@@ -132,12 +132,29 @@ pub fn run(args: TestArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // The server hard-caps custom_test_cases at 10 (see code_run.rs); sending
+    // more is rejected outright. Cap to the first 10 for the remote path and tell
+    // the user (local `--local` mode, handled above, runs all of them).
+    const MAX_REMOTE_SAMPLES: usize = 10;
+    let selected: &[_] = if samples.len() > MAX_REMOTE_SAMPLES {
+        println!(
+            "{}  This problem has {} samples; the server accepts at most {} per remote run. Testing the first {} — use --local to run all.",
+            style("!").yellow().bold(),
+            samples.len(),
+            MAX_REMOTE_SAMPLES,
+            MAX_REMOTE_SAMPLES
+        );
+        &samples[..MAX_REMOTE_SAMPLES]
+    } else {
+        &samples
+    };
+
     println!(
         "{}  Running {} sample(s) on the server...",
         style("→").blue().bold(),
-        samples.len()
+        selected.len()
     );
-    let custom: Vec<CustomTestCaseInput> = samples
+    let custom: Vec<CustomTestCaseInput> = selected
         .iter()
         .map(|s| CustomTestCaseInput {
             input: s.input.clone(),
