@@ -150,17 +150,42 @@ impl<M: PluginManager + Send + Sync + ?Sized + 'static> GenericHook for PluginHo
         .await;
 
         match call_result {
-            Ok(output_bytes) => match serde_json::from_slice::<HookResponse>(&output_bytes) {
-                Ok(hook_response) => Ok(into_hook_action(hook_response, &event.topic)),
+            Ok(output_bytes) => match serde_json::from_slice::<serde_json::Value>(&output_bytes) {
+                // Non-JSON output (empty/garbage from a broken guest build). The
+                // former `call::<_, Value>` path surfaced this as
+                // PluginError::Serialization -> outer Err -> Reject, so a Blocking
+                // gate (cooldown / submission-limit) failed CLOSED. Parsing
+                // straight into HookResponse conflated this with the wrong-shape
+                // case below and let a malformed response silently PASS the gate;
+                // restore the fail-closed Reject for genuinely unparseable bytes.
                 Err(e) => {
-                    tracing::warn!(
+                    tracing::error!(
                         plugin_id = %self.plugin_id,
                         function = %self.function_name,
-                        "Hook returned unparseable response, treating as pass: {e}",
+                        "Hook returned non-JSON output (fail-closed): {e}",
                     );
-
-                    Ok(GenericHookAction::Pass)
+                    let detail = serde_json::json!({
+                        "code": PLUGIN_RUNTIME_ERROR_CODE,
+                        "message": format!("Plugin '{}' hook '{}' returned a non-JSON response", self.plugin_id, self.function_name),
+                        "status_code": 500,
+                    });
+                    Ok(GenericHookAction::Reject(detail.to_string()))
                 }
+                // Valid JSON of the wrong shape was already treated as a pass by
+                // the old path (it deserialized to Value, then failed to coerce),
+                // so preserve that: a plugin that returns some other valid JSON
+                // object does not block the request.
+                Ok(value) => match serde_json::from_value::<HookResponse>(value) {
+                    Ok(hook_response) => Ok(into_hook_action(hook_response, &event.topic)),
+                    Err(e) => {
+                        tracing::warn!(
+                            plugin_id = %self.plugin_id,
+                            function = %self.function_name,
+                            "Hook returned a wrong-shape response, treating as pass: {e}",
+                        );
+                        Ok(GenericHookAction::Pass)
+                    }
+                },
             },
             Err(e) => {
                 tracing::error!(
