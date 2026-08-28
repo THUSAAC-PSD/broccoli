@@ -1,5 +1,13 @@
 {
-  admin 0.0.0.0:2019
+  # Bind the admin API to the gateway's private VPC address, not 0.0.0.0.
+  # The container runs with network_mode: host, so 0.0.0.0 exposed Caddy's
+  # unauthenticated admin API (including the writable /load config endpoint)
+  # on every interface — including any public one — letting a reachable peer
+  # take over the reverse proxy. 10.104.0.14:2019 is exactly the target
+  # Prometheus scrapes (ops/deploy/observability/targets/caddy.json), and
+  # Caddy auto-allows the bound address as an admin origin, so metrics keep
+  # working while the endpoint is confined to the VPC.
+  admin 10.104.0.14:2019
 }
 
 :80 {
