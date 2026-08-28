@@ -92,13 +92,13 @@ impl WorkerRuntime {
 
         let dedup = match RedisTaskDedup::new(
             &config.mq.url,
-            config.mq.dlq.stuck_job_timeout_secs,
+            config.worker.dedup_ttl_secs,
             config.worker.id.clone(),
         ) {
             Ok(d) => {
                 info!(
-                    "Task dedup initialized (TTL={}s)",
-                    config.mq.dlq.stuck_job_timeout_secs
+                    "Task dedup initialized (fallback TTL={}s; per-operation TTL derived from step resource limits)",
+                    config.worker.dedup_ttl_secs
                 );
                 Some(Arc::new(d))
             }

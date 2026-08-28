@@ -11,7 +11,7 @@ use tracing::{error, info, warn};
 
 use common::cancel::RedisCancelChecker;
 
-use crate::dedup::{ClaimOutcome, RedisTaskDedup};
+use crate::dedup::{ClaimOutcome, RedisTaskDedup, task_dedup_ttl_secs};
 use crate::metrics::{
     TaskMetricGuard, WorkerPermitMetricGuard, record_mq_consume, record_mq_publish,
 };
@@ -108,7 +108,13 @@ impl WorkerConsumer {
         }
 
         if let Some(dedup) = self.dedup.as_ref() {
-            match dedup.try_claim(&task_id).await {
+            // Size the dedup claim's TTL to this operation's own runtime
+            // (summed step wall/time limits + slack), floored at the configured
+            // `worker.dedup_ttl_secs` fallback. A flat TTL either expired mid-run
+            // for a long operation (letting a redelivery run it concurrently) or
+            // lingered for hours after a short one.
+            let ttl_secs = task_dedup_ttl_secs(&task, dedup.fallback_ttl_secs());
+            match dedup.try_claim_with_ttl(&task_id, ttl_secs).await {
                 ClaimOutcome::Claimed => {
                     let mut attrs = task_attrs.clone();
                     attrs.push(KeyValue::new("outcome", "claimed"));
