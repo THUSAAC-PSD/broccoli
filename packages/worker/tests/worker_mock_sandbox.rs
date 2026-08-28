@@ -847,6 +847,7 @@ async fn shared_channel_fifo_between_two_environments() {
         channels: vec![Channel {
             name: "pipe1".to_string(),
             buffer_size: Some(8192),
+            ..Channel::default()
         }],
         priority: None,
         target_worker_id: None,
@@ -934,6 +935,7 @@ async fn channel_pipe_io_redirect_between_environments() {
         channels: vec![Channel {
             name: "data_pipe".to_string(),
             buffer_size: Some(8192),
+            ..Channel::default()
         }],
         priority: None,
         target_worker_id: None,
@@ -1012,6 +1014,7 @@ async fn non_channel_pipe_still_works_with_channels_present() {
         channels: vec![Channel {
             name: "some_other_channel".to_string(),
             buffer_size: Some(8192),
+            ..Channel::default()
         }],
         priority: None,
         target_worker_id: None,
@@ -1259,6 +1262,7 @@ async fn stdin_fifo_consumer_observes_eof_when_writer_closes() {
         channels: vec![Channel {
             name: "s".to_string(),
             buffer_size: Some(8192),
+            ..Channel::default()
         }],
         priority: None,
         target_worker_id: None,
@@ -1425,6 +1429,7 @@ fn fused_stream_op(
         channels: vec![Channel {
             name: "sol_out".to_string(),
             buffer_size: Some(8192),
+            ..Channel::default()
         }],
         priority: None,
         target_worker_id: None,

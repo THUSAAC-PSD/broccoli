@@ -229,18 +229,8 @@ impl OperationHandler {
         let mut channel_keepalives: HashMap<String, Vec<KeepAlive>> = HashMap::new();
         let mut consumer_flags: HashMap<String, Arc<AtomicBool>> = HashMap::new();
         if let Some(ref dir) = shared_channels_dir {
-            let mut producer_of: HashMap<String, String> = HashMap::new();
-            let mut consumer_of: HashMap<String, String> = HashMap::new();
-            for task in &operation.tasks {
-                for ch in step_produced_channels(task, &channel_names) {
-                    // First writer wins; a channel has a single logical producer.
-                    producer_of.entry(ch).or_insert_with(|| task.id.clone());
-                }
-                for ch in step_consumed_channels(task, &channel_names) {
-                    // First reader wins; the fused pipeline has a single consumer.
-                    consumer_of.entry(ch).or_insert_with(|| task.id.clone());
-                }
-            }
+            let (producer_of, consumer_of) =
+                resolve_channel_roles(&operation.tasks, &operation.channels, &channel_names);
             for channel in &operation.channels {
                 // Only manage a keep-alive for channels with an identifiable
                 // producer step. An orphan channel (consumed, never produced) keeps
@@ -789,6 +779,54 @@ fn step_consumed_channels(step: &Step, channel_names: &HashSet<String>) -> Vec<S
     consumed
 }
 
+/// Resolve each channel to its producer/consumer step id for keep-alive wiring.
+///
+/// Two sources, in priority order:
+///  1. **stdio-pipe scan** -- a step whose stdout/stderr (producer) or stdin
+///     (consumer) is an `IOTarget::Pipe` on a declared channel. Authoritative
+///     where present (the `redirect`-mode contestant is detected this way).
+///  2. **explicit `Channel.producer_step`/`consumer_step`** -- fills only the
+///     gaps the scan left. A step that opens a FIFO via a *raw argv path* (the
+///     communication-evaluator manager on every channel, and the contestant in
+///     `fifo_args` mode) is not a `Pipe` on any stdio slot, so the scan cannot
+///     see it. Without this, such argv-opened endpoints get no keep-alive and a
+///     non-participating peer wedges until its isolate wall-time (up to the
+///     manager's 150s wall -> a slot-exhaustion vector).
+///
+/// `or_insert` keeps the scan authoritative where both agree; the explicit
+/// declaration only supplies what the scan could not observe.
+fn resolve_channel_roles(
+    tasks: &[Step],
+    channels: &[Channel],
+    channel_names: &HashSet<String>,
+) -> (HashMap<String, String>, HashMap<String, String>) {
+    let mut producer_of: HashMap<String, String> = HashMap::new();
+    let mut consumer_of: HashMap<String, String> = HashMap::new();
+    for task in tasks {
+        for ch in step_produced_channels(task, channel_names) {
+            // First writer wins; a channel has a single logical producer.
+            producer_of.entry(ch).or_insert_with(|| task.id.clone());
+        }
+        for ch in step_consumed_channels(task, channel_names) {
+            // First reader wins; the fused pipeline has a single consumer.
+            consumer_of.entry(ch).or_insert_with(|| task.id.clone());
+        }
+    }
+    for channel in channels {
+        if let Some(producer) = &channel.producer_step {
+            producer_of
+                .entry(channel.name.clone())
+                .or_insert_with(|| producer.clone());
+        }
+        if let Some(consumer) = &channel.consumer_step {
+            consumer_of
+                .entry(channel.name.clone())
+                .or_insert_with(|| consumer.clone());
+        }
+    }
+    (producer_of, consumer_of)
+}
+
 /// Runaway guard for `release_channel_keepalive`'s writer-restore loop. NOT a
 /// functional timeout -- the consumer-done flag is the real bound; this only caps
 /// a pathological consumer that neither opens nor finishes. Must exceed the
@@ -831,25 +869,36 @@ fn fifo_has_buffered_input(file: &std::fs::File) -> bool {
 /// producer has already resolved, so the last writer is gone and the open blocks
 /// with no writer -- a ~10-minute hang until the isolate wall-time backstop.
 ///
-/// This routine instead keeps a writer present until the consumer is observed as
-/// a reader, exploiting two FIFO facts (empirically verified):
-///   * `open(O_WRONLY|O_NONBLOCK)` succeeds iff a reader is present -- including a
-///     consumer blocked in `open(O_RDONLY)` -- and fails `ENXIO` otherwise.
-///   * closing a momentary writer delivers a clean EOF (read returns 0) to a
-///     reader blocked in either `open` or `read`.
+/// This routine instead keeps a writer present until the identified consumer has
+/// actually finished, exploiting one FIFO fact (empirically verified): closing a
+/// momentary writer delivers a clean EOF (read returns 0) to a reader blocked in
+/// either `open` or `read`, and re-opening `O_RDWR` restores a writer without ever
+/// blocking -- so a consumer's imminent `open(O_RDONLY)` always finds a writer.
 ///
 /// Each iteration drops our writer (delivering EOF to a consumer already blocked
-/// in `read`) then probes:
-///   * `Ok`  -> a reader is present; closing the probe leaves `writers == 0`, so
-///     the consumer's `open` rendezvous completes and its `read` sees EOF. Any
-///     transient re-block during the open/close flicker is resolved by that final
-///     close, which re-wakes the reader against `writers == 0`. Done.
-///   * `ENXIO` -> no reader yet. Only channels with an IOConfig-identified
-///     consumer (`consumer_done: Some`) run the retry loop: re-open the keep-alive
-///     (restoring a writer for the consumer's imminent `open`) and retry after a
-///     short sleep, stopping the instant that consumer's flag is set. A channel
-///     with no detectable consumer (`consumer_done: None`, e.g. an argv-opened
-///     reader) releases promptly here -- there is no "consumer opened" signal.
+/// in `read`), then decides whether to release for good:
+///   * a channel with an **identified consumer** (`consumer_done: Some`, from the
+///     stdio-pipe scan OR an explicit `consumer_step`) releases ONLY once that
+///     consumer's done-flag is set. Until then it re-opens the keep-alive
+///     (restoring the writer) and retries after a short sleep; each drop re-attempts
+///     EOF delivery, so the consumer both opens (writer present) and finishes
+///     (EOF delivered) without ever wedging.
+///   * a channel with **no detectable consumer** (`consumer_done: None`, a genuine
+///     orphan) releases promptly -- there is no flag to wait on.
+///   * either kind releases at once if the FIFO path has vanished (operation
+///     cleanup removed the channels dir) -- nothing is left to serve.
+///
+/// Why the consumer flag, not the old `O_WRONLY|O_NONBLOCK` reader probe, is the
+/// authoritative release signal: that probe reports whether *any* reader exists,
+/// but it CANNOT prove OUR consumer opened. When the worker `fork`s to spawn any
+/// concurrent isolate, the child inherits a dup of this keep-alive's `O_RDWR` fd
+/// (fork copies the descriptor table; `O_CLOEXEC` closes the dup at the child's
+/// `execve`, NOT at `fork`). That dup shares our open-file-description, so the
+/// kernel keeps counting our own lineage as a reader across the drop above until
+/// the child execs -- a false `reader_ok`. Releasing on it drops the writer before
+/// the real (argv-opened, later) consumer opens, re-introducing the very openat
+/// wedge this routine prevents. The flag is immune: it flips only when the
+/// consumer step itself completes.
 ///
 /// The functional bound is that consumer flag, not a clock: `CHANNEL_RELEASE_MAX_WAIT`
 /// is only a runaway guard, deliberately set ABOVE the consumer isolate's maximum
@@ -860,8 +909,6 @@ fn fifo_has_buffered_input(file: &std::fs::File) -> bool {
 /// the FIFO until the 600s isolate wall-time. Raising it above the lifetime closes
 /// that window while the flag still makes the common path return in a few `STEP`s.
 async fn release_channel_keepalive(keepalive: KeepAlive) {
-    use std::os::unix::fs::OpenOptionsExt;
-
     let KeepAlive {
         fifo_path,
         file,
@@ -882,9 +929,9 @@ async fn release_channel_keepalive(keepalive: KeepAlive) {
         // WrongAnswer. While bytes are still queued, keep this reader alive and let
         // the consumer drain them first; our fd's writer side keeps the consumer's
         // open() rendezvous unblocked throughout, so this never reintroduces the
-        // openat wedge. Only wait when an IOConfig consumer is identified (that
-        // bounds the wait on a real step); argv-opened readers (`None`, the
-        // communication-evaluator manager) keep the original prompt-release path.
+        // openat wedge. Only wait when a consumer is identified (that bounds the
+        // wait on a real step's done-flag); a genuine orphan (`None`) keeps the
+        // prompt-release path.
         if let Some(f) = held.as_ref()
             && let Some(flag) = consumer_done.as_ref()
             && !flag.load(Ordering::Acquire)
@@ -901,58 +948,41 @@ async fn release_channel_keepalive(keepalive: KeepAlive) {
         // prior iteration's re-open counts as read -- no `unused_assignments`.
         drop(held.take());
 
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open(&fifo_path)
-        {
-            Ok(probe) => {
-                // A reader is present (blocked in open, or in read). Closing this
-                // momentary writer leaves writers == 0 -> the consumer's open
-                // rendezvous completes and its read observes EOF.
-                drop(probe);
-                return;
-            }
-            // The FIFO is gone (operation cleanup removed the channels dir): there
-            // is nothing left to serve, and the consumer's own open would fail too,
-            // so there is no wedge to prevent. Stop.
-            Err(e) if e.raw_os_error() == Some(libc::ENOENT) => return,
-            // ENXIO -> no reader yet. Any OTHER errno (EMFILE/ENFILE on a momentary
-            // fd-table spike, EINTR, ...) is a transient probe hiccup, NOT proof the
-            // consumer is gone -- treat it identically so a passing spike can never
-            // strand a live consumer, which is the very wedge this routine prevents.
-            Err(_) => {
-                // Keep restoring a writer only while an IOConfig-identified consumer
-                // is still live:
-                //   * `Some(flag)` not yet set -> a real consumer step exists and
-                //     has not opened yet; restore a writer and retry.
-                //   * `Some(flag)` set -> that consumer finished; stop.
-                //   * `None` -> the channel has no consumer we can detect. This is
-                //     the communication-evaluator manager pattern: it opens the FIFO
-                //     via a raw `argv` path, invisible to `step_consumed_channels`,
-                //     so there is no "consumer opened" signal to wait for. Spinning
-                //     would stall the whole layer every time that reader had already
-                //     come and gone. Release promptly instead -- the `drop` above
-                //     already delivered EOF to any reader still blocked in `read()`.
-                let keep_waiting = match &consumer_done {
-                    None => false,
-                    Some(flag) => !flag.load(Ordering::Acquire),
-                };
-                if !keep_waiting || waited >= CHANNEL_RELEASE_MAX_WAIT {
-                    // No/finished consumer, or the runaway guard tripped (a non-FIFO
-                    // hang) -> fall back to the isolate hard-timeout backstop.
-                    return;
-                }
-                // Consumer identified but not opened yet: restore a writer so its
-                // imminent open() rendezvous succeeds, then retry. A transient
-                // re-open failure just leaves `held` empty for this tick; the next
-                // probe re-checks and terminates promptly on ENOENT if the path is
-                // truly gone, so we retry rather than abandon a live consumer.
-                held = open_channel_keepalive(&fifo_path);
-                tokio::time::sleep(CHANNEL_RELEASE_STEP).await;
-                waited += CHANNEL_RELEASE_STEP;
-            }
+        // Decide whether this release is final. We deliberately do NOT probe for a
+        // reader: `open(O_WRONLY|O_NONBLOCK)` reports whether *any* reader exists,
+        // but it cannot prove OUR consumer opened. A concurrent isolate `fork`
+        // inherits a dup of this keep-alive's O_RDWR fd (the descriptor table is
+        // copied at fork; O_CLOEXEC only closes the dup at the child's `execve`),
+        // so the kernel counts our own lineage as a reader across the drop above
+        // until that child execs -- a false positive that, if trusted, drops the
+        // writer before the real (argv-opened, later) consumer opens and wedges its
+        // open(). The consumer done-flag is the only authoritative signal.
+        let done = match &consumer_done {
+            // Genuine orphan: no consumer step to wait on. The drop above already
+            // delivered EOF to any reader blocked in read(); release now.
+            None => true,
+            // Identified consumer finished -> safe to release for good.
+            Some(flag) => flag.load(Ordering::Acquire),
+        };
+        // The FIFO is gone (operation cleanup removed the channels dir): there is
+        // nothing left to serve and the consumer's own open would fail too, so stop
+        // promptly instead of spinning to the runaway guard. A plain stat cannot be
+        // fooled by an inherited fd dup the way a reader probe can.
+        let gone = !fifo_path.exists();
+        if done || gone || waited >= CHANNEL_RELEASE_MAX_WAIT {
+            return;
         }
+
+        // Identified consumer still live: restore a writer so its imminent open()
+        // rendezvous always succeeds, then retry. Each loop drops again, re-attempting
+        // EOF delivery, so the consumer both opens (writer present) and finishes
+        // (EOF delivered) -- converging on the flag without ever wedging. A transient
+        // re-open failure just leaves `held` empty for this tick; if the path is truly
+        // gone, `open_channel_keepalive` keeps failing and the runaway guard
+        // (`CHANNEL_RELEASE_MAX_WAIT`) bounds the loop.
+        held = open_channel_keepalive(&fifo_path);
+        tokio::time::sleep(CHANNEL_RELEASE_STEP).await;
+        waited += CHANNEL_RELEASE_STEP;
     }
 }
 
@@ -1126,6 +1156,66 @@ mod channel_keepalive_tests {
             },
         );
         assert!(step_consumed_channels(&box_pipe, &channels).is_empty());
+    }
+
+    #[test]
+    fn resolve_channel_roles_merges_scan_and_explicit_declarations() {
+        // Two channels. `piped` is wired via stdio pipes (redirect-style, visible
+        // to the scan). `argv` is opened only via raw argv paths on both ends
+        // (fifo_args-style, invisible to the scan) and relies on the explicit
+        // producer_step/consumer_step declarations.
+        let channel_names: HashSet<String> = ["piped".to_string(), "argv".to_string()]
+            .into_iter()
+            .collect();
+
+        let producer = step_with_io(
+            "prod",
+            IOConfig {
+                stdout: IOTarget::Pipe {
+                    name: "piped".to_string(),
+                },
+                ..Default::default()
+            },
+        );
+        let consumer = step_with_io(
+            "cons",
+            IOConfig {
+                stdin: IOTarget::Pipe {
+                    name: "piped".to_string(),
+                },
+                ..Default::default()
+            },
+        );
+        // The manager opens `argv` via argv only -> no Pipe on any stdio slot.
+        let manager = step_with_io("mgr", IOConfig::default());
+
+        let channels = vec![
+            // Scan already resolves `piped`; an explicit (wrong) declaration must
+            // NOT override the authoritative scan result.
+            Channel {
+                name: "piped".to_string(),
+                buffer_size: Some(8192),
+                producer_step: Some("someone_else".to_string()),
+                consumer_step: Some("someone_else".to_string()),
+            },
+            // `argv` is resolvable ONLY through the explicit declaration.
+            Channel {
+                name: "argv".to_string(),
+                buffer_size: Some(8192),
+                producer_step: Some("mgr".to_string()),
+                consumer_step: Some("cons".to_string()),
+            },
+        ];
+
+        let (producer_of, consumer_of) =
+            resolve_channel_roles(&[producer, consumer, manager], &channels, &channel_names);
+
+        // Scan is authoritative for `piped` despite the conflicting declaration.
+        assert_eq!(producer_of.get("piped"), Some(&"prod".to_string()));
+        assert_eq!(consumer_of.get("piped"), Some(&"cons".to_string()));
+        // `argv` is filled entirely from the explicit declaration.
+        assert_eq!(producer_of.get("argv"), Some(&"mgr".to_string()));
+        assert_eq!(consumer_of.get("argv"), Some(&"cons".to_string()));
     }
 
     #[cfg(unix)]

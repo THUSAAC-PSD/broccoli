@@ -34,13 +34,27 @@ pub fn build_operation(
     let buffer_size = comm_config.fifo_buffer_size as usize;
     let mut channels = Vec::new();
     for i in 0..n {
+        // Declare each channel's producer/consumer STEP ids. The manager opens
+        // every channel FIFO via a raw argv path (see `manager_argv` below), and
+        // in `fifo_args` mode the contestant does too -- neither is an
+        // `IOTarget::Pipe` on stdio, so the worker's keep-alive scan cannot see
+        // them. Without these hints the argv-opened channels get no keep-alive and
+        // a peer that fails to open its end (an early exit, or an EAGAIN-failed
+        // exec under burst) strands the other side until its wall-time (the
+        // manager's is `manager_time_limit_s * exec_wall_time_multiplier`, 150s by
+        // default). The ids match the steps pushed below and hold in both modes;
+        // in `redirect` they simply agree with the stdio-pipe detection.
         channels.push(Channel {
             name: format!("c{i}_to_m"),
             buffer_size: Some(buffer_size),
+            producer_step: Some(format!("run_contestant_{i}")),
+            consumer_step: Some("run_manager".to_string()),
         });
         channels.push(Channel {
             name: format!("m_to_c{i}"),
             buffer_size: Some(buffer_size),
+            producer_step: Some("run_manager".to_string()),
+            consumer_step: Some(format!("run_contestant_{i}")),
         });
     }
 

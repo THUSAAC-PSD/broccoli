@@ -175,6 +175,24 @@ pub struct Step {
 pub struct Channel {
     pub name: String,
     pub buffer_size: Option<usize>,
+    /// Step id that WRITES this channel FIFO when the writer opens it via a raw
+    /// argv path instead of an `IOTarget::Pipe` on its stdio. The worker's
+    /// keep-alive machinery infers a channel's producer/consumer from
+    /// `IOTarget::Pipe` targets (see `step_produced_channels`); a step that hands
+    /// the FIFO path to its program as an argument -- the communication-evaluator
+    /// manager opens 2 FIFOs per contestant this way -- is invisible to that scan,
+    /// so it MUST name itself here or the channel gets no keep-alive and a peer
+    /// that never opens its end wedges until the wall-time. `None` keeps the
+    /// pure `IOTarget::Pipe` detection (e.g. the batch-evaluator fused-checker
+    /// pipe, where both ends are stdio pipes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub producer_step: Option<String>,
+    /// Step id that READS this channel FIFO via a raw argv path. Mirror of
+    /// `producer_step`: lets the keep-alive release routine wait for this
+    /// consumer's open before delivering EOF (preserving buffered bytes) even
+    /// though the read end is argv-opened, not an `IOTarget::Pipe` on stdin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consumer_step: Option<String>,
 }
 
 impl Default for Channel {
@@ -182,6 +200,8 @@ impl Default for Channel {
         Self {
             name: String::new(),
             buffer_size: Some(8192),
+            producer_step: None,
+            consumer_step: None,
         }
     }
 }

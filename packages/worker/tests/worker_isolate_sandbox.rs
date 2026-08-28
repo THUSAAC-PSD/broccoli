@@ -860,6 +860,7 @@ async fn fused_builtin_stream_under_isolate() {
         channels: vec![Channel {
             name: "sol_out".to_string(),
             buffer_size: Some(8192),
+            ..Channel::default()
         }],
         priority: None,
         target_worker_id: None,
