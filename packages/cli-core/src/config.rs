@@ -130,8 +130,14 @@ pub fn save_credentials_full(
     let creds_path = credentials_path();
 
     let mut file = if creds_path.exists() {
-        let content = std::fs::read_to_string(&creds_path).unwrap_or_default();
-        serde_json::from_str::<CredentialsFile>(&content).unwrap_or_default()
+        // Propagate read/parse errors instead of unwrap_or_default(): a corrupt or
+        // unreadable file previously collapsed to an empty CredentialsFile, so the
+        // write below would silently drop every OTHER server's saved token. Fail
+        // loudly (matching the read path) rather than destroying credentials.
+        let content =
+            std::fs::read_to_string(&creds_path).context("Failed to read credentials file")?;
+        serde_json::from_str::<CredentialsFile>(&content)
+            .context("Failed to parse credentials file")?
     } else {
         CredentialsFile::default()
     };
