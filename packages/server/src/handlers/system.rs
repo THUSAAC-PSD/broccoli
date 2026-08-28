@@ -8,7 +8,8 @@ use common::SubmissionStatus;
 use opentelemetry::KeyValue;
 use redis::AsyncCommands;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, PaginatorTrait, QueryFilter, Statement,
+    ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect,
+    Statement,
 };
 use tracing::{instrument, warn};
 
@@ -328,36 +329,56 @@ async fn read_pending_submission_ages(state: &AppState) -> Result<Vec<PendingAge
     let now = Utc::now();
     let mut samples = Vec::new();
 
-    for model in submission::Entity::find()
+    // Only the two timestamp columns are needed to compute age. Select just those
+    // rather than hydrating whole rows: submission/code_run each carry a `files`
+    // JSON blob (and code_run also `custom_test_cases`) that can reach tens of MB,
+    // and this runs on the admin system-overview poll every few seconds — loading
+    // every column of every pending row would shovel that much data each tick
+    // under a judging backlog.
+    type PendingTs = (Option<chrono::DateTime<Utc>>, chrono::DateTime<Utc>);
+
+    let submission_ts: Vec<PendingTs> = submission::Entity::find()
+        .select_only()
+        .column(submission::Column::LeaseHeartbeatAt)
+        .column(submission::Column::CreatedAt)
         .filter(submission::Column::Status.eq(SubmissionStatus::Pending))
+        .into_tuple()
         .all(&state.db)
-        .await?
-    {
+        .await?;
+    for (heartbeat, created_at) in submission_ts {
         samples.push(PendingAgeSample {
             row_kind: "submission",
-            age_seconds: age_seconds(model.lease_heartbeat_at.unwrap_or(model.created_at), now),
+            age_seconds: age_seconds(heartbeat.unwrap_or(created_at), now),
         });
     }
 
-    for model in code_run::Entity::find()
+    let code_run_ts: Vec<PendingTs> = code_run::Entity::find()
+        .select_only()
+        .column(code_run::Column::LeaseHeartbeatAt)
+        .column(code_run::Column::CreatedAt)
         .filter(code_run::Column::Status.eq(SubmissionStatus::Pending))
+        .into_tuple()
         .all(&state.db)
-        .await?
-    {
+        .await?;
+    for (heartbeat, created_at) in code_run_ts {
         samples.push(PendingAgeSample {
             row_kind: "code_run",
-            age_seconds: age_seconds(model.lease_heartbeat_at.unwrap_or(model.created_at), now),
+            age_seconds: age_seconds(heartbeat.unwrap_or(created_at), now),
         });
     }
 
-    for model in submission_judgement::Entity::find()
+    let judgement_ts: Vec<PendingTs> = submission_judgement::Entity::find()
+        .select_only()
+        .column(submission_judgement::Column::LeaseHeartbeatAt)
+        .column(submission_judgement::Column::CreatedAt)
         .filter(submission_judgement::Column::Status.eq(SubmissionStatus::Pending))
+        .into_tuple()
         .all(&state.db)
-        .await?
-    {
+        .await?;
+    for (heartbeat, created_at) in judgement_ts {
         samples.push(PendingAgeSample {
             row_kind: "submission_judgement",
-            age_seconds: age_seconds(model.lease_heartbeat_at.unwrap_or(model.created_at), now),
+            age_seconds: age_seconds(heartbeat.unwrap_or(created_at), now),
         });
     }
 
