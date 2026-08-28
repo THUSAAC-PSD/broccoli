@@ -11,8 +11,9 @@ members = [
   "packages/broccoli-compare",
   "packages/contestant-cli",
 ]
-# All members EXCEPT packages/stress-test (test harness; opt-in via
-# `cargo build -p stress-test` so day-to-day builds stay fast).
+# All members EXCEPT packages/stress-test (test harness) and
+# packages/broccoli-compare (comparator binary), both opt-in via
+# `cargo build -p <name>` so day-to-day builds stay fast.
 default-members = [
   "packages/cli-core",
   "packages/common",
