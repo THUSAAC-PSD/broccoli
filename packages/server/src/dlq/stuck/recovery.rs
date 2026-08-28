@@ -90,11 +90,17 @@ pub(super) async fn recover_stuck_code_run_without_steal(
     let lease_heartbeat_at = Utc::now();
     let (owner_server_id, lease_heartbeat_at) = detector_retry_lease(server_id, lease_heartbeat_at);
 
-    code_run_result::Entity::delete_many()
-        .filter(code_run_result::Column::CodeRunId.eq(run.id))
-        .exec(txn)
-        .await?;
-
+    // Claim the run FIRST via the epoch+status-guarded update, then delete its
+    // stale per-run results - the same guard-then-delete order the submission
+    // and judgement siblings use. Two detectors can race the same stuck run;
+    // the loser's guarded update matches 0 rows and returns `Skip`, but the
+    // caller (`handlers::process_stuck_code_run`) commits the transaction
+    // unconditionally. Deleting `code_run_result` before the guard therefore
+    // let a lost race persist the delete, wiping the results that the winning
+    // epoch's re-dispatch is (re)producing - and `build_code_run_response`
+    // reads results by `code_run_id` with no epoch filter, so a polling user
+    // saw missing/partial test cases for a run that actually completed. Only
+    // the winner (rows_affected == 1) reaches the delete now.
     let affected = code_run::Entity::update_many()
         .col_expr(
             code_run::Column::Status,
@@ -130,6 +136,11 @@ pub(super) async fn recover_stuck_code_run_without_steal(
     if affected.rows_affected == 0 {
         return Ok(StuckRecovery::Skip);
     }
+
+    code_run_result::Entity::delete_many()
+        .filter(code_run_result::Column::CodeRunId.eq(run.id))
+        .exec(txn)
+        .await?;
 
     let mut redispatch_model = run.clone();
     redispatch_model.status = SubmissionStatus::Pending;

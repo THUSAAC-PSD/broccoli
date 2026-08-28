@@ -495,6 +495,51 @@ async fn direct_code_run_recovery_sql_claims_detector_lease() {
 }
 
 #[tokio::test]
+async fn code_run_recovery_skips_result_delete_when_claim_is_lost() {
+    // Regression: two stuck-recovery detectors can race the same code run. The
+    // loser's epoch+status-guarded `code_run` update matches 0 rows and returns
+    // `Skip`, but the caller (`process_stuck_code_run`) commits the transaction
+    // unconditionally. If the per-run `code_run_result` delete ran BEFORE that
+    // guard, a lost race would still delete + commit, wiping the results the
+    // winning epoch's re-dispatch is (re)producing. The guarded claim must come
+    // first so a lost race performs no destructive write.
+    let now = Utc::now();
+    let code_run = base_code_run(77, now);
+    // A single programmed exec with rows_affected == 0 models the guarded update
+    // losing the claim. Only one exec is available: the winning path (update
+    // first, then delete) consumes exactly this one and returns before the
+    // delete.
+    let db = MockDatabase::new(DbBackend::Postgres)
+        .append_exec_results([MockExecResult {
+            last_insert_id: 0,
+            rows_affected: 0,
+        }])
+        .into_connection();
+    let txn = db.begin().await.expect("begin mock transaction");
+
+    let recovery = recover_stuck_code_run_without_steal(&txn, &code_run, "server-1")
+        .await
+        .expect("recover code run");
+
+    txn.commit().await.expect("commit mock transaction");
+
+    assert!(
+        matches!(recovery, StuckRecovery::Skip),
+        "a lost claim race must Skip, not redispatch"
+    );
+
+    let log = format!("{:?}", db.into_transaction_log());
+    assert!(
+        log.contains("UPDATE \\\"code_run\\\" SET"),
+        "the epoch-guarded claim update must run first:\n{log}"
+    );
+    assert!(
+        !log.contains("DELETE FROM \\\"code_run_result\\\""),
+        "a lost claim must not delete code_run_result:\n{log}"
+    );
+}
+
+#[tokio::test]
 async fn direct_deferred_judgement_recovery_sql_claims_detector_lease() {
     let now = Utc::now();
     let submission = base_submission(42, now);
