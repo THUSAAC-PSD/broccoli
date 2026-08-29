@@ -206,6 +206,14 @@ impl<T: Clone + serde::Serialize> BrokerMessage<T> {
 #[derive(Debug, Clone)]
 pub(crate) enum MetadataTypes {
     String(String),
+    // BROCCOLI VENDOR PATCH (lint): `U64` is constructed only in the rabbitmq
+    // broker. Under our redis-only feature set that module is compiled out, so
+    // newer rustc dead-code analysis (which ignores the derive-only Clone/Debug
+    // impls) reports the variant as never constructed and CI's `-D warnings`
+    // promotes it to an error. Allow it precisely when rabbitmq is off; the redis
+    // broker still matches on the variant (`U64(_) => None`) so it cannot be
+    // removed. See VENDOR-PATCHES.md.
+    #[cfg_attr(not(feature = "rabbitmq"), allow(dead_code))]
     U64(u64),
 }
 

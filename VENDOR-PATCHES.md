@@ -52,9 +52,30 @@ the same latent gap but is **not called anywhere in broccoli** (only
 `process_messages` is used), so it is left unpatched rather than modifying dead
 code; if it ever gets used, apply the same fix to its two branches.
 
+### 3. `MetadataTypes::U64` dead-code lint under a redis-only build
+
+`src/brokers/broker.rs`, the `MetadataTypes` enum.
+
+The `U64` variant is constructed only in the rabbitmq broker
+(`src/brokers/rabbitmq/broker.rs`). Our workspace pulls the crate with
+`features = ["redis"]` only, so that module — and every `MetadataTypes::U64(..)`
+constructor — is compiled out; the redis broker merely _matches_ the variant
+(`U64(_) => None`), which does not count as a construction. A newer rustc
+dead-code pass (which no longer treats the derived `Clone`/`Debug` impls as
+uses) therefore reports the variant as never constructed, and our CI's
+`cargo clippy --workspace -- -D warnings` promotes that warning to a hard error.
+
+Patch: annotate the variant with
+`#[cfg_attr(not(feature = "rabbitmq"), allow(dead_code))]`. This silences the
+lint precisely when the constructor is absent and keeps warning if a future
+build enables `rabbitmq` and the variant is genuinely dead there. The variant is
+not removed because the redis broker still pattern-matches it. Not a behavior
+change.
+
 ### Re-vendoring
 
 To pull a new upstream version: replace `third_party/broccoli_queue`, bump the
-version here and in `[patch.crates-io]`, and re-apply both patches (grep for
-`BROCCOLI VENDOR PATCH`). If upstream fixes these, drop the vendor and the
-`[patch.crates-io]` entry.
+version here and in `[patch.crates-io]`, and re-apply all three patches (grep
+for `BROCCOLI VENDOR PATCH`). If upstream fixes the two message-loss bugs, drop
+the vendor and the `[patch.crates-io]` entry (the lint patch is only needed
+while we vendor).
