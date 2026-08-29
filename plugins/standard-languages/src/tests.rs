@@ -177,12 +177,42 @@ fn java_uses_glob_output() {
     let compile = result.compile.unwrap();
     assert_eq!(
         compile.command,
-        vec!["javac", "-J-XX:ActiveProcessorCount=1", "Solver.java"]
+        vec!["javac", "-J-XX:ActiveProcessorCount=1", "./Solver.java"]
     );
     assert_eq!(compile.outputs, vec![OutputSpec::Glob("*.class".into())]);
     assert_eq!(
         result.run.command,
         vec!["java", "-XX:ActiveProcessorCount=1", "-cp", ".", "Solver"]
+    );
+}
+
+#[test]
+fn java_prefixes_sources_to_block_argfile_injection() {
+    // A filename beginning with `@` is a javac argfile directive (`@file` reads
+    // compiler options from `file`). Every source token must be `./`-prefixed so
+    // javac reads it as a path, not an argfile -- otherwise a contestant injects
+    // javac flags into the trusted grader compile. `validate_flat_filename`
+    // rejects a leading `-` but not a leading `@`, so this is the real guard.
+    let mut input = req("java", vec!["Main.java"]);
+    input.additional_files = vec![FileRef {
+        filename: "@opts".into(),
+        content_type: None,
+        blob_hash: "opts-hash".into(),
+        read_token: None,
+    }];
+    let compile = resolve::resolve_java(&input, None, "javac", "java", &[], &[])
+        .compile
+        .unwrap();
+    // The `@opts` file is neutralized to `./@opts`, never a bare `@opts`.
+    assert!(
+        compile.command.contains(&"./@opts".to_string()),
+        "argfile-shaped name must be path-prefixed: {:?}",
+        compile.command
+    );
+    assert!(
+        !compile.command.iter().any(|a| a.starts_with('@')),
+        "no argv token may start with `@`: {:?}",
+        compile.command
     );
 }
 

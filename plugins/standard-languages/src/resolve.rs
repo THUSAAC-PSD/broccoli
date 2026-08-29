@@ -252,10 +252,20 @@ pub fn resolve_java(
     ));
     command.extend(flags.iter().cloned());
     command.extend(extra_compile_flags.iter().cloned());
-    command.push(primary.to_string());
+    // Prefix source filenames with `./` so an uploaded name is passed as a PATH,
+    // never parsed as a javac directive. `javac` treats any argv token starting
+    // with `@` as an ARGFILE (`@file` = read compiler options from `file`), which
+    // would let a contestant inject javac flags -- e.g. `-processorpath`/
+    // `-processor` = arbitrary code execution during the trusted grader compile.
+    // `validate_flat_filename` rejects a leading `-` at upload but NOT a leading
+    // `@`, so the plugin must not trust the raw name. `./Main.java` still compiles
+    // to `Main.class` (javac derives the class from source content, not the path),
+    // so the run step's class name (`basename`) is unaffected. Mirrors the
+    // `resolve_compiled` `./` defense.
+    command.push(format!("./{primary}"));
     for f in &all_files {
         if *f != primary {
-            command.push(f.to_string());
+            command.push(format!("./{f}"));
         }
     }
 
