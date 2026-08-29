@@ -1,8 +1,9 @@
 //! Single source of truth for "clear all judged output before re-dispatch".
 //!
-//! Work-stealing (`dispatcher/steal.rs`), stuck-recovery
-//! (`dlq/stuck/recovery.rs`), and admin apply-immediately rejudge
-//! (`handlers/submission/rejudge.rs`) must NULL the same set of judged-output
+//! Every re-dispatch path - work-stealing (`dispatcher/steal.rs`), stuck-recovery
+//! (`dlq/stuck/recovery.rs`), DLQ retry (`handlers/dlq.rs`), the submission-dispatch
+//! service (`services/submission_dispatch.rs`), and admin apply-immediately rejudge
+//! (`handlers/submission/rejudge.rs`) - must NULL the same set of judged-output
 //! columns when a submission, code run, or deferred judgement is re-queued for
 //! judging; a column present in one list but not the other leaks stale
 //! results into the re-judged row. The lists were previously hand-maintained

@@ -21,7 +21,7 @@ use sea_orm_migration::prelude::*;
 /// migration time anyway.
 ///
 /// The credential columns this exposes are hashed at rest (argon2:
-/// `user.password_hash`, `refresh_token.validator`), so they are not directly
+/// `user.password`, `refresh_token.validator`), so they are not directly
 /// usable; the meaningful exposure is cross-plugin `plugin_storage`/`plugin_config`
 /// contents, accepted under the trusted-admin model.
 pub struct Migration;

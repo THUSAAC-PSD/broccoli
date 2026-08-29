@@ -817,16 +817,10 @@ fn sanitize_json_nul_bytes(v: JsonValue, plugin_id: &str, sql: &str) -> JsonValu
     }
 }
 
-/// Final, unbypassable NUL strip on the fully-built bound values, applied at the
-/// execute choke point right before `Statement::from_sql_and_values`. PostgreSQL
-/// TEXT columns reject 0x00; this guarantees no NUL reaches libpq regardless of
-/// what any (possibly stale or future) plugin/SDK sent, independent of the
-/// earlier per-value sanitizers in `json_to_sea_value`. Returns how many values
-/// were modified so callers can surface that a NUL slipped past upstream layers.
-/// How many times a poisoned-connection 0x00 error is retried on a fresh
-/// connection before giving up. With `run_detached_db` eliminating the
-/// poisoning at its source this should rarely fire; it remains as a safety net
-/// for any other connection-desync source.
+/// How many times a poisoned-connection 0x00 error is retried on a fresh pooled
+/// connection before the guaranteed last-resort brand-new-connection fallback
+/// below takes over. The desync is rare, so a pool retry usually clears it; this
+/// cap just bounds the probabilistic retry.
 const POISONED_CONNECTION_RETRIES: u32 = 6;
 
 /// True when a DB error is the server-side SQLSTATE 22021 "invalid byte sequence
@@ -856,6 +850,12 @@ fn json_value_contains_nul(v: &JsonValue) -> bool {
     }
 }
 
+/// Final, unbypassable NUL strip on the fully-built bound values, applied at the
+/// execute choke point right before `Statement::from_sql_and_values`. PostgreSQL
+/// TEXT columns reject 0x00; this guarantees no NUL reaches libpq regardless of
+/// what any (possibly stale or future) plugin/SDK sent, independent of the
+/// earlier per-value sanitizers in `json_to_sea_value`. Returns how many values
+/// were modified so callers can surface that a NUL slipped past upstream layers.
 fn strip_nul_from_sea_values(values: &mut [sea_orm::Value], plugin_id: &str, sql: &str) -> usize {
     let mut stripped = 0usize;
     for value in values.iter_mut() {

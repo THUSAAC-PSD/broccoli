@@ -498,7 +498,7 @@ async fn direct_code_run_recovery_sql_claims_detector_lease() {
 async fn code_run_recovery_skips_result_delete_when_claim_is_lost() {
     // Regression: two stuck-recovery detectors can race the same code run. The
     // loser's epoch+status-guarded `code_run` update matches 0 rows and returns
-    // `Skip`, but the caller (`process_stuck_code_run`) commits the transaction
+    // `Skip`, but the caller (`handle_stuck_code_run`) commits the transaction
     // unconditionally. If the per-run `code_run_result` delete ran BEFORE that
     // guard, a lost race would still delete + commit, wiping the results the
     // winning epoch's re-dispatch is (re)producing. The guarded claim must come

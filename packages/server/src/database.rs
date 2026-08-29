@@ -815,9 +815,10 @@ mod tests {
     /// may `SELECT` every table, including formerly-restricted ones. This drives
     /// the REAL migration + REAL restricted pool against a live Postgres and
     /// asserts the previously-denied tables are now readable. (Credential columns
-    /// they expose are argon2-hashed at rest; contest admins are trusted.) Note
-    /// this is READ only - `broccoli_plugin_role_blocks_core_writes_...` still
-    /// proves core WRITES remain denied.
+    /// they expose are argon2-hashed at rest; contest admins are trusted.) This
+    /// test covers reads only; `broccoli_plugin_can_read_write_core_but_not_ddl_it_and_owns_its_tables`
+    /// covers that the plugin role may now WRITE (DML) core tables while core DDL
+    /// stays owner-only.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn broccoli_plugin_can_read_all_tables_after_denylist_removed() {
         use testcontainers::ImageExt;

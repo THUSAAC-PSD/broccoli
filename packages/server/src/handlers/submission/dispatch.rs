@@ -66,10 +66,12 @@ pub(super) async fn find_submission<C: ConnectionTrait>(
         .ok_or_else(|| AppError::NotFound("Submission not found".into()))
 }
 
-/// Opens a fresh judgement row for a rejudge. The previous current
-/// judgement is demoted to `is_current = false` and the new row becomes
-/// the dispatch target. The old row keeps its `test_case_result`
-/// attachments so the prior verdict is preserved as version history.
+/// Opens a fresh judgement row for a rejudge. On the apply-immediately path the
+/// previous current judgement is demoted to `is_current = false` and the new row
+/// becomes the current dispatch target; on a deferred rejudge the new row is
+/// inserted `is_current = false` and the existing current judgement is left in
+/// place. The old row keeps its `test_case_result` attachments so the prior
+/// verdict is preserved as version history.
 ///
 /// Caller is responsible for committing the surrounding transaction.
 pub(crate) async fn open_rejudge_judgement(

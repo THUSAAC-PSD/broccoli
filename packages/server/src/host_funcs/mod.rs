@@ -64,9 +64,9 @@ pub(crate) fn host_fn_span(host_fn: &'static str, plugin_id: &str) -> Span {
 
 pub fn init_host_functions(deps: HostFunctionDeps) -> HostFunctionRegistry {
     let mut hr = HostFunctionRegistry::new();
-    // `broccoli_plugin` pool: backs the raw `sql` capability and `config:read`.
-    // Full read + write DML on data, but no schema DDL on core and no app-role
-    // powers.
+    // `broccoli_plugin` pool: backs the raw `sql` capability. Full read + write
+    // DML on data, but no schema DDL on core and no app-role powers. (`config:read`
+    // runs on the PRIVILEGED pool - see its registration below.)
     let db = deps.system.db.clone();
     // PRIVILEGED pool (runs as the app role): backs the server-owned structured
     // host fns - `host.storage.*`, `host.submission.*`, and `config:write` -

@@ -94,7 +94,7 @@ pub(super) async fn recover_stuck_code_run_without_steal(
     // stale per-run results - the same guard-then-delete order the submission
     // and judgement siblings use. Two detectors can race the same stuck run;
     // the loser's guarded update matches 0 rows and returns `Skip`, but the
-    // caller (`handlers::process_stuck_code_run`) commits the transaction
+    // caller (`handlers::handle_stuck_code_run`) commits the transaction
     // unconditionally. Deleting `code_run_result` before the guard therefore
     // let a lost race persist the delete, wiping the results that the winning
     // epoch's re-dispatch is (re)producing - and `build_code_run_response`

@@ -6,12 +6,13 @@
 //! *structured* input (a `SubmissionUpdate`, a batch of `TestCaseResultRow`s,
 //! etc.) and the SERVER owns the SQL: the exact statements the guest SDK used to
 //! build are reproduced here, byte-for-byte, so judging behaves identically. The
-//! statements run on the SAME plugin DB pool and through the SAME
-//! NUL-sanitization / arg-parsing / poisoned-connection recovery choke point as
-//! raw plugin SQL (`sql::execute_on_pool` / `sql::query_on_pool`).
+//! statements run on the PRIVILEGED pool (the app role) - not the restricted
+//! `broccoli_plugin` pool that backs the raw `sql` channel - but still through
+//! the SAME NUL-sanitization / arg-parsing / poisoned-connection recovery choke
+//! point as raw plugin SQL (`sql::execute_on_pool` / `sql::query_on_pool`).
 //!
-//! Restricting the raw `sql` capability is intentionally left to phase 2; this
-//! module only ADDS the structured path.
+//! The raw `sql` capability is now restricted to the read-only `broccoli_plugin`
+//! role; this module carries the judge's structured core-write path.
 
 use broccoli_server_sdk::types::{
     SubmissionStatus, SubmissionUpdate, TestCaseResultRow, push_judge_sets,

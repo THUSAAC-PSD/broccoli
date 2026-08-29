@@ -302,7 +302,6 @@ impl From<crate::entity::problem::Model> for ProblemResponse {
             time_limit: m.time_limit,
             memory_limit: m.memory_limit,
             problem_type: m.problem_type,
-            // Deliberately NOT copied from the entity: the checker source is
             checker_format: m.checker_format,
             default_contest_type: m.default_contest_type,
             show_test_details: m.show_test_details,

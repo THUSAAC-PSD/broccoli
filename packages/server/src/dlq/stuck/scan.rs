@@ -118,8 +118,9 @@ async fn detect_and_handle_stuck_jobs(
     // Composite recovery predicate:
     // - Pending rows with no owner are orphaned after the 5-minute
     //   per-state threshold.
-    // - Owned Pending/Compiling/Running rows are stale only when their
-    //   lease heartbeat is missing or older than the wide-net threshold.
+    // - Owned Pending/Compiling/Running rows are stale when their lease
+    //   heartbeat is missing or older than the wide-net threshold, or when
+    //   `leased_at` predates the `max_inflight_secs` inflight cap (see above).
     // - Queued rows are intentionally excluded from row-level recovery.
     let mut submission_lease_stale = Condition::any()
         .add(submission::Column::LeaseHeartbeatAt.is_null())
