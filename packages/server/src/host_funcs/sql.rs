@@ -656,8 +656,9 @@ fn reject_role_escalation(plugin_id: &str, sql: &str) -> Result<(), extism::Erro
 }
 
 /// True if a single comment-stripped, lowercased SQL statement changes the
-/// session role/authorization or runs an anonymous code block. Callers pass one
-/// ';'-separated statement (see [`reject_role_escalation`]).
+/// session role/authorization, runs an anonymous code block, or defines a
+/// routine (whose single-quoted body the lexer cannot see into). Callers pass
+/// one ';'-separated statement (see [`reject_role_escalation`]).
 fn statement_changes_role(stmt: &str) -> bool {
     // Tokenize into SQL identifier/keyword tokens (split on any char that is not
     // part of an identifier). Token-aware matching is both whitespace-/comment-
@@ -676,6 +677,28 @@ fn statement_changes_role(stmt: &str) -> bool {
         .is_some_and(|t| *t == "do" || *t == "discard")
     {
         return true;
+    }
+    // CREATE [OR REPLACE] FUNCTION/PROCEDURE is the NAMED analogue of the `DO`
+    // block above: it defines a routine body the lexer cannot see into. Unlike a
+    // `$$..$$` body (emitted verbatim by `scrub_sql_for_guard` so a role change
+    // inside is still caught), a SINGLE-QUOTED body -- `AS '.. set_config(''role''
+    // ,..) ..'` -- is blanked to one space, hiding a role escape that a later,
+    // benign-looking `SELECT f()` then executes (`set_config(.., is_local=>false)`
+    // persists to the session). A plugin never needs server-side routines -- its
+    // own `CREATE TABLE` stays allowed -- so block the construct outright. The
+    // grammar is fixed (`CREATE [OR REPLACE] {FUNCTION|PROCEDURE}`, nothing but
+    // the optional `OR REPLACE` between), so the command keyword is the first
+    // token after `create` past any `or`/`replace`; a table NAMED `function`
+    // (`CREATE TABLE "function"`) keeps `table` as its command word and is not
+    // falsely blocked.
+    if tokens.first().copied() == Some("create") {
+        let command = tokens[1..]
+            .iter()
+            .copied()
+            .find(|&t| t != "or" && t != "replace");
+        if matches!(command, Some("function") | Some("procedure")) {
+            return true;
+        }
     }
     // `set_config('role',..)` / `pg_catalog.set_config(..)` (any spacing), and the
     // underscore `session_authorization` GUC form, anywhere in the statement.
@@ -1372,6 +1395,15 @@ mod tests {
             "-- c\nRESET ROLE",
             "DO $$ BEGIN EXECUTE 'reset role'; END $$",
             "CREATE FUNCTION f() RETURNS void AS $$ RESET ROLE $$ LANGUAGE sql",
+            // A role change smuggled in a SINGLE-QUOTED routine body is invisible
+            // to the lexer (the body is blanked, unlike a verbatim `$$..$$`
+            // body), so the CREATE FUNCTION/PROCEDURE construct is blocked
+            // outright -- the named analogue of the DO block. Covers plpgsql/sql,
+            // OR REPLACE, PROCEDURE, and a schema-qualified routine name.
+            "CREATE FUNCTION evil() RETURNS void AS 'BEGIN PERFORM set_config(''role'',''postgres'',false); END' LANGUAGE plpgsql",
+            "CREATE OR REPLACE FUNCTION evil() RETURNS void AS 'SELECT set_config(''role'',''postgres'',false)' LANGUAGE sql",
+            "CREATE PROCEDURE evil() LANGUAGE plpgsql AS 'BEGIN PERFORM set_config(''role'',''x'',false); END'",
+            "create function pg_temp.evil() returns void as 'select 1' language sql",
             // a SET ROLE smuggled after a benign statement must NOT hide behind
             // the earlier UPDATE: each ';'-separated statement is judged alone
             "UPDATE my_plugin_table SET v = 1 WHERE k = 2; SET ROLE app_role",
@@ -1431,6 +1463,10 @@ mod tests {
             "UPDATE my_plugin_table SET v = $1 WHERE k = $2",
             "CREATE TABLE my_plugin_table (k TEXT PRIMARY KEY, v INT)",
             "ALTER TABLE my_plugin_table SET (fillfactor = 90)",
+            // a table whose NAME is the reserved word `function` (quoted, so it
+            // flattens to a `function` token) is not a routine definition: the
+            // command keyword after CREATE is TABLE, so it stays allowed
+            "CREATE TABLE \"function\" (x int)",
             "WITH x AS (SELECT 1) SELECT * FROM x",
             "DELETE FROM my_plugin_table WHERE k = $1",
             // a column named role*/session* must NOT be a false positive
