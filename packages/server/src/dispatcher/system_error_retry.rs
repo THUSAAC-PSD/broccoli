@@ -16,7 +16,7 @@
 //! SystemError`) or stuck-handler-terminal / dispatch-exhaustion (`status ==
 //! SystemError`) - with retry budget remaining, requeues them to a fresh epoch
 //! (in lockstep with the parent submission, results wiped - see
-//! [`crate::services::submission_dispatch::requeue_judgement_for_system_error_retry`])
+//! `crate::services::submission_dispatch::requeue_judgement_for_system_error_retry`)
 //! and re-dispatches them. Bounded by `max_system_error_retries`; only when the
 //! budget is exhausted does the `SystemError` stand (a genuinely broken problem).
 //!

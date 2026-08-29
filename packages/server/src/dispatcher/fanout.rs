@@ -50,7 +50,7 @@ impl FanoutSemaphore {
     /// `broccoli.batch_evaluator.fanout.wait.duration` for every acquire (so
     /// the full distribution is visible), and increments
     /// `broccoli.batch_evaluator.fanout.saturated` only when the acquire
-    /// blocked beyond [`SATURATION_THRESHOLD_MS`].
+    /// blocked beyond `SATURATION_THRESHOLD_MS`.
     pub async fn acquire(&self) -> Result<OwnedSemaphorePermit, tokio::sync::AcquireError> {
         let start = Instant::now();
         let permit = self.permits.clone().acquire_owned().await?;

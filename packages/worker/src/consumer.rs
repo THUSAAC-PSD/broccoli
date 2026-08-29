@@ -63,7 +63,7 @@ impl WorkerConsumer {
     /// reject/retry).
     ///
     /// Unlike the former `handler`, this does NOT short-circuit on shutdown. The
-    /// manual consume loop in [`crate::runtime`] stops CONSUMING the instant
+    /// manual consume loop in `crate::runtime` stops CONSUMING the instant
     /// shutdown is signaled, so a task that has already been taken off the queue
     /// is always run to completion during the drain window instead of being
     /// rejected - the old shutdown-reject path burned the retry budget and pushed
