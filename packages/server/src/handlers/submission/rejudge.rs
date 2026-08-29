@@ -12,6 +12,7 @@ use serde::Deserialize;
 use tracing::{info, instrument};
 
 use crate::dispatcher::queue_depth::enforce_queue_depth_admission;
+use crate::entity::judgement_reset::ClearJudgementActiveModel;
 use crate::entity::{submission, submission_judgement, test_case_result};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::FreshAuthUser;
@@ -297,14 +298,7 @@ pub async fn rejudge_submission(
         // claim path's call to `ensure_active_judgement_id` will pick
         // it up.
         active.status = Set(SubmissionStatus::Queued);
-        active.verdict = Set(None);
-        active.compile_output = Set(None);
-        active.error_code = Set(None);
-        active.error_message = Set(None);
-        active.score = Set(None);
-        active.time_used = Set(None);
-        active.memory_used = Set(None);
-        active.judged_at = Set(None);
+        active.clear_judgement_columns();
         active.judge_epoch = Set(new_epoch);
         if let Some(target) = new_target.clone() {
             active.target_worker_id = Set(target);
@@ -455,14 +449,7 @@ pub async fn bulk_rejudge_submissions(
                 // single-submission rejudge handler above for the full
                 // narrative.
                 active.status = Set(SubmissionStatus::Queued);
-                active.verdict = Set(None);
-                active.compile_output = Set(None);
-                active.error_code = Set(None);
-                active.error_message = Set(None);
-                active.score = Set(None);
-                active.time_used = Set(None);
-                active.memory_used = Set(None);
-                active.judged_at = Set(None);
+                active.clear_judgement_columns();
                 active.judge_epoch = Set(new_epoch);
                 if let Some(target) = new_target.clone() {
                     active.target_worker_id = Set(target);
