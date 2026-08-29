@@ -213,11 +213,6 @@ impl RedisCacheLeaderElector {
         Ok(Self::new(client, opts))
     }
 
-    #[allow(dead_code)]
-    pub fn opts(&self) -> CacheLeaderOpts {
-        self.opts
-    }
-
     async fn get_conn(&self) -> Result<MultiplexedConnection, redis::RedisError> {
         let mut guard = self.conn.lock().await;
         if let Some(ref conn) = *guard {
