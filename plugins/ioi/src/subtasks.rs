@@ -156,7 +156,8 @@ pub fn compute_scoring_test_case_ids(
         .collect()
 }
 
-/// Build a single default subtask containing all test cases with Sum scoring.
+/// Build a default "All Tests" subtask (Sum scoring) over the non-sample,
+/// positive-score test cases. Returns no subtasks when none qualify.
 ///
 /// Used when no subtask definitions are configured.
 pub fn build_default_subtasks(test_cases: &[TestCaseRow]) -> Vec<SubtaskDef> {
