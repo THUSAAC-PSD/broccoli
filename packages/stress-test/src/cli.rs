@@ -256,7 +256,9 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub skip_load: bool,
 
-    /// Run only the correctness phase. Alias for `--skip-load`.
+    /// Removed: `--correctness-only` is no longer supported and is rejected at
+    /// startup (the stress test always runs load, bootstrapping A+B fixtures when
+    /// no --contest-id is given).
     #[arg(long, default_value_t = false)]
     pub correctness_only: bool,
 
