@@ -50,8 +50,9 @@ const ANSWER_FILE: &str = "answer.txt";
 const PREVIEW_FILE: &str = "output_preview.txt";
 const MESSAGE_FILE: &str = "check_msg.txt";
 
-/// `tokens-float` tolerance defaults, identical to the WASM `FloatConfig`
-/// (`tokens_float.rs`) so fused verdicts stay byte-identical to the legacy path.
+/// `tokens-float` tolerance defaults, identical to broccoli-compare's own
+/// `tokens-float` defaults (`abs_tol = 1e-9`, `rel_tol = 1e-6`) so fused
+/// verdicts stay byte-identical to the legacy path.
 const DEFAULT_ABS_TOL: f64 = 1e-9;
 const DEFAULT_REL_TOL: f64 = 1e-6;
 
@@ -330,7 +331,7 @@ fn interpret_builtin(result: &CheckerSmallResult) -> CheckerVerdict {
     }
 }
 
-/// testlib reuses the existing exit-code mapping verbatim (0/1/2/3/7/other);
+/// testlib reuses the existing exit-code mapping verbatim (0/1/2/3/4/7/8/other);
 /// only the sandbox-failure path differs, working off the reduced small result.
 fn interpret_testlib(result: &CheckerSmallResult) -> CheckerVerdict {
     match result.exit_code {

@@ -220,8 +220,8 @@ pub fn interpret_testlib_exit_code(exit_code: i32, stderr: &str) -> CheckerVerdi
 }
 
 /// Build the cached `compile_checker` step for a testlib checker, or `None` when
-/// the language needs no compile. Shared by the legacy runner and the fused
-/// stage builder; `env_id` is the environment the step runs in.
+/// the language needs no compile. Used by the fused stage builder; `env_id` is
+/// the environment the step runs in.
 pub(crate) fn build_compile_checker_step(
     resolved: &ResolveLanguageOutput,
     config: &TestlibConfig,
