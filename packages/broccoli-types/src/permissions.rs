@@ -135,12 +135,12 @@ mod tests {
     #[test]
     fn permissions_ts_is_in_sync() {
         if std::env::var_os("REGEN_PERMISSIONS_TS").is_some() {
-            std::fs::write(TS_PATH, generate_ts()).expect("write permissions.gen.ts");
+            std::fs::write(TS_PATH, generate_ts()).expect("write web-sdk permissions/index.ts");
             return;
         }
 
         let contents = std::fs::read_to_string(TS_PATH).expect(
-            "packages/web/src/lib/permissions.gen.ts is missing; regenerate with \
+            "packages/web-sdk/src/permissions/index.ts is missing; regenerate with \
              `REGEN_PERMISSIONS_TS=1 cargo test -p broccoli-types permissions`",
         );
 
@@ -153,8 +153,8 @@ mod tests {
 
         assert_eq!(
             parsed, expected,
-            "permissions.gen.ts is out of sync with the Rust catalog; regenerate with \
-             `REGEN_PERMISSIONS_TS=1 cargo test -p broccoli-types permissions`"
+            "packages/web-sdk/src/permissions/index.ts is out of sync with the Rust catalog; \
+             regenerate with `REGEN_PERMISSIONS_TS=1 cargo test -p broccoli-types permissions`"
         );
     }
 }
