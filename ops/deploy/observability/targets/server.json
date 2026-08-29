@@ -1,6 +1,0 @@
-[
-  {
-    "targets": ["10.104.0.20:3000", "10.104.0.21:3000"],
-    "labels": { "service": "broccoli-server", "role": "server" }
-  }
-]
