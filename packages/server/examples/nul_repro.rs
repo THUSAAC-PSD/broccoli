@@ -16,9 +16,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use sea_orm::{
-    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement, Value,
-};
+use sea_orm::{ConnectOptions, ConnectionTrait, Database, DbBackend, Statement, Value};
 
 fn db_url() -> String {
     std::env::var("BROCCOLI__DATABASE__URL")

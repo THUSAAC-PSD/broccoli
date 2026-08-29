@@ -229,7 +229,7 @@ async fn host_fn_stress_wave_does_not_spawn_thread_storm() {
             tokio::spawn(async move {
                 let mut sequence = 0usize;
                 while started.elapsed() < duration {
-                    let response = if sequence % 5 == 0 {
+                    let response = if sequence.is_multiple_of(5) {
                         client
                             .post(&sql_url)
                             .json(&json!({ "name": format!("stress-{worker_idx}-{sequence}") }))

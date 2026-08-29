@@ -165,7 +165,7 @@ mod tests {
             .check_at("alice", ip("1.1.1.1"), now)
             .expect("should be throttled at the limit");
         assert!(
-            retry >= 1 && retry <= 60,
+            (1..=60).contains(&retry),
             "retry_after within window: {retry}"
         );
     }

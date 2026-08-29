@@ -683,7 +683,7 @@ mod tests {
         let reverse = merge_resource_enablements([cp_row, problem_row]);
 
         assert_eq!(forward, reverse);
-        assert!(forward.get("cooldown").is_none());
+        assert!(!forward.contains_key("cooldown"));
     }
 
     #[test]

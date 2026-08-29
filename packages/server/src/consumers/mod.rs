@@ -39,35 +39,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod guard_tests {
-    use super::guard_handler;
-
-    #[tokio::test]
-    async fn passes_ok_and_err_through_unchanged() {
-        assert!(guard_handler("t", async { Ok(()) }).await.is_ok());
-        assert!(
-            guard_handler("t", async { Err(mq::BroccoliError::Job("boom".into())) })
-                .await
-                .is_err()
-        );
-    }
-
-    #[tokio::test]
-    async fn converts_a_handler_panic_into_a_clean_ack() {
-        let result = guard_handler("t", async {
-            panic!("handler blew up");
-            #[allow(unreachable_code)]
-            Ok::<(), mq::BroccoliError>(())
-        })
-        .await;
-        assert!(
-            result.is_ok(),
-            "a panicking handler must be caught and acknowledged, not propagated"
-        );
-    }
-}
-
 pub async fn mark_submission_system_error<C: ConnectionTrait>(
     conn: &C,
     submission_id: i32,
@@ -217,4 +188,33 @@ pub async fn mark_code_run_system_error_with_epoch<C: ConnectionTrait>(
     ))
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::guard_handler;
+
+    #[tokio::test]
+    async fn passes_ok_and_err_through_unchanged() {
+        assert!(guard_handler("t", async { Ok(()) }).await.is_ok());
+        assert!(
+            guard_handler("t", async { Err(mq::BroccoliError::Job("boom".into())) })
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn converts_a_handler_panic_into_a_clean_ack() {
+        let result = guard_handler("t", async {
+            panic!("handler blew up");
+            #[allow(unreachable_code)]
+            Ok::<(), mq::BroccoliError>(())
+        })
+        .await;
+        assert!(
+            result.is_ok(),
+            "a panicking handler must be caught and acknowledged, not propagated"
+        );
+    }
 }

@@ -1108,6 +1108,11 @@ mod tests {
         );
     }
 
+    // METRICS_TEST_LOCK serializes tests that touch the global Prometheus
+    // registry; holding it across the awaits below is the intended
+    // serialization, not a deadlock risk - each `#[tokio::test]` runs on its own
+    // runtime and the guard is never re-locked within a task.
+    #[allow(clippy::await_holding_lock)]
     #[tokio::test]
     async fn scan_once_skips_claims_when_dispatcher_queue_is_full() {
         let _guard = crate::metrics_test_lock();
@@ -1386,11 +1391,11 @@ mod deferred_steal_db_tests {
         submission::Entity::update_many()
             .col_expr(
                 submission::Column::OwnerServerId,
-                sea_orm::sea_query::Expr::value(Some(owner.to_string())).into(),
+                sea_orm::sea_query::Expr::value(Some(owner.to_string())),
             )
             .col_expr(
                 submission::Column::LeaseHeartbeatAt,
-                sea_orm::sea_query::Expr::value(Some(now)).into(),
+                sea_orm::sea_query::Expr::value(Some(now)),
             )
             .filter(submission::Column::Id.eq(submission_id))
             .exec(db)
