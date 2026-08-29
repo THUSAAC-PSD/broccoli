@@ -307,12 +307,17 @@ pub(crate) fn compute_official_task_score(
                     .iter()
                     .map(|id| p.bind(*id))
                     .collect();
+                // `is_finalized = TRUE`: MAX() already skips a fresh in-flight
+                // judgement's NULL score, but a rejudging tokened submission can
+                // carry a stale non-NULL score on its not-yet-finalized current
+                // judgement; the gate keeps only truly-finalized scores in the max.
                 let sql = format!(
                     "SELECT MAX(sj.score) as max_score \
                      FROM submission s \
                      JOIN submission_judgement sj \
                        ON sj.submission_id = s.id \
                       AND sj.is_current = TRUE \
+                      AND sj.is_finalized = TRUE \
                       AND sj.judge_epoch = s.judge_epoch \
                      WHERE s.id IN ({}) AND s.problem_id = {}",
                     ids_sql.join(","),
@@ -325,15 +330,21 @@ pub(crate) fn compute_official_task_score(
             };
 
             let mut p = Params::new();
+            // `is_finalized = TRUE` so an in-flight/rejudging last submission does
+            // not read a COALESCE-0 or stale score for the "last" component of
+            // BestTokenedOrLast; the task score then holds its finalized value
+            // until the newer submission actually completes. `s.id DESC` breaks a
+            // same-created_at tie deterministically. Mirrors the scoreboard query.
             let sql = format!(
                 "SELECT s.id, COALESCE(sj.score, 0.0) as score \
                  FROM submission s \
                  JOIN submission_judgement sj \
                    ON sj.submission_id = s.id \
                   AND sj.is_current = TRUE \
+                  AND sj.is_finalized = TRUE \
                   AND sj.judge_epoch = s.judge_epoch \
                  WHERE s.user_id = {} AND s.problem_id = {} AND s.contest_id = {} \
-                 ORDER BY s.created_at DESC LIMIT 1",
+                 ORDER BY s.created_at DESC, s.id DESC LIMIT 1",
                 p.bind(user_id),
                 p.bind(problem_id),
                 p.bind(contest_id)

@@ -198,6 +198,17 @@ fn load_best_tokened_or_last_scoreboard_cells(
     let user_placeholders: Vec<String> = user_ids.iter().map(|id| p.bind(*id)).collect();
     let problem_placeholders: Vec<String> = problem_ids.iter().map(|id| p.bind(*id)).collect();
     let sql = format!(
+        // Gate `is_finalized = TRUE`: a dispatched-but-unjudged submission carries
+        // a current judgement with score NULL, which COALESCE would read as 0.0.
+        // Without the gate, DISTINCT ON picks that in-flight submission as "last"
+        // and the cell flips to 0 the instant a contestant submits again, then
+        // restores when judging completes -- a live-standings flicker that wrongly
+        // drops their score. Gated, "last" is the last FINALIZED submission, so a
+        // cell holds its known score until the newer one actually finishes. This
+        // also covers a rejudge whose new current judgement may carry a stale
+        // non-NULL score before finalizing. Mirrors the SumBestSubtask gate and
+        // the MaxSubmission `score IS NOT NULL` gate. `s.id DESC` breaks a
+        // same-created_at tie deterministically (highest id = truly last).
         "SELECT DISTINCT ON (s.user_id, s.problem_id) \
                 s.user_id, s.problem_id, \
                 COALESCE(sj.score, 0.0) as score, \
@@ -208,11 +219,12 @@ fn load_best_tokened_or_last_scoreboard_cells(
          JOIN submission_judgement sj \
            ON sj.submission_id = s.id \
           AND sj.is_current = TRUE \
+          AND sj.is_finalized = TRUE \
           AND sj.judge_epoch = s.judge_epoch \
          WHERE s.contest_id = {} \
            AND s.user_id IN ({}) \
            AND s.problem_id IN ({}) \
-         ORDER BY s.user_id, s.problem_id, s.created_at DESC",
+         ORDER BY s.user_id, s.problem_id, s.created_at DESC, s.id DESC",
         contest_placeholder,
         user_placeholders.join(","),
         problem_placeholders.join(","),
@@ -231,6 +243,10 @@ fn load_best_tokened_or_last_scoreboard_cells(
             .map(|id| p.bind(*id))
             .collect();
         let sql = format!(
+            // Same `is_finalized = TRUE` gate as the "last" query above: a tokened
+            // submission that is in-flight (fresh) or rejudging must not fold a
+            // COALESCE-0 / stale score into the Rust-side max below. Only its
+            // finalized score should count toward the best tokened result.
             "SELECT s.user_id, s.problem_id, \
                     COALESCE(sj.score, 0.0) as score, \
                     GREATEST(EXTRACT(EPOCH FROM (s.created_at - c.start_time))::bigint, 0) \
@@ -240,6 +256,7 @@ fn load_best_tokened_or_last_scoreboard_cells(
              JOIN submission_judgement sj \
                ON sj.submission_id = s.id \
               AND sj.is_current = TRUE \
+              AND sj.is_finalized = TRUE \
               AND sj.judge_epoch = s.judge_epoch \
              WHERE s.contest_id = {} \
                AND s.user_id IN ({}) \
