@@ -21,7 +21,7 @@ pub(super) fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
     Ok(resolved)
 }
 
-/// Translate a `MountSpec::PlatformTool { name }` into a read-only directory
+/// Translate a `MountSource::PlatformTool { name }` into a read-only directory
 /// rule that makes `<tools_dir>/<name>` reachable inside the box at `inside_path`.
 /// The tool name must be a single safe path component - no separators, NUL, or
 /// `..` - so a malicious op cannot escape the configured tools directory.

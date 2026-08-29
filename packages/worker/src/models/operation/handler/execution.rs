@@ -458,7 +458,7 @@ impl OperationHandler {
             };
         }
 
-        // Cached cache_key (computed at most once per process_step call) so
+        // Cached cache_key (computed at most once per execute_step_with_deps call) so
         // try_cache_hit, leader-acquire and store_in_cache all see the same key.
         let mut cache_key_cache: Option<String> = None;
 
@@ -730,7 +730,7 @@ impl OperationHandler {
                 // precheck_verdict / interpret_fused_result route it to a
                 // self-healing SystemError -- exactly like the sandbox-execute error
                 // arm above. Propagating `?` here instead would surface as an `Err`
-                // to `run_single_step`, whose catch arm substitutes a terminal
+                // to `execute_step_with_deps`, whose catch arm substitutes a terminal
                 // `ExecutionResult::default()` ("UNKNOWN"): a transient upload blip
                 // would then finalize a permanent wrong verdict that never resolves
                 // on retry. Malformed-operation errors fail earlier, in prepare_io,
@@ -1634,7 +1634,7 @@ mod step_execution_tests {
     // contestant determination. It must surface through `execute_step` as a
     // self-healing InternalError ("XX") -- the same tag the sandbox-execute error
     // arm uses -- NOT as an `Err`. An `Err` here is caught by the caller's arm in
-    // `run_single_step`, which substitutes a terminal `ExecutionResult::default()`
+    // `execute_step_with_deps`, which substitutes a terminal `ExecutionResult::default()`
     // ("UNKNOWN", non-self-healing): the transient upload blip would then finalize
     // a spurious permanent wrong verdict that never resolves on retry.
     #[tokio::test]
