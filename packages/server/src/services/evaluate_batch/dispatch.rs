@@ -363,6 +363,9 @@ fn spawn_batch_evaluator_callback_dispatch(
     });
 }
 
+// Evaluator dispatch stage: pm handle, semaphore, host deps, plugin/problem ids,
+// batch id, per-case input, metrics - all distinct values.
+#[allow(clippy::too_many_arguments)]
 async fn run_batch_evaluator_case_continuation(
     pm: &dyn plugin_core::traits::PluginManager,
     evaluator_slots: Arc<tokio::sync::Semaphore>,
@@ -517,6 +520,9 @@ async fn wait_for_operation_results(
     operation_results_from_task_results(task_results)
 }
 
+// Aggregator task: plugin/problem ids, pm handle, semaphore, ready/verdict
+// channels, pending-count atomic - distinct values, not a struct-shaped bag.
+#[allow(clippy::too_many_arguments)]
 async fn run_batch_evaluator_callback_aggregator(
     evaluator_plugin_id: String,
     problem_type: String,
@@ -559,6 +565,9 @@ async fn run_batch_evaluator_callback_aggregator(
     }
 }
 
+// Callback flush: plugin/problem ids, pm handle, semaphore, verdict channel,
+// pending-count atomic, metrics - distinct values.
+#[allow(clippy::too_many_arguments)]
 async fn flush_batch_evaluator_callback(
     evaluator_plugin_id: &str,
     problem_type: &str,

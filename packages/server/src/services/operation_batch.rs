@@ -836,6 +836,9 @@ pub async fn next_operation_result_async(
 /// Handling once an operation result is delivered: e2e trace, metrics, and batch
 /// cleanup when fully drained. Mirrors the inline logic in the sync
 /// [`next_operation_result`] for the async path.
+// Cohesive delivery-bookkeeping args (ids, metrics, result channel, atomics);
+// distinct values rather than one struct.
+#[allow(clippy::too_many_arguments)]
 fn finish_operation_delivered(
     plugin_id: &str,
     batches: &OperationBatches,

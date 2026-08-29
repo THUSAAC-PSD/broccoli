@@ -133,6 +133,12 @@ fn system_error_verdict(test_case_id: i32, message: impl Into<String>) -> TestCa
     }
 }
 
+// Shares the evaluate-batch verdict context tuple (plugin id, batches, metrics,
+// ops registry, batch id, verdict channel, pending-count) with
+// drain_evaluate_verdict_before_giveup and result_wait::handle_evaluate_receive.
+// A shared `EvaluateVerdictCtx` would dedupe the three (dedup backlog); until
+// then these are distinct values, so allow the arg count.
+#[allow(clippy::too_many_arguments)]
 fn handle_evaluate_verdict(
     plugin_id: &str,
     batches: &EvaluateBatches,
@@ -190,6 +196,9 @@ fn handle_evaluate_verdict(
 /// (running the normal bookkeeping via [`handle_evaluate_verdict`]) when present;
 /// returns `None` only when the channel is genuinely empty. Mirrors
 /// `operation_batch::drain_delivered_before_giveup`.
+// Same evaluate-batch verdict context tuple as handle_evaluate_verdict (dedup
+// backlog: shared `EvaluateVerdictCtx`).
+#[allow(clippy::too_many_arguments)]
 fn drain_evaluate_verdict_before_giveup(
     plugin_id: &str,
     batches: &EvaluateBatches,

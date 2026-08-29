@@ -224,6 +224,9 @@ fn next_evaluate_wait_tick(timeout: Duration) -> Duration {
     timeout.min(EVALUATE_RESULT_WAIT_TICK)
 }
 
+// Same evaluate-batch verdict context tuple as
+// mod::handle_evaluate_verdict (dedup backlog: shared `EvaluateVerdictCtx`).
+#[allow(clippy::too_many_arguments)]
 fn handle_evaluate_receive(
     plugin_id: &str,
     batches: &EvaluateBatches,

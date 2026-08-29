@@ -61,6 +61,9 @@ pub(super) fn inflight_capped(
     matches!((leased_at, inflight_cap_threshold), (Some(leased), Some(cap)) if leased < cap)
 }
 
+// Pure decision fn over a status + owner id + five distinct time thresholds;
+// the thresholds are separate instants, not a struct-shaped bag.
+#[allow(clippy::too_many_arguments)]
 fn stuck_disposition(
     status: &SubmissionStatus,
     owner_server_id: Option<&str>,
