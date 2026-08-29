@@ -8,9 +8,10 @@ use crate::types::*;
 /// checker plugin's `interpret`. Outcome precedence (TLE/MLE/RE/compile) is
 /// identical to the legacy path - a failed run wins and the checker is ignored.
 ///
-/// The checker message is sourced generically: prefer the check step's stderr
-/// (testlib convention), falling back to its stdout (broccoli-compare writes its
-/// message there). Worker File-redirects are read back into both fields.
+/// The checker message is sourced from the check step's stderr - both
+/// broccoli-compare and testlib write their verdict message there, while the
+/// check step's stdout carries only the display preview. Worker File-redirects
+/// are read back into both fields.
 pub fn interpret_fused_result(
     checker: &Checker,
     test_case_id: i32,
