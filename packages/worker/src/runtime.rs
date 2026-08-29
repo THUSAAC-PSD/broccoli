@@ -28,7 +28,7 @@ pub struct WorkerRuntime {
     heartbeat: HeartbeatHandle,
     capacity: WorkerCapacity,
     _cleanup_handle: tokio::task::JoinHandle<()>,
-    _warm_handle: crate::warm::WarmSubscriberHandle,
+    _warm_handle: tokio::task::JoinHandle<()>,
 }
 
 impl WorkerRuntime {

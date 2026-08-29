@@ -36,25 +36,17 @@ const PROGRESS_UPDATE_EVERY: u32 = 4;
 /// Delay before re-subscribing after the pub/sub stream drops.
 const RESUBSCRIBE_DELAY: Duration = Duration::from_secs(5);
 
-pub struct WarmSubscriberHandle {
-    join: JoinHandle<()>,
-}
-
-impl WarmSubscriberHandle {
-    pub fn abort(&self) {
-        self.join.abort();
-    }
-}
-
 /// Spawn the pre-warm subscriber. Failures (e.g. cache/blob build error) disable
-/// warming but never crash the worker - judging continues regardless.
-pub fn spawn(config: WorkerAppConfig, metrics: Option<Metrics>) -> WarmSubscriberHandle {
-    let join = tokio::spawn(async move {
+/// warming but never crash the worker - judging continues regardless. The
+/// runtime holds the returned handle the same way it holds `_cleanup_handle`:
+/// this is an independent background helper, so shutdown drains the consume loop
+/// and heartbeat and lets this detached task die on process exit.
+pub fn spawn(config: WorkerAppConfig, metrics: Option<Metrics>) -> JoinHandle<()> {
+    tokio::spawn(async move {
         if let Err(e) = run(config, metrics).await {
             warn!(error = %e, "Pre-warm subscriber disabled");
         }
-    });
-    WarmSubscriberHandle { join }
+    })
 }
 
 async fn run(config: WorkerAppConfig, metrics: Option<Metrics>) -> anyhow::Result<()> {
@@ -172,7 +164,7 @@ async fn handle_job(
             }
         }
         processed += 1;
-        if processed % PROGRESS_UPDATE_EVERY == 0 && processed < total {
+        if processed.is_multiple_of(PROGRESS_UPDATE_EVERY) && processed < total {
             write_progress(
                 cmd,
                 &progress(

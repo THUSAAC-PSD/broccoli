@@ -188,7 +188,7 @@ mod tests {
     fn max_by_key_aggregation_prefers_custom_over_system_error() {
         // Mirrors the aggregation in server-sdk finalize_code_run: the
         // submission verdict is the max-severity per-test-case verdict.
-        let verdicts = vec![
+        let verdicts = [
             Verdict::Accepted,
             Verdict::SystemError,
             Verdict::Other("PartialCredit".into()),
@@ -197,7 +197,7 @@ mod tests {
         let winner = verdicts.iter().max_by_key(|v| v.severity()).unwrap();
         assert_eq!(*winner, Verdict::Other("PartialCredit".into()));
 
-        let with_ce = vec![
+        let with_ce = [
             Verdict::Other("PartialCredit".into()),
             Verdict::CompileError,
         ];

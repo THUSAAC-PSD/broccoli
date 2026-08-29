@@ -118,7 +118,7 @@ impl Client {
                     continue;
                 }
             };
-            let resp = self.with_refresh(&used, resp, || send())?;
+            let resp = self.with_refresh(&used, resp, send)?;
 
             let status = resp.status().as_u16();
             if (200..300).contains(&status) {

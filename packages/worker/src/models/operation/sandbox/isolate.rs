@@ -610,10 +610,10 @@ impl SandboxManager for IsolateSandboxManager {
                     // and `offset` is zero, so it is reported unchanged and nothing
                     // is persisted (the map holds no meaningful cumulative there).
                     let cumulative = exec.time_used;
-                    if self.enable_cgroups {
-                        if let Ok(mut m) = self.box_cpu_secs.lock() {
-                            m.insert(box_key.clone(), cumulative.max(prior_cpu));
-                        }
+                    if self.enable_cgroups
+                        && let Ok(mut m) = self.box_cpu_secs.lock()
+                    {
+                        m.insert(box_key.clone(), cumulative.max(prior_cpu));
                     }
                     exec.time_used = (cumulative - offset).max(0.0);
                     return Ok(exec);

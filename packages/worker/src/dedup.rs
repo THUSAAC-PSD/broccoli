@@ -102,6 +102,10 @@ impl RedisTaskDedup {
         self.ttl_secs
     }
 
+    /// Convenience wrapper that claims with the fallback TTL. Used only by the
+    /// in-crate tests; production claims with a per-operation TTL derived from
+    /// step resource limits via [`Self::try_claim_with_ttl`].
+    #[cfg(test)]
     pub async fn try_claim(&self, task_id: &str) -> ClaimOutcome {
         self.try_claim_with_ttl(task_id, self.ttl_secs).await
     }

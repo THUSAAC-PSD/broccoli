@@ -90,6 +90,13 @@ impl CacheLeaderOpts {
 }
 
 /// Role assignment returned by the elector for a given cache key.
+//
+// `Leader` carries the full `LeaderLease` (heartbeat handle, redis client, two
+// tokens) while `Follower` is empty, so clippy flags the size gap. This value is
+// returned once per `acquire()` and immediately destructured — never stored in
+// bulk — so boxing would only add a heap alloc behind the RAII lease for no real
+// saving.
+#[allow(clippy::large_enum_variant)]
 pub enum LeaderRole {
     /// We won the race. The caller owns `LeaderLease` for the duration of the
     /// expensive step; drop releases the lock.
