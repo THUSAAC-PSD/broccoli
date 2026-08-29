@@ -97,24 +97,35 @@ struct CountRow {
     count: i64,
 }
 
-fn build_insert(job: &NewJob) -> (String, Vec<Value>) {
-    let mut p = Params::new();
-    let sql = format!(
-        "INSERT INTO print_job \
-         (contest_id, user_id, username, display_name, problem_label, submission_id, \
-          language, filename, source, pages_est, status) \
-         VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})",
-        bind_opt(&mut p, job.contest_id),
+const INSERT_COLS: &str = "contest_id, user_id, username, display_name, problem_label, \
+    submission_id, language, filename, source, pages_est, status";
+
+/// Bind one job's values into `p` and return its `(...)` VALUES tuple. Binding
+/// left-to-right keeps placeholder numbering in column order, and threading a
+/// single shared `Params` lets a multi-row INSERT number rows monotonically
+/// ($1..$11, $12..$22, ...).
+fn bind_row(p: &mut Params, job: &NewJob) -> String {
+    format!(
+        "({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})",
+        bind_opt(p, job.contest_id),
         p.bind(job.user_id),
         p.bind(job.username.clone()),
-        bind_opt(&mut p, job.display_name.clone()),
-        bind_opt(&mut p, job.problem_label.clone()),
-        bind_opt(&mut p, job.submission_id),
+        bind_opt(p, job.display_name.clone()),
+        bind_opt(p, job.problem_label.clone()),
+        bind_opt(p, job.submission_id),
         p.bind(job.language.clone()),
         p.bind(job.filename.clone()),
         p.bind(job.source.clone()),
         p.bind(job.pages_est),
         p.bind(job.status.clone()),
+    )
+}
+
+fn build_insert(job: &NewJob) -> (String, Vec<Value>) {
+    let mut p = Params::new();
+    let sql = format!(
+        "INSERT INTO print_job ({INSERT_COLS}) VALUES {}",
+        bind_row(&mut p, job)
     );
     (sql, p.into_args())
 }
@@ -125,24 +136,28 @@ pub fn insert_job(host: &Host, job: &NewJob) -> Result<u64, SdkError> {
 }
 
 /// Insert every job or none, so a partial submission never reaches the queue.
+///
+/// This is a SINGLE multi-row INSERT, deliberately NOT a `begin()`/`commit()`
+/// transaction over per-row inserts. A single statement is already atomic in
+/// Postgres -- every row commits or the whole statement aborts on the first
+/// constraint violation -- so it gives the all-or-nothing guarantee without a
+/// plugin-side transaction. That matters here: an open plugin transaction pins
+/// one of the tiny plugin DB pool's connections for the life of the guest call
+/// (the host bridges each guest DB op with `block_on`), so a burst of
+/// multi-file prints -- each holding a txn across several round-trips -- can
+/// exhaust the pool and deadlock the runtime. See the plugin "no transactions
+/// under concurrency" rule.
 pub fn insert_jobs(host: &Host, jobs: &[NewJob]) -> Result<u64, SdkError> {
     if jobs.is_empty() {
         return Ok(0);
     }
-    let tx = host.db.begin()?;
-    let mut total = 0;
-    for job in jobs {
-        let (sql, args) = build_insert(job);
-        match tx.execute_with_args(&sql, &args) {
-            Ok(n) => total += n,
-            Err(e) => {
-                let _ = tx.rollback();
-                return Err(e);
-            }
-        }
-    }
-    tx.commit()?;
-    Ok(total)
+    let mut p = Params::new();
+    let rows: Vec<String> = jobs.iter().map(|job| bind_row(&mut p, job)).collect();
+    let sql = format!(
+        "INSERT INTO print_job ({INSERT_COLS}) VALUES {}",
+        rows.join(", ")
+    );
+    host.db.execute_with_args(&sql, &p.into_args())
 }
 
 pub fn fetch_submission(
@@ -449,9 +464,30 @@ mod tests {
     }
 
     #[test]
-    fn insert_jobs_runs_in_a_transaction() {
+    fn insert_jobs_emits_one_multi_row_statement() {
+        // The all-or-nothing guarantee must come from a SINGLE multi-row INSERT,
+        // never a begin()/commit() over per-row inserts: a plugin-side transaction
+        // pins a plugin-pool connection and deadlocks the runtime under concurrent
+        // multi-file prints. Assert exactly one execution carrying both rows.
         let host = Host::mock();
-        insert_jobs(&host, &[new_job(), new_job()]).unwrap();
+        host.db.queue_execute_result(2);
+        let affected = insert_jobs(&host, &[new_job(), new_job()]).unwrap();
+        assert_eq!(affected, 2);
+
+        let execs = host.db.executions();
+        assert_eq!(
+            execs.len(),
+            1,
+            "insert_jobs must issue ONE statement, not a per-row transaction loop"
+        );
+        let sql = &execs[0].sql;
+        assert!(sql.starts_with("INSERT INTO print_job"));
+        // Two value tuples joined => the multi-row form (a per-row loop would
+        // record two separate single-tuple executions instead).
+        assert!(
+            sql.contains("), ("),
+            "expected two joined VALUES tuples: {sql}"
+        );
     }
 
     #[test]
