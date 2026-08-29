@@ -165,6 +165,33 @@ pub fn interpret_testlib_exit_code(exit_code: i32, stderr: &str) -> CheckerVerdi
             message: extract_testlib_message(stderr)
                 .or_else(|| Some("Checker reported judge failure (exit code 3)".into())),
         },
+        // testlib DIRT_EXIT_CODE (4). Emitted by testlib's OWN epilogue when a
+        // checker reports _ok/_points/_partially but the participant left extra
+        // unread non-whitespace output ("Extra information in the output file").
+        // This is the DEFAULT behavior (no -D flags; only EJUDGE remaps it to 6),
+        // so any fixed-read checker rejecting trailing junk lands here. It is a
+        // REJECTION of the participant output, not a judge failure -- testlib does
+        // NOT downgrade _dirt to _pe. The old `other =>` catch-all mapped it to
+        // SystemError, converting a deterministic WrongAnswer into a NON-self-
+        // healing infra error that reproduces on every re-dispatch and never
+        // resolves to the real WA.
+        4 => CheckerVerdict {
+            verdict: Verdict::WrongAnswer,
+            score: 0.0,
+            message: extract_testlib_message(stderr)
+                .or_else(|| Some("Extra information in the output file".into())),
+        },
+        // testlib UNEXPECTED_EOF_EXIT_CODE (8). Only emitted when the checker is
+        // built with -DENABLE_UNEXPECTED_EOF; otherwise testlib downgrades an
+        // unexpected EOF to _pe -> exit 2 (handled above). The participant output
+        // ended before the checker could read an expected token: a rejection, not
+        // a judge failure.
+        8 => CheckerVerdict {
+            verdict: Verdict::WrongAnswer,
+            score: 0.0,
+            message: extract_testlib_message(stderr)
+                .or_else(|| Some("Unexpected end of the participant output".into())),
+        },
         7 => {
             let (score, msg) = parse_testlib_partial(stderr);
             let verdict = if score >= 1.0 {
@@ -178,6 +205,12 @@ pub fn interpret_testlib_exit_code(exit_code: i32, stderr: &str) -> CheckerVerdi
                 message: msg,
             }
         }
+        // Any other code is not a recognized testlib verdict. This deliberately
+        // INCLUDES the _partially band (PARTIALLY_EXIT_CODE = 16 plus a pctype
+        // offset): broccoli's partial-credit path is exit 7 (`points X`), and the
+        // score encoded in the 16+ band is not authoritatively pinned, so we do
+        // not guess a partial score here. Treat it as a judge failure (SystemError
+        // self-heals) rather than silently minting a wrong partial verdict.
         other => CheckerVerdict {
             verdict: Verdict::SystemError,
             score: 0.0,
@@ -388,6 +421,48 @@ mod tests {
         let v = interpret_testlib_exit_code(3, "FAIL checker bug\n");
         assert_eq!(v.verdict, Verdict::SystemError);
         assert_eq!(v.score, 0.0);
+    }
+
+    #[test]
+    fn exit_4_dirt_is_wrong_answer() {
+        // testlib's DIRT_EXIT_CODE: checker accepted but the participant left
+        // extra unread output. A rejection (WrongAnswer), NOT a SystemError.
+        let v = interpret_testlib_exit_code(
+            4,
+            "wrong output format Extra information in the output file\n",
+        );
+        assert_eq!(v.verdict, Verdict::WrongAnswer);
+        assert_eq!(v.score, 0.0);
+        assert!(v.message.unwrap().contains("Extra information"));
+    }
+
+    #[test]
+    fn exit_4_dirt_default_message() {
+        let v = interpret_testlib_exit_code(4, "   ");
+        assert_eq!(v.verdict, Verdict::WrongAnswer);
+        assert_eq!(v.message.unwrap(), "Extra information in the output file");
+    }
+
+    #[test]
+    fn exit_8_unexpected_eof_is_wrong_answer() {
+        // UNEXPECTED_EOF_EXIT_CODE (checker built with -DENABLE_UNEXPECTED_EOF):
+        // participant output ended early. A rejection, NOT a SystemError.
+        let v = interpret_testlib_exit_code(8, "");
+        assert_eq!(v.verdict, Verdict::WrongAnswer);
+        assert_eq!(v.score, 0.0);
+        assert!(v.message.unwrap().contains("Unexpected end"));
+    }
+
+    #[test]
+    fn unknown_code_stays_system_error() {
+        // Codes with no confident testlib meaning (incl. the 16+ _partially band,
+        // whose score encoding is not pinned) remain a self-healing SystemError
+        // rather than a guessed verdict.
+        for code in [5, 6, 16, 99] {
+            let v = interpret_testlib_exit_code(code, "");
+            assert_eq!(v.verdict, Verdict::SystemError, "code {code}");
+            assert_eq!(v.score, 0.0, "code {code}");
+        }
     }
 
     #[test]
