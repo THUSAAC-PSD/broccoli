@@ -193,25 +193,23 @@ async fn claim_queued_submissions(
     submission::Entity::update_many()
         .col_expr(
             submission::Column::Status,
-            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
         )
         .col_expr(
             submission::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(Some(server_id.to_string())).into(),
+            sea_orm::sea_query::Expr::value(Some(server_id.to_string())),
         )
         .col_expr(
             submission::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::cust("NOW()").into(),
+            sea_orm::sea_query::Expr::cust("NOW()"),
         )
         .col_expr(
             submission::Column::LeasedAt,
-            sea_orm::sea_query::Expr::cust("NOW()").into(),
+            sea_orm::sea_query::Expr::cust("NOW()"),
         )
         .col_expr(
             submission::Column::RetryCount,
-            sea_orm::sea_query::Expr::col(submission::Column::RetryCount)
-                .add(1)
-                .into(),
+            sea_orm::sea_query::Expr::col(submission::Column::RetryCount).add(1),
         )
         .filter(submission::Column::Id.is_in(ids.clone()))
         .filter(submission::Column::Status.eq(SubmissionStatus::Queued))
@@ -256,25 +254,23 @@ async fn claim_queued_code_runs(
     code_run::Entity::update_many()
         .col_expr(
             code_run::Column::Status,
-            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
         )
         .col_expr(
             code_run::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(Some(server_id.to_string())).into(),
+            sea_orm::sea_query::Expr::value(Some(server_id.to_string())),
         )
         .col_expr(
             code_run::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::cust("NOW()").into(),
+            sea_orm::sea_query::Expr::cust("NOW()"),
         )
         .col_expr(
             code_run::Column::LeasedAt,
-            sea_orm::sea_query::Expr::cust("NOW()").into(),
+            sea_orm::sea_query::Expr::cust("NOW()"),
         )
         .col_expr(
             code_run::Column::RetryCount,
-            sea_orm::sea_query::Expr::col(code_run::Column::RetryCount)
-                .add(1)
-                .into(),
+            sea_orm::sea_query::Expr::col(code_run::Column::RetryCount).add(1),
         )
         .filter(code_run::Column::Id.is_in(ids.clone()))
         .filter(code_run::Column::Status.eq(SubmissionStatus::Queued))
@@ -328,25 +324,23 @@ async fn claim_queued_judgements(
     submission_judgement::Entity::update_many()
         .col_expr(
             submission_judgement::Column::Status,
-            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
         )
         .col_expr(
             submission_judgement::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(Some(server_id.to_string())).into(),
+            sea_orm::sea_query::Expr::value(Some(server_id.to_string())),
         )
         .col_expr(
             submission_judgement::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::cust("NOW()").into(),
+            sea_orm::sea_query::Expr::cust("NOW()"),
         )
         .col_expr(
             submission_judgement::Column::LeasedAt,
-            sea_orm::sea_query::Expr::cust("NOW()").into(),
+            sea_orm::sea_query::Expr::cust("NOW()"),
         )
         .col_expr(
             submission_judgement::Column::RetryCount,
-            sea_orm::sea_query::Expr::col(submission_judgement::Column::RetryCount)
-                .add(1)
-                .into(),
+            sea_orm::sea_query::Expr::col(submission_judgement::Column::RetryCount).add(1),
         )
         .filter(submission_judgement::Column::Id.is_in(ids.clone()))
         .filter(submission_judgement::Column::Status.eq(SubmissionStatus::Queued))

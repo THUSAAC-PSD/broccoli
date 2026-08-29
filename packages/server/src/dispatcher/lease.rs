@@ -53,10 +53,7 @@ pub async fn refresh_owned_leases(
     let now = chrono::Utc::now();
 
     let submissions = submission::Entity::update_many()
-        .col_expr(
-            submission::Column::LeaseHeartbeatAt,
-            Expr::value(Some(now)).into(),
-        )
+        .col_expr(submission::Column::LeaseHeartbeatAt, Expr::value(Some(now)))
         .filter(submission::Column::OwnerServerId.eq(server_id))
         .filter(submission::Column::Status.is_in(LEASED_STATUSES))
         .exec(db)
@@ -64,10 +61,7 @@ pub async fn refresh_owned_leases(
         .rows_affected;
 
     let code_runs = code_run::Entity::update_many()
-        .col_expr(
-            code_run::Column::LeaseHeartbeatAt,
-            Expr::value(Some(now)).into(),
-        )
+        .col_expr(code_run::Column::LeaseHeartbeatAt, Expr::value(Some(now)))
         .filter(code_run::Column::OwnerServerId.eq(server_id))
         .filter(code_run::Column::Status.is_in(LEASED_STATUSES))
         .exec(db)

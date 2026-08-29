@@ -23,27 +23,27 @@ pub(super) async fn recover_stuck_submission_without_steal(
     let affected = submission::Entity::update_many()
         .col_expr(
             submission::Column::Status,
-            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
         )
         .col_expr(
             submission::Column::RetryCount,
-            sea_orm::sea_query::Expr::value(new_retry_count).into(),
+            sea_orm::sea_query::Expr::value(new_retry_count),
         )
         .col_expr(
             submission::Column::JudgeEpoch,
-            sea_orm::sea_query::Expr::value(new_epoch).into(),
+            sea_orm::sea_query::Expr::value(new_epoch),
         )
         .col_expr(
             submission::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(owner_server_id.clone()).into(),
+            sea_orm::sea_query::Expr::value(owner_server_id.clone()),
         )
         .col_expr(
             submission::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at),
         )
         .col_expr(
             submission::Column::LeasedAt,
-            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at),
         )
         .clear_judgement_columns()
         .filter(submission::Column::Id.eq(submission.id))
@@ -104,27 +104,27 @@ pub(super) async fn recover_stuck_code_run_without_steal(
     let affected = code_run::Entity::update_many()
         .col_expr(
             code_run::Column::Status,
-            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
         )
         .col_expr(
             code_run::Column::RetryCount,
-            sea_orm::sea_query::Expr::value(new_retry_count).into(),
+            sea_orm::sea_query::Expr::value(new_retry_count),
         )
         .col_expr(
             code_run::Column::JudgeEpoch,
-            sea_orm::sea_query::Expr::value(new_epoch).into(),
+            sea_orm::sea_query::Expr::value(new_epoch),
         )
         .col_expr(
             code_run::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(owner_server_id.clone()).into(),
+            sea_orm::sea_query::Expr::value(owner_server_id.clone()),
         )
         .col_expr(
             code_run::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at),
         )
         .col_expr(
             code_run::Column::LeasedAt,
-            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at),
         )
         .clear_judgement_columns()
         .filter(code_run::Column::Id.eq(run.id))
@@ -178,27 +178,27 @@ pub(super) async fn recover_stuck_judgement_without_steal(
         let affected = submission::Entity::update_many()
             .col_expr(
                 submission::Column::Status,
-                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
             )
             .col_expr(
                 submission::Column::RetryCount,
-                sea_orm::sea_query::Expr::value(new_retry_count).into(),
+                sea_orm::sea_query::Expr::value(new_retry_count),
             )
             .col_expr(
                 submission::Column::JudgeEpoch,
-                sea_orm::sea_query::Expr::value(new_epoch).into(),
+                sea_orm::sea_query::Expr::value(new_epoch),
             )
             .col_expr(
                 submission::Column::OwnerServerId,
-                sea_orm::sea_query::Expr::value(owner_server_id.clone()).into(),
+                sea_orm::sea_query::Expr::value(owner_server_id.clone()),
             )
             .col_expr(
                 submission::Column::LeaseHeartbeatAt,
-                sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+                sea_orm::sea_query::Expr::value(lease_heartbeat_at),
             )
             .col_expr(
                 submission::Column::LeasedAt,
-                sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+                sea_orm::sea_query::Expr::value(lease_heartbeat_at),
             )
             .clear_judgement_columns()
             .filter(submission::Column::Id.eq(sub.id))
@@ -219,27 +219,27 @@ pub(super) async fn recover_stuck_judgement_without_steal(
     let affected = submission_judgement::Entity::update_many()
         .col_expr(
             submission_judgement::Column::Status,
-            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+            sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
         )
         .col_expr(
             submission_judgement::Column::RetryCount,
-            sea_orm::sea_query::Expr::value(new_retry_count).into(),
+            sea_orm::sea_query::Expr::value(new_retry_count),
         )
         .col_expr(
             submission_judgement::Column::JudgeEpoch,
-            sea_orm::sea_query::Expr::value(new_epoch).into(),
+            sea_orm::sea_query::Expr::value(new_epoch),
         )
         .col_expr(
             submission_judgement::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(owner_server_id.clone()).into(),
+            sea_orm::sea_query::Expr::value(owner_server_id.clone()),
         )
         .col_expr(
             submission_judgement::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at),
         )
         .col_expr(
             submission_judgement::Column::LeasedAt,
-            sea_orm::sea_query::Expr::value(lease_heartbeat_at).into(),
+            sea_orm::sea_query::Expr::value(lease_heartbeat_at),
         )
         .clear_judgement_columns()
         .filter(submission_judgement::Column::Id.eq(judgement.id))
@@ -286,29 +286,27 @@ async fn open_retry_submission_judgement(
     submission_judgement::Entity::update_many()
         .col_expr(
             submission_judgement::Column::IsCurrent,
-            sea_orm::sea_query::Expr::value(false).into(),
+            sea_orm::sea_query::Expr::value(false),
         )
         .col_expr(
             submission_judgement::Column::IsFinalized,
-            sea_orm::sea_query::Expr::value(true).into(),
+            sea_orm::sea_query::Expr::value(true),
         )
         .col_expr(
             submission_judgement::Column::Status,
-            sea_orm::sea_query::Expr::value(SubmissionStatus::SystemError.to_string()).into(),
+            sea_orm::sea_query::Expr::value(SubmissionStatus::SystemError.to_string()),
         )
         .col_expr(
             submission_judgement::Column::ErrorCode,
-            sea_orm::sea_query::Expr::value(Some(SubmissionDlqErrorCode::STUCK_JOB.to_string()))
-                .into(),
+            sea_orm::sea_query::Expr::value(Some(SubmissionDlqErrorCode::STUCK_JOB.to_string())),
         )
         .col_expr(
             submission_judgement::Column::ErrorMessage,
-            sea_orm::sea_query::Expr::value(Some("Superseded by stuck-job retry".to_string()))
-                .into(),
+            sea_orm::sea_query::Expr::value(Some("Superseded by stuck-job retry".to_string())),
         )
         .col_expr(
             submission_judgement::Column::FinalizedAt,
-            sea_orm::sea_query::Expr::cust("NOW()").into(),
+            sea_orm::sea_query::Expr::cust("NOW()"),
         )
         .filter(submission_judgement::Column::SubmissionId.eq(submission.id))
         .filter(submission_judgement::Column::IsCurrent.eq(true))

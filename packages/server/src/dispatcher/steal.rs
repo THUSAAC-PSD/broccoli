@@ -287,15 +287,15 @@ pub async fn recover_orphaned_leases(
     let submissions = submission::Entity::update_many()
         .col_expr(
             submission::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(Some(orphan_owner.clone())).into(),
+            sea_orm::sea_query::Expr::value(Some(orphan_owner.clone())),
         )
         .col_expr(
             submission::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>),
         )
         .col_expr(
             submission::Column::LeasedAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>),
         )
         .filter(submission::Column::OwnerServerId.eq(server_id))
         .filter(submission::Column::Status.is_in(leased()))
@@ -306,15 +306,15 @@ pub async fn recover_orphaned_leases(
     let code_runs = code_run::Entity::update_many()
         .col_expr(
             code_run::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(Some(orphan_owner.clone())).into(),
+            sea_orm::sea_query::Expr::value(Some(orphan_owner.clone())),
         )
         .col_expr(
             code_run::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>),
         )
         .col_expr(
             code_run::Column::LeasedAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>),
         )
         .filter(code_run::Column::OwnerServerId.eq(server_id))
         .filter(code_run::Column::Status.is_in(leased()))
@@ -325,15 +325,15 @@ pub async fn recover_orphaned_leases(
     let judgements = submission_judgement::Entity::update_many()
         .col_expr(
             submission_judgement::Column::OwnerServerId,
-            sea_orm::sea_query::Expr::value(Some(orphan_owner.clone())).into(),
+            sea_orm::sea_query::Expr::value(Some(orphan_owner.clone())),
         )
         .col_expr(
             submission_judgement::Column::LeaseHeartbeatAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>),
         )
         .col_expr(
             submission_judgement::Column::LeasedAt,
-            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+            sea_orm::sea_query::Expr::value(None::<chrono::DateTime<chrono::Utc>>),
         )
         // Scoped strictly to `owner_server_id = <self>`: a sibling replica's rows
         // are never touched. We intentionally do NOT filter on `is_current` - a
@@ -391,31 +391,27 @@ async fn claim_submissions(
         submission::Entity::update_many()
             .col_expr(
                 submission::Column::OwnerServerId,
-                sea_orm::sea_query::Expr::value(Some(server_id.to_string())).into(),
+                sea_orm::sea_query::Expr::value(Some(server_id.to_string())),
             )
             .col_expr(
                 submission::Column::LeaseHeartbeatAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             .col_expr(
                 submission::Column::LeasedAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             .col_expr(
                 submission::Column::RetryCount,
-                sea_orm::sea_query::Expr::col(submission::Column::RetryCount)
-                    .add(1)
-                    .into(),
+                sea_orm::sea_query::Expr::col(submission::Column::RetryCount).add(1),
             )
             .col_expr(
                 submission::Column::JudgeEpoch,
-                sea_orm::sea_query::Expr::col(submission::Column::JudgeEpoch)
-                    .add(1)
-                    .into(),
+                sea_orm::sea_query::Expr::col(submission::Column::JudgeEpoch).add(1),
             )
             .col_expr(
                 submission::Column::Status,
-                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
             )
             .clear_judgement_columns()
             .filter(submission::Column::Id.is_in(plan.redispatch_ids.clone()))
@@ -457,9 +453,7 @@ async fn claim_submissions(
         submission::Entity::update_many()
             .col_expr(
                 submission::Column::RetryCount,
-                sea_orm::sea_query::Expr::col(submission::Column::RetryCount)
-                    .add(1)
-                    .into(),
+                sea_orm::sea_query::Expr::col(submission::Column::RetryCount).add(1),
             )
             .filter(submission::Column::Id.eq(row.id))
             .filter(submission::Column::JudgeEpoch.eq(row.judge_epoch))
@@ -507,7 +501,7 @@ async fn open_stolen_submission_judgements(
     submission_judgement::Entity::update_many()
         .col_expr(
             submission_judgement::Column::IsCurrent,
-            sea_orm::sea_query::Expr::value(false).into(),
+            sea_orm::sea_query::Expr::value(false),
         )
         .filter(submission_judgement::Column::SubmissionId.is_in(submission_ids.to_vec()))
         .filter(submission_judgement::Column::IsCurrent.eq(true))
@@ -616,31 +610,27 @@ async fn claim_deferred_judgements(
         submission_judgement::Entity::update_many()
             .col_expr(
                 submission_judgement::Column::OwnerServerId,
-                sea_orm::sea_query::Expr::value(Some(server_id.to_string())).into(),
+                sea_orm::sea_query::Expr::value(Some(server_id.to_string())),
             )
             .col_expr(
                 submission_judgement::Column::LeaseHeartbeatAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             .col_expr(
                 submission_judgement::Column::LeasedAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             .col_expr(
                 submission_judgement::Column::RetryCount,
-                sea_orm::sea_query::Expr::col(submission_judgement::Column::RetryCount)
-                    .add(1)
-                    .into(),
+                sea_orm::sea_query::Expr::col(submission_judgement::Column::RetryCount).add(1),
             )
             .col_expr(
                 submission_judgement::Column::JudgeEpoch,
-                sea_orm::sea_query::Expr::col(submission_judgement::Column::JudgeEpoch)
-                    .add(1)
-                    .into(),
+                sea_orm::sea_query::Expr::col(submission_judgement::Column::JudgeEpoch).add(1),
             )
             .col_expr(
                 submission_judgement::Column::Status,
-                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
             )
             .clear_judgement_columns()
             .filter(submission_judgement::Column::Id.is_in(plan.redispatch_ids.clone()))
@@ -672,32 +662,29 @@ async fn claim_deferred_judgements(
         submission_judgement::Entity::update_many()
             .col_expr(
                 submission_judgement::Column::RetryCount,
-                sea_orm::sea_query::Expr::col(submission_judgement::Column::RetryCount)
-                    .add(1)
-                    .into(),
+                sea_orm::sea_query::Expr::col(submission_judgement::Column::RetryCount).add(1),
             )
             .col_expr(
                 submission_judgement::Column::Status,
-                sea_orm::sea_query::Expr::value(SubmissionStatus::SystemError.to_string()).into(),
+                sea_orm::sea_query::Expr::value(SubmissionStatus::SystemError.to_string()),
             )
             .col_expr(
                 submission_judgement::Column::ErrorCode,
                 sea_orm::sea_query::Expr::value(Some(
                     SubmissionDlqErrorCode::DISPATCH_RETRY_EXHAUSTED.to_string(),
-                ))
-                .into(),
+                )),
             )
             .col_expr(
                 submission_judgement::Column::ErrorMessage,
-                sea_orm::sea_query::Expr::value(Some(message.clone())).into(),
+                sea_orm::sea_query::Expr::value(Some(message.clone())),
             )
             .col_expr(
                 submission_judgement::Column::IsFinalized,
-                sea_orm::sea_query::Expr::value(true).into(),
+                sea_orm::sea_query::Expr::value(true),
             )
             .col_expr(
                 submission_judgement::Column::FinalizedAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             .filter(submission_judgement::Column::Id.eq(row.id))
             .filter(submission_judgement::Column::JudgeEpoch.eq(row.judge_epoch))
@@ -778,23 +765,23 @@ async fn claim_deferred_judgements(
         submission::Entity::update_many()
             .col_expr(
                 submission::Column::JudgeEpoch,
-                sea_orm::sea_query::Expr::value(judgement.judge_epoch).into(),
+                sea_orm::sea_query::Expr::value(judgement.judge_epoch),
             )
             .col_expr(
                 submission::Column::Status,
-                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
             )
             .col_expr(
                 submission::Column::OwnerServerId,
-                sea_orm::sea_query::Expr::value(Some(server_id.to_string())).into(),
+                sea_orm::sea_query::Expr::value(Some(server_id.to_string())),
             )
             .col_expr(
                 submission::Column::LeaseHeartbeatAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             .col_expr(
                 submission::Column::LeasedAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             // Never LOWER the submission's dispatch-retry count: claim_submissions
             // accumulates it on the submission row and terminalizes when it exceeds
@@ -866,31 +853,27 @@ async fn claim_code_runs(
         code_run::Entity::update_many()
             .col_expr(
                 code_run::Column::OwnerServerId,
-                sea_orm::sea_query::Expr::value(Some(server_id.to_string())).into(),
+                sea_orm::sea_query::Expr::value(Some(server_id.to_string())),
             )
             .col_expr(
                 code_run::Column::LeaseHeartbeatAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             .col_expr(
                 code_run::Column::LeasedAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             .col_expr(
                 code_run::Column::RetryCount,
-                sea_orm::sea_query::Expr::col(code_run::Column::RetryCount)
-                    .add(1)
-                    .into(),
+                sea_orm::sea_query::Expr::col(code_run::Column::RetryCount).add(1),
             )
             .col_expr(
                 code_run::Column::JudgeEpoch,
-                sea_orm::sea_query::Expr::col(code_run::Column::JudgeEpoch)
-                    .add(1)
-                    .into(),
+                sea_orm::sea_query::Expr::col(code_run::Column::JudgeEpoch).add(1),
             )
             .col_expr(
                 code_run::Column::Status,
-                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()).into(),
+                sea_orm::sea_query::Expr::value(SubmissionStatus::Pending.to_string()),
             )
             .clear_judgement_columns()
             .filter(code_run::Column::Id.is_in(plan.redispatch_ids.clone()))
@@ -913,9 +896,7 @@ async fn claim_code_runs(
         code_run::Entity::update_many()
             .col_expr(
                 code_run::Column::RetryCount,
-                sea_orm::sea_query::Expr::col(code_run::Column::RetryCount)
-                    .add(1)
-                    .into(),
+                sea_orm::sea_query::Expr::col(code_run::Column::RetryCount).add(1),
             )
             .filter(code_run::Column::Id.eq(row.id))
             .filter(code_run::Column::JudgeEpoch.eq(row.judge_epoch))

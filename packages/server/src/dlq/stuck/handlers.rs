@@ -397,26 +397,25 @@ pub(super) async fn handle_stuck_submission_judgement(
         submission_judgement::Entity::update_many()
             .col_expr(
                 submission_judgement::Column::Status,
-                sea_orm::sea_query::Expr::value(SubmissionStatus::SystemError.to_string()).into(),
+                sea_orm::sea_query::Expr::value(SubmissionStatus::SystemError.to_string()),
             )
             .col_expr(
                 submission_judgement::Column::ErrorCode,
                 sea_orm::sea_query::Expr::value(Some(
                     SubmissionDlqErrorCode::STUCK_JOB.to_string(),
-                ))
-                .into(),
+                )),
             )
             .col_expr(
                 submission_judgement::Column::ErrorMessage,
-                sea_orm::sea_query::Expr::value(Some(system_error_message)).into(),
+                sea_orm::sea_query::Expr::value(Some(system_error_message)),
             )
             .col_expr(
                 submission_judgement::Column::IsFinalized,
-                sea_orm::sea_query::Expr::value(true).into(),
+                sea_orm::sea_query::Expr::value(true),
             )
             .col_expr(
                 submission_judgement::Column::FinalizedAt,
-                sea_orm::sea_query::Expr::cust("NOW()").into(),
+                sea_orm::sea_query::Expr::cust("NOW()"),
             )
             .filter(submission_judgement::Column::Id.eq(judgement.id))
             .filter(submission_judgement::Column::Status.is_in(STUCK_RECOVERY_STATUSES))
