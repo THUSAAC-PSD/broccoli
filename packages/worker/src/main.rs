@@ -1,3 +1,8 @@
+// The binary re-declares `mod models`, so the same `#[async_trait]` traits that
+// trip `double_must_use` in the library (see lib.rs) are compiled again in this
+// crate graph. Same false positive from macro output, same crate-wide suppression.
+#![allow(clippy::double_must_use)]
+
 mod config;
 mod consumer;
 mod dedup;
