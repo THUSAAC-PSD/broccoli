@@ -275,16 +275,42 @@ async fn mark_submission_dispatch_system_error(
     let safe_code = sanitize_text_field(error_code);
     let safe_message = sanitize_text_field(error_message);
     if judgement_id > 0 {
-        let active = submission_judgement::ActiveModel {
-            id: Set(judgement_id),
-            status: Set(SubmissionStatus::SystemError),
-            error_code: Set(Some(safe_code.as_ref().to_string())),
-            error_message: Set(Some(safe_message.as_ref().to_string())),
-            is_finalized: Set(true),
-            finalized_at: Set(Some(Utc::now())),
-            ..Default::default()
-        };
-        active.update(db).await?;
+        // Epoch-gate this by-id finalize exactly like the sibling submission
+        // write below. A dispatch task captures `submission.judge_epoch` at
+        // spawn time and carries it, unre-read, into its detached future; if
+        // the age-cap stuck-detector (`max_inflight_secs`) recovers this job's
+        // judgement mid-flight, it re-dispatches the SAME judgement id at
+        // `judge_epoch + 1`. Without the epoch guard, this task's later failure
+        // would clobber that live, newer-epoch judgement by id alone — flipping
+        // a correctly-judged (or still-in-flight) result to a finalized
+        // SystemError. The `is_finalized = FALSE` guard mirrors the sibling and
+        // avoids re-finalizing an already-terminal row. Unlike
+        // `mark_submission_system_error_with_epoch`'s judgement write, this keys
+        // on the judgement id (not submission_id + is_current) so a NON-current
+        // deferred-rejudge judgement this task owns is still covered.
+        submission_judgement::Entity::update_many()
+            .col_expr(
+                submission_judgement::Column::Status,
+                Expr::value(SubmissionStatus::SystemError.to_string()),
+            )
+            .col_expr(
+                submission_judgement::Column::ErrorCode,
+                Expr::value(Some(safe_code.as_ref().to_string())),
+            )
+            .col_expr(
+                submission_judgement::Column::ErrorMessage,
+                Expr::value(Some(safe_message.as_ref().to_string())),
+            )
+            .col_expr(submission_judgement::Column::IsFinalized, Expr::value(true))
+            .col_expr(
+                submission_judgement::Column::FinalizedAt,
+                Expr::value(Some(Utc::now())),
+            )
+            .filter(submission_judgement::Column::Id.eq(judgement_id))
+            .filter(submission_judgement::Column::JudgeEpoch.eq(judge_epoch))
+            .filter(submission_judgement::Column::IsFinalized.eq(false))
+            .exec(db)
+            .await?;
     }
 
     crate::consumers::mark_submission_system_error_with_epoch(
@@ -1256,5 +1282,149 @@ mod tests {
             .await
             .expect("requeue call");
         assert!(out.is_none(), "a superseded judgement is not requeued");
+    }
+
+    /// Seed a CURRENT, still-in-flight (un-finalized) judgement at `epoch` for an
+    /// owned submission — the shape a live evaluation (or a just-re-dispatched
+    /// age-cap recovery) presents while it is judging.
+    async fn seed_current_inflight_judgement(
+        db: &DatabaseConnection,
+        sub: &submission::Model,
+        epoch: i32,
+        status: SubmissionStatus,
+    ) -> i32 {
+        let now = Utc::now();
+        submission_judgement::ActiveModel {
+            submission_id: Set(sub.id),
+            version: Set(1),
+            is_current: Set(true),
+            is_finalized: Set(false),
+            status: Set(status),
+            judge_epoch: Set(epoch),
+            retry_count: Set(0),
+            owner_server_id: Set(Some("srv-A".to_string())),
+            lease_heartbeat_at: Set(Some(now)),
+            created_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert in-flight judgement")
+        .id
+    }
+
+    /// The dispatch-time epoch guard on the by-id finalize: a zombie dispatch
+    /// task whose in-flight job the age-cap stuck-detector recovered — bumping
+    /// the SAME judgement id to `epoch + 1` and re-dispatching it — must NOT
+    /// clobber that live, newer-epoch judgement when it later fails carrying its
+    /// stale captured epoch. Before the guard, the by-id `.update()` finalized
+    /// the row unconditionally, flipping a still-in-flight (or already correct)
+    /// result to a spurious SystemError.
+    #[tokio::test]
+    async fn stale_epoch_dispatch_failure_does_not_clobber_readvanced_judgement() {
+        let (_pg, db) = start_pg().await;
+        let sub = seed_owned_submission(&db, "srv-A").await;
+        // The age-cap recovery advanced BOTH rows to epoch 1 in lockstep, and
+        // the judgement is judging afresh (current, un-finalized, Running).
+        submission::Entity::update_many()
+            .col_expr(submission::Column::JudgeEpoch, Expr::value(1))
+            .filter(submission::Column::Id.eq(sub.id))
+            .exec(&db)
+            .await
+            .expect("advance submission epoch to 1");
+        let jid = seed_current_inflight_judgement(&db, &sub, 1, SubmissionStatus::Running).await;
+
+        // A zombie dispatch task from the ORIGINAL attempt (epoch 0) now fails.
+        mark_submission_dispatch_system_error(
+            &db,
+            sub.id,
+            jid,
+            "PLUGIN_EXECUTION_ERROR",
+            "worker connection dropped",
+            0,
+        )
+        .await
+        .expect("stale-epoch failure is recorded without error");
+
+        let j = submission_judgement::Entity::find_by_id(jid)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            j.judge_epoch, 1,
+            "the live judgement is untouched at epoch 1"
+        );
+        assert!(
+            !j.is_finalized,
+            "the live judgement is NOT prematurely finalized by the stale zombie"
+        );
+        assert_eq!(
+            j.status,
+            SubmissionStatus::Running,
+            "the live judgement keeps evaluating — not flipped to SystemError"
+        );
+        assert!(j.finalized_at.is_none(), "no finalize timestamp written");
+        assert!(
+            j.error_code.is_none(),
+            "no stale error stamped onto the live judgement"
+        );
+
+        let s = submission::Entity::find_by_id(sub.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.judge_epoch, 1, "submission epoch preserved");
+        assert_ne!(
+            s.status,
+            SubmissionStatus::SystemError,
+            "the epoch-guarded submission-cache write also no-ops"
+        );
+    }
+
+    /// The guard does not break the normal path: a dispatch that fails on the
+    /// CURRENT epoch still finalizes its judgement (and submission cache) as
+    /// SystemError, exactly as the pre-guard by-id write did.
+    #[tokio::test]
+    async fn matching_epoch_dispatch_failure_finalizes_judgement_as_system_error() {
+        let (_pg, db) = start_pg().await;
+        let sub = seed_owned_submission(&db, "srv-A").await;
+        let jid = seed_current_inflight_judgement(&db, &sub, 0, SubmissionStatus::Running).await;
+
+        mark_submission_dispatch_system_error(
+            &db,
+            sub.id,
+            jid,
+            "PLUGIN_EXECUTION_ERROR",
+            "worker connection dropped",
+            0,
+        )
+        .await
+        .expect("matching-epoch dispatch failure is recorded");
+
+        let j = submission_judgement::Entity::find_by_id(jid)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            j.is_finalized,
+            "matching-epoch failure finalizes the judgement"
+        );
+        assert_eq!(j.status, SubmissionStatus::SystemError);
+        assert_eq!(j.error_code.as_deref(), Some("PLUGIN_EXECUTION_ERROR"));
+        assert!(j.finalized_at.is_some());
+
+        let s = submission::Entity::find_by_id(sub.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            s.status,
+            SubmissionStatus::SystemError,
+            "submission cache reflects the SystemError"
+        );
     }
 }
