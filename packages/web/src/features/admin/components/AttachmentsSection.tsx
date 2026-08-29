@@ -178,9 +178,7 @@ export function AttachmentsSection({ problemId }: AttachmentsSectionProps) {
         { params: { path: { id: problemId, ref_id: file.id } } },
       );
       if (error) {
-        toast.error(
-          getErrorMessage(error, t('admin.attachments.deleteError')),
-        );
+        toast.error(getErrorMessage(error, t('admin.attachments.deleteError')));
       } else {
         toast.success(t('admin.attachments.deleted'));
         queryClient.invalidateQueries({ queryKey });
