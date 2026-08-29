@@ -1,7 +1,4 @@
-import {
-  type I18nContextValue,
-  useTranslation,
-} from '@broccoli/web-sdk/i18n';
+import { type I18nContextValue, useTranslation } from '@broccoli/web-sdk/i18n';
 import { Badge } from '@broccoli/web-sdk/ui';
 
 import type { DlqMessage } from '@/features/dlq/types';

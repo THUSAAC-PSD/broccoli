@@ -7,7 +7,6 @@ import { FileCode, Loader2, Plus, Trash2, Upload } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-
 interface CheckerSourceFile {
   filename: string;
   content: string;
@@ -109,9 +108,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
       toast.success(t('admin.checkerSource.uploaded'));
       queryClient.invalidateQueries({ queryKey });
     } catch (err) {
-      toast.error(
-        getErrorMessage(err, t('admin.checkerSource.uploadError')),
-      );
+      toast.error(getErrorMessage(err, t('admin.checkerSource.uploadError')));
     } finally {
       setUploading(false);
     }
@@ -142,9 +139,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
         toast.success(t('admin.checkerSource.deleted'));
         queryClient.invalidateQueries({ queryKey });
       } catch (err) {
-        toast.error(
-          getErrorMessage(err, t('admin.checkerSource.deleteError')),
-        );
+        toast.error(getErrorMessage(err, t('admin.checkerSource.deleteError')));
       }
     },
     [files, apiClient, problemId, queryClient, queryKey, t],
@@ -161,9 +156,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
       toast.success(t('admin.checkerSource.cleared'));
       queryClient.invalidateQueries({ queryKey });
     } catch (err) {
-      toast.error(
-        getErrorMessage(err, t('admin.checkerSource.deleteError')),
-      );
+      toast.error(getErrorMessage(err, t('admin.checkerSource.deleteError')));
     }
   }, [apiClient, problemId, queryClient, queryKey, t]);
 

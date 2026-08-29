@@ -36,9 +36,7 @@ export function useAttachmentUpload(problemId: number) {
         });
         return attachment;
       } catch (err) {
-        toast.error(
-          getErrorMessage(err, t('admin.attachments.uploadError')),
-        );
+        toast.error(getErrorMessage(err, t('admin.attachments.uploadError')));
         return null;
       }
     },

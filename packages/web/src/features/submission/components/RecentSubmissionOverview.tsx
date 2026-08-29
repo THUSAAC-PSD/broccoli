@@ -272,7 +272,9 @@ export function RecentSubmissionOverview({
                   )}
                   {row.memoryUsed != null && (
                     <span>
-                      {t('result.memory', { value: formatMemory(row.memoryUsed) })}
+                      {t('result.memory', {
+                        value: formatMemory(row.memoryUsed),
+                      })}
                     </span>
                   )}
                 </div>
