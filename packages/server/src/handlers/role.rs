@@ -86,7 +86,7 @@ pub async fn list_role_permissions(
     params(("role" = String, Path, description = "Role name")),
     request_body = PermissionGrantRequest,
     responses(
-        (status = 200, description = "Permission granted successfully"),
+        (status = 201, description = "Permission granted successfully"),
         (status = 400, description = "Validation error", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
@@ -137,7 +137,7 @@ pub async fn grant_permission_to_role(
         ("permission" = String, Path, description = "Permission name")
     ),
     responses(
-        (status = 200, description = "Permission revoked successfully"),
+        (status = 204, description = "Permission revoked successfully"),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Role permission not found (NOT_FOUND)", body = ErrorBody),

@@ -326,7 +326,7 @@ fn stuck_retry_skip_to_error(skip: StuckRetrySkip) -> AppError {
     tag = "Dead Letter Queue",
     operation_id = "retryDlqMessage",
     summary = "Retry a DLQ message",
-    description = "Retries a dead letter message by resetting the submission to Pending and re-dispatching it to the plugin-based judging system. Only stuck_submission messages can be retried; operation_task, stuck_code_run, and stuck_submission_judgement messages are visibility-only from here. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.",
+    description = "Retries a dead letter message by resetting the submission to Queued (the claim fiber then promotes it to Pending) and re-dispatching it to the plugin-based judging system. Only stuck_submission messages can be retried; operation_task, stuck_code_run, and stuck_submission_judgement messages are visibility-only from here. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.",
     params(("id" = i32, Path, description = "DLQ message ID")),
     responses(
         (status = 200, description = "Submission re-dispatched", body = DlqRetryResponse),
@@ -411,7 +411,7 @@ pub async fn delete_dlq_message(
     tag = "Dead Letter Queue",
     operation_id = "bulkRetryDlq",
     summary = "Bulk-retry DLQ messages",
-    description = "Retries multiple dead letter messages by resetting their submissions to Pending and re-dispatching to the plugin-based judging system. Supports either specific message IDs or filter-based selection. Only stuck_submission messages with a known submission_id in SystemError or Pending state are retryable; other message types are skipped. Requires `dlq:manage` permission.",
+    description = "Retries multiple dead letter messages by resetting their submissions to Queued (the claim fiber then promotes each to Pending) and re-dispatching to the plugin-based judging system. Supports either specific message IDs or filter-based selection. Only stuck_submission messages with a known submission_id in SystemError or Pending state are retryable; other message types are skipped. Requires `dlq:manage` permission.",
     request_body = BulkRetryDlqRequest,
     responses(
         (status = 200, description = "Bulk retry result", body = BulkRetryDlqResponse),

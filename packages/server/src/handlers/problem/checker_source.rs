@@ -19,7 +19,7 @@ use crate::utils::text::sanitize_db_json;
     tag = "Checker Source",
     operation_id = "uploadCheckerSource",
     summary = "Upload checker source files",
-    description = "Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission. Body limit: 1 GB.",
+    description = "Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission. Body limit: 32 MiB.",
     params(("id" = i32, Path, description = "Problem ID")),
     request_body = UploadCheckerSourceRequest,
     responses(

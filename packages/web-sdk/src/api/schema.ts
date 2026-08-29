@@ -260,6 +260,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/auth/cli-refresh': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Refresh a CLI access token using a stored refresh token
+     * @description Body-based (cookie-free) refresh for CLI clients. Validates and rotates the supplied refresh token, returning a new access token and a new refresh token. The old refresh token is invalidated.
+     */
+    post: operations['cliRefreshToken'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/cli-token': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Issue a long-lived refresh token for the CLI
+     * @description Exchanges the caller's current access token for a fresh access token plus a long-lived refresh token. The CLI stores the refresh token and uses POST /auth/cli-refresh to obtain new access tokens without re-prompting.
+     */
+    post: operations['issueCliToken'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/device-authorize': {
     parameters: {
       query?: never;
@@ -894,6 +934,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/contests/{id}/problems/{problem_id}/samples': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get sample test cases for a contest problem
+     * @description Returns sample test cases (input and output) for a problem within a contest. Requires the user to be a participant or have contest:manage permission. The contest must have started.
+     */
+    get: operations['getContestProblemSamples'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/contests/{id}/problems/{problem_id}/submissions': {
     parameters: {
       query?: never;
@@ -1009,7 +1069,7 @@ export interface paths {
     put?: never;
     /**
      * Bulk-retry DLQ messages
-     * @description Retries multiple dead letter messages by resetting their submissions to Pending and re-dispatching to the plugin-based judging system. Supports either specific message IDs or filter-based selection. Only stuck_submission messages with a known submission_id in SystemError or Pending state are retryable; other message types are skipped. Requires `dlq:manage` permission.
+     * @description Retries multiple dead letter messages by resetting their submissions to Queued (the claim fiber then promotes each to Pending) and re-dispatching to the plugin-based judging system. Supports either specific message IDs or filter-based selection. Only stuck_submission messages with a known submission_id in SystemError or Pending state are retryable; other message types are skipped. Requires `dlq:manage` permission.
      */
     post: operations['bulkRetryDlq'];
     delete?: never;
@@ -1073,7 +1133,7 @@ export interface paths {
     put?: never;
     /**
      * Retry a DLQ message
-     * @description Retries a dead letter message by resetting the submission to Pending and re-dispatching it to the plugin-based judging system. Only stuck_submission messages can be retried; operation_task, stuck_code_run, and stuck_submission_judgement messages are visibility-only from here. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.
+     * @description Retries a dead letter message by resetting the submission to Queued (the claim fiber then promotes it to Pending) and re-dispatching it to the plugin-based judging system. Only stuck_submission messages can be retried; operation_task, stuck_code_run, and stuck_submission_judgement messages are visibility-only from here. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.
      */
     post: operations['retryDlqMessage'];
     delete?: never;
@@ -1392,7 +1452,7 @@ export interface paths {
     get: operations['getCheckerSource'];
     /**
      * Upload checker source files
-     * @description Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission. Body limit: 1 GB.
+     * @description Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission. Body limit: 32 MiB.
      */
     put: operations['uploadCheckerSource'];
     post?: never;
@@ -2197,24 +2257,6 @@ export interface components {
        */
       id: number;
     };
-    /** @description A single checker format registration entry. */
-    CheckerFormatEntry: {
-      /**
-       * @description Checker format identifier (e.g. "exact", "tokens", "testlib").
-       * @example exact
-       */
-      checker_format: string;
-      /**
-       * @description Plugin function invoked to run the checker.
-       * @example check_exact
-       */
-      function_name: string;
-      /**
-       * @description Plugin that registered this checker format.
-       * @example standard-checkers
-       */
-      plugin_id: string;
-    };
     CheckerSourceFile: {
       /**
        * @example #include "testlib.h"
@@ -2294,6 +2336,17 @@ export interface components {
       resolved_by_name?: string | null;
       /** Format: date-time */
       updated_at: string;
+    };
+    CliRefreshRequest: {
+      /** @example a1b2c3...:d4e5f6... */
+      refresh_token: string;
+    };
+    /** @description Access and refresh tokens returned to the CLI. */
+    CliTokenResponse: {
+      /** @example a1b2c3...:d4e5f6... */
+      refresh_token: string;
+      /** @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... */
+      token: string;
     };
     ClientError: {
       /** @example TypeError: Cannot read properties of undefined */
@@ -3289,6 +3342,9 @@ export interface components {
        */
       updated_at: string;
     };
+    ProblemSamplesResponse: {
+      samples: components['schemas']['SampleCase'][];
+    };
     QueueInfo: {
       /** @description Per-state breakdown (e.g. `{"queued": 0, "processing": 0, "failed": 0}`). */
       breakdown: {
@@ -3322,7 +3378,6 @@ export interface components {
       username: string;
     };
     RegistriesResponse: {
-      checker_format_handlers: components['schemas']['CheckerFormatEntry'][];
       /**
        * @example [
        *       "exact",
@@ -3413,6 +3468,12 @@ export interface components {
       files: components['schemas']['SubmissionFileDto'][];
       /** @example cpp */
       language: string;
+    };
+    SampleCase: {
+      /** @description Optional markdown note explaining this sample (author-written). */
+      description?: string | null;
+      input: string;
+      output: string;
     };
     SampleTestCaseMeta: {
       /** @example The sample demonstrates the smallest non-empty input. */
@@ -3922,8 +3983,6 @@ export interface components {
        * @example 1
        */
       id: number;
-      /** @example $argon2id$v=19$m=19456,t=2,p=1$... */
-      password: string;
       /**
        * @example [
        *       "contestant"
@@ -4034,6 +4093,13 @@ export interface components {
        */
       cpu_count?: number | null;
       /**
+       * @description The worker's fairness mode (e.g. `pinned`, `cooperative`, `unknown`),
+       *     reported in its heartbeat. `None` for legacy workers that predate the
+       *     field. See the worker `fairness` module.
+       * @example pinned
+       */
+      fairness_mode?: string | null;
+      /**
        * @description OS hostname of the machine running this worker. Useful for identifying
        *     physical machines in a lab.
        * @example lab-pc-07
@@ -4071,7 +4137,7 @@ export interface components {
        * @example 3
        */
       seconds_since_last_seen: number;
-      /** @description True when the heartbeat is older than 10s — worker is likely unhealthy. */
+      /** @description True when the heartbeat is older than 10s - worker is likely unhealthy. */
       stale: boolean;
       /** Format: date-time */
       started_at: string;
@@ -4872,6 +4938,68 @@ export interface operations {
       };
       /** @description Forbidden (PERMISSION_DENIED) */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  cliRefreshToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CliRefreshRequest'];
+      };
+    };
+    responses: {
+      /** @description Token refreshed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CliTokenResponse'];
+        };
+      };
+      /** @description Invalid or expired refresh token (TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  issueCliToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description CLI token issued */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CliTokenResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
         headers: {
           [name: string]: unknown;
         };
@@ -7042,6 +7170,58 @@ export interface operations {
         };
       };
       /** @description Config not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getContestProblemSamples: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Sample test cases */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemSamplesResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest or problem not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -10131,7 +10311,7 @@ export interface operations {
     };
     responses: {
       /** @description Permission granted successfully */
-      200: {
+      201: {
         headers: {
           [name: string]: unknown;
         };
@@ -10181,7 +10361,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       /** @description Permission revoked successfully */
-      200: {
+      204: {
         headers: {
           [name: string]: unknown;
         };
@@ -10944,7 +11124,7 @@ export interface operations {
     };
     responses: {
       /** @description Role assigned */
-      204: {
+      201: {
         headers: {
           [name: string]: unknown;
         };

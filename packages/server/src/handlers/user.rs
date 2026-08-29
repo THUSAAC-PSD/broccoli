@@ -268,7 +268,7 @@ async fn require_role_within_ceiling(
     params(("id" = i32, Path, description = "User ID")),
     request_body = RoleAssignmentRequest,
     responses(
-        (status = 204, description = "Role assigned"),
+        (status = 201, description = "Role assigned"),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
