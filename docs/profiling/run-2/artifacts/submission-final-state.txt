@@ -1,2 +1,0 @@
-Warning: Identity file /root/.ssh/id_ed25519 not accessible: No such file or directory.
-root@10.104.0.17: Permission denied (publickey).
