@@ -235,22 +235,22 @@ pub async fn run_windowed_session<S: WindowedSession>(
         // batch before the timeout is ever surfaced to the plugin. A retried slot
         // does not count toward `completed` and does not invoke the callback.
         let is_timeout = !matches!(item.result, Ok(Some(_)));
-        if is_timeout {
-            if let Some(retry_item) = driver.take_retry(item.slot_id, &item.batch_id).await {
-                match driver
-                    .start_slot(item.slot_id, retry_item, timeout, tx.clone())
-                    .await
-                {
-                    Ok(new_batch_id) => {
-                        driver.note_retry(item.slot_id, &item.batch_id);
-                        active.push((item.slot_id, new_batch_id));
-                        continue;
-                    }
-                    Err(e) => {
-                        // Re-dispatch failed: fall through and surface the
-                        // timeout rather than silently dropping the slot.
-                        driver.note_retry_failed(item.slot_id, &e);
-                    }
+        if is_timeout
+            && let Some(retry_item) = driver.take_retry(item.slot_id, &item.batch_id).await
+        {
+            match driver
+                .start_slot(item.slot_id, retry_item, timeout, tx.clone())
+                .await
+            {
+                Ok(new_batch_id) => {
+                    driver.note_retry(item.slot_id, &item.batch_id);
+                    active.push((item.slot_id, new_batch_id));
+                    continue;
+                }
+                Err(e) => {
+                    // Re-dispatch failed: fall through and surface the
+                    // timeout rather than silently dropping the slot.
+                    driver.note_retry_failed(item.slot_id, &e);
                 }
             }
         }

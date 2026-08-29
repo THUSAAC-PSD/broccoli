@@ -79,17 +79,17 @@ impl EvaluateBatchOpsRegistry {
         test_case_id: i32,
         op_batch_id: &str,
     ) {
-        if let Some(batch) = self.batches.get(evaluate_batch_id) {
-            if let Some(mut refs) = batch.by_test_case.get_mut(&test_case_id) {
-                let removed = refs
-                    .iter()
-                    .filter(|op| op.op_batch_id == op_batch_id)
-                    .map(|op| op.op_task_id.clone())
-                    .collect::<Vec<_>>();
-                refs.retain(|op| op.op_batch_id != op_batch_id);
-                for op_task_id in removed {
-                    batch.by_operation_task.remove(&op_task_id);
-                }
+        if let Some(batch) = self.batches.get(evaluate_batch_id)
+            && let Some(mut refs) = batch.by_test_case.get_mut(&test_case_id)
+        {
+            let removed = refs
+                .iter()
+                .filter(|op| op.op_batch_id == op_batch_id)
+                .map(|op| op.op_task_id.clone())
+                .collect::<Vec<_>>();
+            refs.retain(|op| op.op_batch_id != op_batch_id);
+            for op_task_id in removed {
+                batch.by_operation_task.remove(&op_task_id);
             }
         }
     }

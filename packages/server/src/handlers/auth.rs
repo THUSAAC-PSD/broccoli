@@ -141,10 +141,10 @@ pub async fn login(
     // (username, client IP) pair count and a success clears them, so a
     // legitimate sign-in is never blocked even when a whole venue shares one NAT
     // IP. Fails open when the client IP is unknown.
-    if let Some(ip) = client_ip {
-        if let Some(retry_after) = state.login_throttle.check(username, ip) {
-            return Err(AppError::RateLimited { retry_after });
-        }
+    if let Some(ip) = client_ip
+        && let Some(retry_after) = state.login_throttle.check(username, ip)
+    {
+        return Err(AppError::RateLimited { retry_after });
     }
 
     let maybe_user = user::Entity::find_active()

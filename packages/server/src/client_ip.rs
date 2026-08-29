@@ -73,7 +73,7 @@ fn rightmost_x_forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
         .filter_map(|value| value.to_str().ok())
         .flat_map(|line| line.split(','))
         .filter_map(|part| part.trim().parse::<IpAddr>().ok())
-        .last()
+        .next_back()
 }
 
 pub fn parse_trusted_proxy_networks(entries: &[String]) -> Arc<Vec<IpNet>> {

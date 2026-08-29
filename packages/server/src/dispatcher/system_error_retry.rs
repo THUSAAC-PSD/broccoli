@@ -171,6 +171,7 @@ async fn scan_once(
 /// * `status == Judged AND verdict == SystemError` - plugin-finalized;
 /// * `status == SystemError` - stuck-handler terminal / dispatch-exhaustion
 ///   (verdict typically NULL).
+///
 /// A contestant `CompileError` lands as `status == CompilationError` (never
 /// `SystemError`), so it is never selected; nor are own-code verdicts
 /// (`status == Judged` with WA/TLE/MLE/RE), non-current, or unfinalized rows.

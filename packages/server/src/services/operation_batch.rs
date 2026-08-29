@@ -144,12 +144,7 @@ pub async fn start_operation_batch(
     );
     let evaluate_refs = operations
         .iter()
-        .filter_map(|op| {
-            op.evaluate_batch_id
-                .clone()
-                .zip(op.test_case_id)
-                .map(|(evaluate_batch_id, test_case_id)| (evaluate_batch_id, test_case_id))
-        })
+        .filter_map(|op| op.evaluate_batch_id.clone().zip(op.test_case_id))
         .collect::<Vec<_>>();
 
     deps.operation_batches.insert(

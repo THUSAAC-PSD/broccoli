@@ -188,10 +188,10 @@ async fn scan_live_workers(
             .await?;
 
         for key in keys {
-            if let Some(id) = key.strip_prefix(WORKER_HEARTBEAT_PREFIX) {
-                if !id.is_empty() {
-                    live.insert(id.to_string());
-                }
+            if let Some(id) = key.strip_prefix(WORKER_HEARTBEAT_PREFIX)
+                && !id.is_empty()
+            {
+                live.insert(id.to_string());
             }
         }
 

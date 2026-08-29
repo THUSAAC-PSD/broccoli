@@ -189,10 +189,10 @@ fn raw_sql_gate(disabled: bool, plugin_id: &str) -> Result<(), extism::Error> {
 fn fallback_target(
     role: FallbackRole,
 ) -> Result<(String, Option<crate::database::PluginLoginOverride>), sea_orm::DbErr> {
-    if role == FallbackRole::Restricted {
-        if let Some(rf) = PLUGIN_DB_RESTRICTED_FALLBACK.get() {
-            return Ok((rf.url.clone(), rf.login.clone()));
-        }
+    if role == FallbackRole::Restricted
+        && let Some(rf) = PLUGIN_DB_RESTRICTED_FALLBACK.get()
+    {
+        return Ok((rf.url.clone(), rf.login.clone()));
     }
     let url = PLUGIN_DB_FALLBACK_URL
         .get()
