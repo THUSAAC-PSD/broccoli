@@ -720,7 +720,38 @@ impl OperationHandler {
         };
 
         let success = exec_result.exit_code == Some(0);
-        let collected_outputs = self.collect_output(&env.working_dir, &step.collect).await?;
+        let collected_outputs = match self.collect_output(&env.working_dir, &step.collect).await {
+            Ok(outputs) => outputs,
+            Err(e) => {
+                // The step already ran to a clean exit; the failure here is
+                // POST-sandbox output collection (a blob-store upload blip, a
+                // transient stat/canonicalize error). That is an infrastructure
+                // fault, never the contestant's output, so tag it InternalError so
+                // precheck_verdict / interpret_fused_result route it to a
+                // self-healing SystemError -- exactly like the sandbox-execute error
+                // arm above. Propagating `?` here instead would surface as an `Err`
+                // to `run_single_step`, whose catch arm substitutes a terminal
+                // `ExecutionResult::default()` ("UNKNOWN"): a transient upload blip
+                // would then finalize a permanent wrong verdict that never resolves
+                // on retry. Malformed-operation errors fail earlier, in prepare_io,
+                // and never reach this arm.
+                error!(step_id = %step.id, error = %e, "Step output collection failed");
+                return Ok(TaskExecutionResult {
+                    task_id: step.id.clone(),
+                    success: false,
+                    sandbox_result: ExecutionResult {
+                        sandbox_status: SandboxStatus::InternalError,
+                        status: "XX".to_string(),
+                        message: format!(
+                            "step '{}' output collection failed (infra error): {e}",
+                            step.id
+                        ),
+                        ..ExecutionResult::default()
+                    },
+                    collected_outputs: HashMap::new(),
+                });
+            }
+        };
 
         Ok(TaskExecutionResult {
             task_id: step.id.clone(),
@@ -1571,5 +1602,104 @@ mod channel_keepalive_tests {
         assert_eq!(b_reader.join().unwrap(), 0, "B must have seen clean EOF");
         let _ = std::fs::remove_dir_all(&dir_a);
         let _ = std::fs::remove_dir_all(&dir_b);
+    }
+}
+
+// Verdict-routing regression tests for the post-sandbox output-collection stage.
+#[cfg(all(test, unix))]
+mod step_execution_tests {
+    use super::*;
+    use crate::models::operation::file_cacher::UnavailableFileCacher;
+    use crate::models::operation::sandbox::mock::MockSandboxManager;
+    use crate::models::operation::task_cache::NoopTaskCacheStore;
+    use broccoli_types::types::{IOConfig, StepKind};
+
+    fn collecting_step(id: &str, argv: Vec<String>, collect: Vec<String>) -> Step {
+        Step {
+            id: id.to_string(),
+            kind: StepKind::default(),
+            env_ref: "env".to_string(),
+            argv,
+            conf: RunOptions::default(),
+            io: IOConfig::default(),
+            collect,
+            depends_on: vec![],
+            cache: None,
+            mounts: vec![],
+        }
+    }
+
+    // A post-sandbox output-collection failure (a blob-store upload error, after
+    // the step already ran to a CLEAN exit) is an INFRASTRUCTURE fault, not a
+    // contestant determination. It must surface through `execute_step` as a
+    // self-healing InternalError ("XX") -- the same tag the sandbox-execute error
+    // arm uses -- NOT as an `Err`. An `Err` here is caught by the caller's arm in
+    // `run_single_step`, which substitutes a terminal `ExecutionResult::default()`
+    // ("UNKNOWN", non-self-healing): the transient upload blip would then finalize
+    // a spurious permanent wrong verdict that never resolves on retry.
+    #[tokio::test]
+    async fn collect_output_upload_failure_is_self_healing_internal_error() {
+        // PID + a process-unique counter so a temp dir never collides with a
+        // concurrently-running sibling test (matches the `make_fifo` convention).
+        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let uniq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let base = std::env::temp_dir().join(format!(
+            "broccoli-collect-fail-{}-{uniq}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+
+        // The mock sandbox runs a real child: exit 0 leaves the collect file behind.
+        let mock = MockSandboxManager::new(base.clone());
+        let box_id = allocate_box_id();
+        let working_dir = mock
+            .create_sandbox(Some(box_id.as_str()))
+            .await
+            .expect("mock sandbox creates");
+
+        let (metrics, _provider) =
+            common::observability::init_metrics_local("broccoli-worker-test");
+        let handler = OperationHandler::new(
+            Box::new(mock.clone()),
+            // Upload always fails -> models a transient blob-store fault that hits
+            // only AFTER a successful run, on the collect path.
+            Box::new(UnavailableFileCacher::new("test-induced upload fault")),
+            Box::new(NoopTaskCacheStore),
+            "test-fingerprint".to_string(),
+            metrics,
+        );
+
+        let step = collecting_step(
+            "run",
+            vec!["/bin/sh".into(), "-c".into(), "printf hi > out.txt".into()],
+            vec!["out.txt".into()],
+        );
+        let mut environments = HashMap::new();
+        environments.insert(
+            "env".to_string(),
+            EnvironmentList::new("env".to_string(), box_id, working_dir.clone()),
+        );
+
+        let result = handler
+            .execute_step(&step, &environments, &HashMap::new(), None, &HashSet::new())
+            .await
+            .expect(
+                "a post-run collect/upload infra failure must NOT propagate as Err \
+                 (Err routes to a terminal UNKNOWN); it must return Ok(InternalError)",
+            );
+
+        assert_eq!(
+            result.sandbox_result.sandbox_status,
+            SandboxStatus::InternalError,
+            "collect/upload infra failure must be tagged InternalError so it self-heals"
+        );
+        assert_eq!(result.sandbox_result.status, "XX");
+        assert!(!result.success, "an infra-failed step is not a success");
+        assert!(
+            result.collected_outputs.is_empty(),
+            "no collected outputs are trustworthy when collection failed"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
