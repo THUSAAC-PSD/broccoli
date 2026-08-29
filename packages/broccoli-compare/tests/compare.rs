@@ -37,8 +37,7 @@ fn exact_mismatch_is_wa() {
 
 // Edge cases capturing compare_exact's real semantics: exact mode is a strict
 // byte-for-byte comparison with NO trailing-whitespace/newline normalization.
-// A trailing newline present in one side but not the other is a WrongAnswer
-// (mirrors streaming.rs::compare_exact and checkers/exact.rs::trailing_newline_differs).
+// A trailing newline present in one side but not the other is a WrongAnswer.
 
 #[test]
 fn exact_trailing_newline_only_in_output_is_wa() {
@@ -154,11 +153,9 @@ fn float_mixed_int_float_string_is_ac() {
     assert_eq!(run("tokens-float", b"YES 3.14", "YES 3.14"), 0);
 }
 
-// The original WASM float checker (streaming.rs / checkers/tokens_float.rs) reads
-// a FloatConfig that tunes BOTH abs_tol AND rel_tol per problem. `--epsilon` only
-// covers abs_tol; `--rel-epsilon` covers the relative tolerance so the native
-// binary can reproduce every verdict the WASM comparer can. (Phase 5 resolver
-// maps config.abs_tol -> --epsilon and config.rel_tol -> --rel-epsilon.)
+// Float mode tunes BOTH abs_tol AND rel_tol per problem: `--epsilon` sets the
+// absolute tolerance, `--rel-epsilon` the relative one. The fused resolver maps
+// a problem's config.abs_tol -> --epsilon and config.rel_tol -> --rel-epsilon.
 
 #[test]
 fn float_default_rel_tol_rejects_large_relative_diff_wa() {

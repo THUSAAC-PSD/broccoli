@@ -16,10 +16,10 @@
 //! emit a PresentationError; only testlib does, through its own interpreter.
 //!
 //! `--epsilon` and `--rel-epsilon` only affect `tokens-float`: they override the
-//! absolute and relative tolerances respectively. Together they reproduce the
-//! WASM `FloatConfig { abs_tol, rel_tol }` so verdict identity holds for problems
-//! that customize either tolerance (the Phase 5 resolver maps `config.abs_tol ->
-//! --epsilon` and `config.rel_tol -> --rel-epsilon`).
+//! absolute and relative tolerances respectively - the `{ abs_tol, rel_tol }`
+//! pair a problem may customize. The fused resolver maps `config.abs_tol ->
+//! --epsilon` and `config.rel_tol -> --rel-epsilon` so per-problem tolerances
+//! reach this comparer.
 //!
 //! Output channels (so the fused checker step returns both inline, no blob):
 //!   * **stdout** receives the **first 64 KiB** of stdin (the display preview),
@@ -44,9 +44,9 @@ use anyhow::{Context, Result, bail};
 
 use modes::{TokenMode, Verdict};
 
-/// Default tolerances for `tokens-float`, mirroring
-/// `plugins/standard-checkers/src/checkers/tokens_float.rs` (`abs_tol = 1e-9`,
-/// `rel_tol = 1e-6`).
+/// Default tolerances for `tokens-float` (`abs_tol = 1e-9`, `rel_tol = 1e-6`),
+/// the canonical defaults the fused resolver falls back to when a problem sets
+/// neither `--epsilon` nor `--rel-epsilon`.
 const DEFAULT_ABS_TOL: f64 = 1e-9;
 const DEFAULT_REL_TOL: f64 = 1e-6;
 
@@ -146,15 +146,15 @@ fn compare<O: Read, A: Read>(args: &Args, output: &mut O, answer: A) -> std::io:
         "tokens-float" => {
             // `--epsilon`/`--rel-epsilon` override the absolute/relative
             // tolerances; whichever is omitted keeps its default so the combined
-            // `max(abs_tol, rel_tol * max(|a|,|b|))` rule still holds and matches
-            // the WASM `FloatConfig` defaults (1e-9 / 1e-6).
+            // `max(abs_tol, rel_tol * max(|a|,|b|))` rule still holds against the
+            // 1e-9 / 1e-6 defaults.
             let abs_tol = args.epsilon.unwrap_or(DEFAULT_ABS_TOL);
             let rel_tol = args.rel_epsilon.unwrap_or(DEFAULT_REL_TOL);
             modes::compare_tokens(output, answer, TokenMode::Float { abs_tol, rel_tol })
         }
         "lines" => modes::compare_lines(output, answer),
-        // Unreachable: parse_args (below) does not validate the mode string, so
-        // an unknown mode reaches here and is rejected as a usage error.
+        // parse_args (below) does not validate the mode string, so an unknown
+        // mode reaches here and is rejected as a usage error.
         other => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(

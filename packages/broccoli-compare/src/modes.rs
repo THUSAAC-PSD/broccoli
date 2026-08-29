@@ -40,9 +40,8 @@ impl Verdict {
 
 /// Strict byte-for-byte comparison of `output` against `answer`.
 ///
-/// This mirrors `plugins/standard-checkers/src/streaming.rs::compare_exact`
-/// exactly: there is **no** trailing-whitespace or trailing-newline
-/// normalization. The two streams must contain the identical sequence of
+/// There is **no** trailing-whitespace or trailing-newline normalization: the
+/// two streams must contain the identical sequence of
 /// bytes and end at the same position. A trailing newline (or any other byte)
 /// present in one stream but not the other is a [`Verdict::WrongAnswer`].
 ///
@@ -122,8 +121,7 @@ fn read_some<R: Read>(reader: &mut R, buf: &mut [u8]) -> std::io::Result<usize> 
 // ---------------------------------------------------------------------------
 
 /// Pulls UTF-8 `char`s out of a byte `Read` one at a time, buffering only the
-/// few bytes needed to complete a multi-byte code point. Mirrors
-/// `plugins/standard-checkers/src/streaming.rs::CharStream`: invalid UTF-8 and
+/// few bytes needed to complete a multi-byte code point. Invalid UTF-8 and
 /// a stream ending mid-code-point are hard errors (surfaced as
 /// [`std::io::ErrorKind::InvalidData`]).
 struct CharStream<R: Read> {
@@ -210,8 +208,7 @@ impl<R: Read> CharStream<R> {
 // Token comparison (tokens / tokens-case-insensitive / tokens-float)
 // ---------------------------------------------------------------------------
 
-/// How two tokens at the same position are considered equal. Mirrors
-/// `streaming.rs::TokenMode`.
+/// How two tokens at the same position are considered equal.
 #[derive(Debug, Clone, Copy)]
 pub enum TokenMode {
     /// Byte-for-byte (well, char-for-char) token equality.
@@ -286,9 +283,7 @@ fn tokens_match(expected: &str, actual: &str, mode: &TokenMode) -> bool {
 /// `mode`. Returns [`Verdict::Accepted`] iff the two sequences have equal length
 /// and every paired token matches; otherwise [`Verdict::WrongAnswer`].
 ///
-/// This mirrors `plugins/standard-checkers/src/streaming.rs::compare_tokens`
-/// (and the equivalent `checkers/tokens.rs`, `tokens_case.rs`,
-/// `tokens_float.rs`). Only AC/WA are ever returned. `output` is borrowed so the
+/// Only AC/WA are ever returned. `output` is borrowed so the
 /// caller keeps the reader (and can drain any unread bytes after an early WA).
 pub fn compare_tokens<O: Read, A: Read>(
     output: &mut O,
@@ -331,7 +326,6 @@ pub fn compare_tokens<O: Read, A: Read>(
 // ---------------------------------------------------------------------------
 
 /// Yields logical lines from a [`CharStream`] with the same normalization as
-/// `plugins/standard-checkers/src/streaming.rs::LineStream` and
 /// `util::split_lines_trimmed`:
 ///
 /// - lines are split on `\n`; a `\r` immediately before the `\n` is dropped
@@ -417,9 +411,8 @@ impl<R: Read> LineStream<R> {
     }
 }
 
-/// Compare `output` and `answer` line by line, mirroring
-/// `plugins/standard-checkers/src/streaming.rs::compare_lines` (and
-/// `checkers/lines.rs`). Trailing per-line whitespace is ignored, CRLF is
+/// Compare `output` and `answer` line by line. Trailing per-line whitespace is
+/// ignored, CRLF is
 /// normalized to LF, and trailing empty lines are dropped. Returns AC iff both
 /// have the same number of normalized lines and every pair is byte-equal.
 /// `output` is borrowed so the caller keeps the reader.
