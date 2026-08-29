@@ -172,6 +172,11 @@ fn register_contest_type_fn(
 
     let key = input.contest_type;
     validate_registry_id(&key, "contest_type")?;
+    if input.submission_handler.is_empty() || input.code_run_handler.is_empty() {
+        return Err(extism::Error::msg(
+            "submission_handler and code_run_handler must not be empty",
+        ));
+    }
 
     tokio::runtime::Handle::current().block_on(async {
         let mut registry = registry.write().await;
@@ -223,7 +228,13 @@ fn register_evaluator_fn(
         &plugin_id,
         &registry,
         |input| (&input.problem_type, &input.handler),
-        |input| validate_registry_id(&input.problem_type, "problem_type"),
+        |input| {
+            validate_registry_id(&input.problem_type, "problem_type")?;
+            if input.handler.is_empty() {
+                return Err(extism::Error::msg("handler must not be empty"));
+            }
+            Ok(())
+        },
         "Evaluator",
     )
 }
