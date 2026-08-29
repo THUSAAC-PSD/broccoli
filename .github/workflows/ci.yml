@@ -75,6 +75,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # `@broccoli/web` type-checks against the shared SDK's generated `dist`
+      # (subpath `.d.ts`), which is git-ignored. Build it before lint/typecheck;
+      # the later `pnpm build` step rebuilds it idempotently via `pnpm -r`.
+      - name: Build web SDK
+        run: pnpm --filter @broccoli/web-sdk build
+
       - name: Lint
         run: pnpm lint
 
