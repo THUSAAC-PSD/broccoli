@@ -19,7 +19,10 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Contest formats',
           collapsed: false,
-          items: ['running-contests/contest-formats/icpc'],
+          items: [
+            'running-contests/contest-formats/icpc',
+            'running-contests/contest-formats/ioi',
+          ],
         },
       ],
     },
