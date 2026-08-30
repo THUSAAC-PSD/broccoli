@@ -24,6 +24,7 @@ const sidebars: SidebarsConfig = {
             'running-contests/contest-formats/ioi',
           ],
         },
+        'running-contests/plugin-settings',
       ],
     },
     {
