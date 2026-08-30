@@ -33,6 +33,12 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: ['building-plugins/getting-started'],
     },
+    {
+      type: 'category',
+      label: 'Internals',
+      collapsed: false,
+      items: ['internals/judging'],
+    },
   ],
 };
 
