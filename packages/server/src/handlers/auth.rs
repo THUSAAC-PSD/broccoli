@@ -951,7 +951,10 @@ mod device_origin_tests {
         cfg.public_base_url = Some("https://judge.example.org/".to_string());
         cfg.cors.allow_origins = vec!["https://cors.example".to_string()];
         // Even a trusted forwarded host does not override the explicit setting.
-        let h = headers(&[("host", "internal:3000"), ("x-forwarded-host", "proxy.example")]);
+        let h = headers(&[
+            ("host", "internal:3000"),
+            ("x-forwarded-host", "proxy.example"),
+        ]);
         assert_eq!(
             resolve_public_origin(&cfg, &h, true),
             "https://judge.example.org"
@@ -962,7 +965,10 @@ mod device_origin_tests {
     fn derives_origin_from_host_header_when_untrusted() {
         let cfg = server_config();
         let h = headers(&[("host", "judge.lan:3000")]);
-        assert_eq!(resolve_public_origin(&cfg, &h, false), "http://judge.lan:3000");
+        assert_eq!(
+            resolve_public_origin(&cfg, &h, false),
+            "http://judge.lan:3000"
+        );
     }
 
     #[test]
@@ -1011,14 +1017,20 @@ mod device_origin_tests {
         let mut cfg = server_config();
         cfg.host = "0.0.0.0".to_string();
         let h = headers(&[("host", "judge.lan:3000")]);
-        assert_eq!(resolve_public_origin(&cfg, &h, true), "http://judge.lan:3000");
+        assert_eq!(
+            resolve_public_origin(&cfg, &h, true),
+            "http://judge.lan:3000"
+        );
     }
 
     #[test]
     fn trusted_forwarded_host_without_proto_defaults_to_http() {
         let cfg = server_config();
         let h = headers(&[("x-forwarded-host", "judge.example")]);
-        assert_eq!(resolve_public_origin(&cfg, &h, true), "http://judge.example");
+        assert_eq!(
+            resolve_public_origin(&cfg, &h, true),
+            "http://judge.example"
+        );
     }
 
     #[test]
@@ -1036,7 +1048,10 @@ mod device_origin_tests {
         let mut cfg = server_config();
         cfg.cors.allow_origins = vec!["https://cors.example/".to_string()];
         let h = headers(&[]);
-        assert_eq!(resolve_public_origin(&cfg, &h, false), "https://cors.example");
+        assert_eq!(
+            resolve_public_origin(&cfg, &h, false),
+            "https://cors.example"
+        );
     }
 
     #[test]
@@ -1047,6 +1062,9 @@ mod device_origin_tests {
         // Documents the unavoidable last resort: no request authority, no CORS
         // origin, no explicit base URL. Operators hit this only with an empty
         // Host header, which real clients do not send.
-        assert_eq!(resolve_public_origin(&cfg, &h, false), "http://0.0.0.0:3000");
+        assert_eq!(
+            resolve_public_origin(&cfg, &h, false),
+            "http://0.0.0.0:3000"
+        );
     }
 }
