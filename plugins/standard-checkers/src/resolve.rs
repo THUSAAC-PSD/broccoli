@@ -14,8 +14,10 @@ use extism_pdk::{FnResult, plugin_fn};
 
 /// Checker environment id within the fused op (both built-in and testlib).
 pub(crate) const CHECKER_ENV_ID: &str = "checker";
-/// The check step's id; also the stage's `result_step_id`.
-const CHECK_STEP_ID: &str = "check";
+/// The check step's id; also the stage's `result_step_id`. Single-sourced from
+/// the SDK so the resolver's emitted id and the interpreter's lookup id (in
+/// batch-evaluator) can never diverge.
+use broccoli_server_sdk::evaluator::DEFAULT_CHECK_STEP_ID as CHECK_STEP_ID;
 
 // Hard caps for the built-in streaming comparator. The comparator reads the
 // solution's stdout over a FIFO; in lines/tokens mode a contestant can emit a

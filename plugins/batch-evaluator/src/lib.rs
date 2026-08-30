@@ -187,9 +187,14 @@ fn interpret_case_result(
     // Every format interprets via the fused path. Comparison formats read the
     // worker-side `check` step's small result; `none` schedules no check step and
     // is handled inline by interpret_fused_result (precheck wins, else Accepted).
-    let verdict =
-        evaluator::interpret_fused_result(&host.checker, tc_id, result, checker_format, "check")
-            .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
+    let verdict = evaluator::interpret_fused_result(
+        &host.checker,
+        tc_id,
+        result,
+        checker_format,
+        evaluator::DEFAULT_CHECK_STEP_ID,
+    )
+    .map_err(|e| extism_pdk::Error::msg(format!("{e}")))?;
     // A SystemError is a judge/system fault, never the contestant's code. Log each
     // step's raw sandbox result so the cause is diagnosable straight from the log
     // (exit/signal/status/oom/memory) instead of needing a repro.

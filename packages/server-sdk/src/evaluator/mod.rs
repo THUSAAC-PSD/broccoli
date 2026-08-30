@@ -6,5 +6,5 @@ pub use detached::{
     BATCH_START_FAILED, CaseOutcome, ContestJudge, DetachedEval, EVALUATION_PERSIST_FAILED,
     EVALUATION_TIMEOUT, JudgeProgress, JudgeStep, SKIPPED_SHORT_CIRCUIT, build_eval_batch_input,
 };
-pub use interpret::{compile_output_is_infra_fault, interpret_fused_result};
+pub use interpret::{DEFAULT_CHECK_STEP_ID, compile_output_is_infra_fault, interpret_fused_result};
 pub use run::{evaluate_run, handle_code_run};

@@ -2,6 +2,13 @@ use crate::Checker;
 use crate::error::SdkError;
 use crate::types::*;
 
+/// Canonical id of the fused `check` step. This is a contract between the
+/// checker resolver (standard-checkers emits a step with this id and sets it as
+/// the stage's `result_step_id`) and the batch-evaluator interpreter (looks the
+/// step up by this id when turning the op result into a verdict). Both plugins
+/// import this const so the two ends can never drift out of agreement.
+pub const DEFAULT_CHECK_STEP_ID: &str = "check";
+
 /// Interpret a FUSED operation result: the checker ran worker-side as a `check`
 /// step in the same op, so its small result (exit code + message + sandbox
 /// status) is read from `task_results` and turned into a verdict via the
