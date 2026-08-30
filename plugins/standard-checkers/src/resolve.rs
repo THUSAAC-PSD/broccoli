@@ -286,7 +286,7 @@ pub fn build_testlib_checker_stage(
 
 /// Dispatch interpretation by format: built-in comparison formats use the
 /// broccoli-compare exit-code mapping; `testlib` reuses the testlib mapping.
-pub fn interpret_checker(format: &str, result: &CheckerSmallResult) -> CheckerVerdict {
+pub fn interpret_checker(format: &str, result: &CheckerRunOutcome) -> CheckerVerdict {
     if builtin_compare_mode(format).is_some() {
         interpret_builtin(result)
     } else if format == "testlib" {
@@ -311,7 +311,7 @@ pub fn interpret_checker(format: &str, result: &CheckerSmallResult) -> CheckerVe
 /// (defensive - the native comparator does not emit it), anything else (incl.
 /// 64 usage/IO error) = SystemError. No exit code = the checker step itself
 /// failed in the sandbox.
-fn interpret_builtin(result: &CheckerSmallResult) -> CheckerVerdict {
+fn interpret_builtin(result: &CheckerRunOutcome) -> CheckerVerdict {
     match result.exit_code {
         Some(0) => CheckerVerdict {
             verdict: Verdict::Accepted,
@@ -335,7 +335,7 @@ fn interpret_builtin(result: &CheckerSmallResult) -> CheckerVerdict {
 
 /// testlib reuses the existing exit-code mapping verbatim (0/1/2/3/4/7/8/other);
 /// only the sandbox-failure path differs, working off the reduced small result.
-fn interpret_testlib(result: &CheckerSmallResult) -> CheckerVerdict {
+fn interpret_testlib(result: &CheckerRunOutcome) -> CheckerVerdict {
     match result.exit_code {
         Some(code) => crate::checkers::testlib::interpret_testlib_exit_code(code, &result.stderr),
         None => sandbox_failure_verdict("Checker", result),
@@ -343,9 +343,9 @@ fn interpret_testlib(result: &CheckerSmallResult) -> CheckerVerdict {
 }
 
 /// Map a sandbox failure (no exit code) to a SystemError verdict, over the
-/// `CheckerSmallResult` returned by the fused checker stage (which carries only
+/// `CheckerRunOutcome` returned by the fused checker stage (which carries only
 /// the status string + stderr, not the full ExecutionResult).
-fn sandbox_failure_verdict(label: &str, result: &CheckerSmallResult) -> CheckerVerdict {
+fn sandbox_failure_verdict(label: &str, result: &CheckerRunOutcome) -> CheckerVerdict {
     let status = result.sandbox_status.as_deref().unwrap_or("");
     let detail = result.stderr.trim();
     let message = match status {
@@ -643,8 +643,8 @@ mod tests {
         assert!(resolve_builtin("tokens", &input).is_err());
     }
 
-    fn small(exit_code: Option<i32>, stderr: &str, status: Option<&str>) -> CheckerSmallResult {
-        CheckerSmallResult {
+    fn small(exit_code: Option<i32>, stderr: &str, status: Option<&str>) -> CheckerRunOutcome {
+        CheckerRunOutcome {
             exit_code,
             stderr: stderr.to_string(),
             sandbox_status: status.map(|s| s.to_string()),

@@ -43,7 +43,7 @@ pub struct ResolveCheckerInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CheckerSmallResult {
+pub struct CheckerRunOutcome {
     pub exit_code: Option<i32>,
     pub stderr: String,
     pub sandbox_status: Option<String>,
@@ -52,7 +52,7 @@ pub struct CheckerSmallResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterpretCheckerInput {
     pub format: String,
-    pub result: CheckerSmallResult,
+    pub result: CheckerRunOutcome,
 }
 
 #[cfg(test)]
@@ -162,15 +162,15 @@ mod tests {
     }
 
     #[test]
-    fn checker_small_result_round_trips() {
-        let result = CheckerSmallResult {
+    fn checker_run_outcome_round_trips() {
+        let result = CheckerRunOutcome {
             exit_code: Some(0),
             stderr: "ok".to_string(),
             sandbox_status: Some("OK".to_string()),
         };
 
         let json = serde_json::to_value(&result).unwrap();
-        let back: CheckerSmallResult = serde_json::from_value(json).unwrap();
+        let back: CheckerRunOutcome = serde_json::from_value(json).unwrap();
         assert_eq!(back.exit_code, Some(0));
         assert_eq!(back.stderr, "ok");
         assert_eq!(back.sandbox_status.as_deref(), Some("OK"));
@@ -180,7 +180,7 @@ mod tests {
     fn interpret_checker_input_round_trips() {
         let input = InterpretCheckerInput {
             format: "testlib".to_string(),
-            result: CheckerSmallResult {
+            result: CheckerRunOutcome {
                 exit_code: Some(1),
                 stderr: "wrong answer".to_string(),
                 sandbox_status: None,

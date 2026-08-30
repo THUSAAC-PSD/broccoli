@@ -112,13 +112,13 @@ pub fn interpret_fused_result(
     // comparator's stdout preview (Stream mode, where exec stdout is a FIFO and
     // thus empty). 64 KiB cap applied worker-side.
     let display_stdout = exec_stdout.or_else(|| opt_nonempty(&sandbox.stdout));
-    let small = CheckerSmallResult {
+    let outcome = CheckerRunOutcome {
         exit_code: sandbox.exit_code,
         stderr: message,
         sandbox_status: Some(sandbox.status.clone()),
     };
 
-    match checker.interpret(checker_format, &small) {
+    match checker.interpret(checker_format, &outcome) {
         Ok(v) => Ok(TestCaseVerdict {
             test_case_id,
             verdict: v.verdict,

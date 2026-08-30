@@ -12,7 +12,7 @@ mod submission;
 mod verdict;
 
 pub use checker::{
-    CheckerSmallResult, CheckerStage, CheckerVerdict, InterpretCheckerInput, OutputMode,
+    CheckerRunOutcome, CheckerStage, CheckerVerdict, InterpretCheckerInput, OutputMode,
     ResolveCheckerInput,
 };
 pub use code_run::{OnCodeRunInput, OnCodeRunOutput};

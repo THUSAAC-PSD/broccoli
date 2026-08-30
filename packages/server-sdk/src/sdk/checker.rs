@@ -1,7 +1,7 @@
 use crate::error::SdkError;
 #[cfg(target_arch = "wasm32")]
 use crate::types::InterpretCheckerInput;
-use crate::types::{CheckerSmallResult, CheckerStage, CheckerVerdict, ResolveCheckerInput};
+use crate::types::{CheckerRunOutcome, CheckerStage, CheckerVerdict, ResolveCheckerInput};
 
 pub struct Checker {
     #[cfg(not(target_arch = "wasm32"))]
@@ -23,7 +23,7 @@ impl Checker {
     pub fn interpret(
         &self,
         format: &str,
-        result: &CheckerSmallResult,
+        result: &CheckerRunOutcome,
     ) -> Result<CheckerVerdict, SdkError> {
         let input = InterpretCheckerInput {
             format: format.to_string(),
@@ -54,7 +54,7 @@ impl Checker {
     pub fn interpret(
         &self,
         _format: &str,
-        _result: &CheckerSmallResult,
+        _result: &CheckerRunOutcome,
     ) -> Result<CheckerVerdict, SdkError> {
         Err(SdkError::Other("Mock checker not implemented".into()))
     }
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn interpret_mock_returns_err_off_wasm() {
-        let result = CheckerSmallResult {
+        let result = CheckerRunOutcome {
             exit_code: Some(0),
             stderr: String::new(),
             sandbox_status: Some("OK".to_string()),
