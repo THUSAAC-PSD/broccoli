@@ -1159,6 +1159,7 @@ mod tests {
                         allow_origins: vec![],
                         max_age: 3600,
                     },
+                    public_base_url: None,
                     frontend_dist: PathBuf::from("/srv/dist"),
                     trusted_proxies: vec![],
                     rate_limit_auth: false,

@@ -1,11 +1,18 @@
 use std::time::{Duration, Instant};
 
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{
+    Extension, Json,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+};
+use axum_client_ip::ClientIpSource;
 use axum_extra::extract::CookieJar;
 use sea_orm::*;
 use tracing::instrument;
 
 use crate::client_ip::ClientIp;
+use crate::config::ServerConfig;
 use crate::entity::{refresh_token, role, role_permission, user, user_role};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
@@ -467,6 +474,89 @@ fn normalize_user_code(code: &str) -> String {
         .collect()
 }
 
+/// Resolve the externally reachable origin (`scheme://authority`, no trailing
+/// slash) for links the server hands back to a caller, such as the device-flow
+/// `verification_url`. The bind address is NOT a public origin: under the
+/// shipped Docker default `server.host = 0.0.0.0` the naive
+/// `http://{host}:{port}` yields an unreachable `http://0.0.0.0:3000`.
+///
+/// Resolution order, most authoritative first:
+/// 1. `server.public_base_url` when set - the operator's explicit declaration.
+/// 2. The request's own reachable authority: `X-Forwarded-Host` /
+///    `X-Forwarded-Proto` when the peer is a trusted proxy, otherwise the
+///    `Host` header. The caller just reached us at this authority, so a link
+///    built from it routes back. The URL is only ever returned to that same
+///    caller, so a spoofed header poisons only the spoofer's own link.
+/// 3. The first configured CORS allow-origin.
+/// 4. `http://{host}:{port}` - last resort, may be unreachable.
+fn resolve_public_origin(
+    server: &ServerConfig,
+    headers: &HeaderMap,
+    forwarded_trusted: bool,
+) -> String {
+    if let Some(base) = server.public_base_url.as_deref() {
+        let base = base.trim().trim_end_matches('/');
+        if !base.is_empty() {
+            return base.to_string();
+        }
+    }
+
+    if let Some(origin) = origin_from_request(headers, forwarded_trusted) {
+        return origin;
+    }
+
+    if let Some(cors) = server.cors.allow_origins.first() {
+        let cors = cors.trim().trim_end_matches('/');
+        if !cors.is_empty() {
+            return cors.to_string();
+        }
+    }
+
+    format!("http://{}:{}", server.host, server.port)
+}
+
+/// Derive `scheme://authority` from the request headers. Forwarded headers are
+/// honored only when the peer is a trusted proxy; otherwise the untrusted
+/// `Host` header is used over an assumed `http` scheme. Returns None when no
+/// host authority is present.
+fn origin_from_request(headers: &HeaderMap, forwarded_trusted: bool) -> Option<String> {
+    let authority = if forwarded_trusted {
+        leftmost_token(headers, "x-forwarded-host").or_else(|| host_header(headers))
+    } else {
+        host_header(headers)
+    }?;
+
+    let scheme = if forwarded_trusted {
+        leftmost_token(headers, "x-forwarded-proto").unwrap_or_else(|| "http".to_string())
+    } else {
+        "http".to_string()
+    };
+
+    Some(format!("{scheme}://{authority}"))
+}
+
+fn host_header(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get("host")?.to_str().ok()?.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+/// First comma-separated token of a header value (e.g. `a, b` -> `a`), trimmed.
+/// Proxies append to `X-Forwarded-*` lists left-to-right, so the leftmost token
+/// is the value seen by the outermost (client-facing) proxy.
+fn leftmost_token(headers: &HeaderMap, name: &str) -> Option<String> {
+    let value = headers.get(name)?.to_str().ok()?;
+    let token = value.split(',').next()?.trim();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token.to_string())
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/device-code",
@@ -480,9 +570,11 @@ fn normalize_user_code(code: &str) -> String {
         (status = 429, description = "Too many pending device codes (RATE_LIMITED)", body = ErrorBody),
     ),
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, headers, source))]
 pub async fn request_device_code(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    source: Option<Extension<ClientIpSource>>,
     AppJson(_payload): AppJson<DeviceCodeRequest>,
 ) -> Result<Json<DeviceCodeResponse>, AppError> {
     if state.device_codes.len() >= MAX_PENDING_DEVICE_CODES {
@@ -526,19 +618,11 @@ pub async fn request_device_code(
         },
     );
 
-    let origin = state
-        .config
-        .server
-        .cors
-        .allow_origins
-        .first()
-        .cloned()
-        .unwrap_or_else(|| {
-            format!(
-                "http://{}:{}",
-                state.config.server.host, state.config.server.port
-            )
-        });
+    let forwarded_trusted = matches!(
+        source,
+        Some(Extension(ClientIpSource::RightmostXForwardedFor))
+    );
+    let origin = resolve_public_origin(&state.config.server, &headers, forwarded_trusted);
 
     Ok(Json(DeviceCodeResponse {
         device_code,
@@ -838,4 +922,131 @@ pub async fn cli_refresh(
         token: new_access_token,
         refresh_token: new_refresh_token,
     }))
+}
+
+#[cfg(test)]
+mod device_origin_tests {
+    use super::*;
+    use axum::http::{HeaderName, HeaderValue};
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        map
+    }
+
+    fn server_config() -> ServerConfig {
+        // Defaults: host 127.0.0.1, port 3000, empty CORS, no public_base_url.
+        ServerConfig::default()
+    }
+
+    #[test]
+    fn explicit_public_base_url_wins_and_trailing_slash_is_trimmed() {
+        let mut cfg = server_config();
+        cfg.public_base_url = Some("https://judge.example.org/".to_string());
+        cfg.cors.allow_origins = vec!["https://cors.example".to_string()];
+        // Even a trusted forwarded host does not override the explicit setting.
+        let h = headers(&[("host", "internal:3000"), ("x-forwarded-host", "proxy.example")]);
+        assert_eq!(
+            resolve_public_origin(&cfg, &h, true),
+            "https://judge.example.org"
+        );
+    }
+
+    #[test]
+    fn derives_origin_from_host_header_when_untrusted() {
+        let cfg = server_config();
+        let h = headers(&[("host", "judge.lan:3000")]);
+        assert_eq!(resolve_public_origin(&cfg, &h, false), "http://judge.lan:3000");
+    }
+
+    #[test]
+    fn bind_all_host_is_not_used_when_a_host_header_is_present() {
+        // Regression: the shipped Docker default binds 0.0.0.0, which must never
+        // leak into a link when the request itself carries a reachable authority.
+        let mut cfg = server_config();
+        cfg.host = "0.0.0.0".to_string();
+        let h = headers(&[("host", "judge.lan:3000")]);
+        let origin = resolve_public_origin(&cfg, &h, false);
+        assert_eq!(origin, "http://judge.lan:3000");
+        assert!(!origin.contains("0.0.0.0"));
+    }
+
+    #[test]
+    fn trusted_proxy_uses_forwarded_host_and_proto() {
+        let cfg = server_config();
+        let h = headers(&[
+            ("host", "internal:3000"),
+            ("x-forwarded-host", "judge.example.org"),
+            ("x-forwarded-proto", "https"),
+        ]);
+        assert_eq!(
+            resolve_public_origin(&cfg, &h, true),
+            "https://judge.example.org"
+        );
+    }
+
+    #[test]
+    fn untrusted_peer_ignores_forwarded_headers_and_uses_host() {
+        let cfg = server_config();
+        let h = headers(&[
+            ("host", "judge.lan"),
+            ("x-forwarded-host", "evil.example"),
+            ("x-forwarded-proto", "https"),
+        ]);
+        // Forwarded headers from an untrusted peer are not honored: scheme stays
+        // http and the authority is the real Host, not the spoofed forward.
+        assert_eq!(resolve_public_origin(&cfg, &h, false), "http://judge.lan");
+    }
+
+    #[test]
+    fn trusted_proxy_without_forwarded_host_falls_back_to_host() {
+        // A trusted proxy that forwards no X-Forwarded-Host must still resolve a
+        // reachable origin from the Host authority rather than the bind address.
+        let mut cfg = server_config();
+        cfg.host = "0.0.0.0".to_string();
+        let h = headers(&[("host", "judge.lan:3000")]);
+        assert_eq!(resolve_public_origin(&cfg, &h, true), "http://judge.lan:3000");
+    }
+
+    #[test]
+    fn trusted_forwarded_host_without_proto_defaults_to_http() {
+        let cfg = server_config();
+        let h = headers(&[("x-forwarded-host", "judge.example")]);
+        assert_eq!(resolve_public_origin(&cfg, &h, true), "http://judge.example");
+    }
+
+    #[test]
+    fn forwarded_lists_take_the_leftmost_token() {
+        let cfg = server_config();
+        let h = headers(&[
+            ("x-forwarded-host", "a.example, b.example"),
+            ("x-forwarded-proto", "https, http"),
+        ]);
+        assert_eq!(resolve_public_origin(&cfg, &h, true), "https://a.example");
+    }
+
+    #[test]
+    fn falls_back_to_cors_origin_when_no_host_header() {
+        let mut cfg = server_config();
+        cfg.cors.allow_origins = vec!["https://cors.example/".to_string()];
+        let h = headers(&[]);
+        assert_eq!(resolve_public_origin(&cfg, &h, false), "https://cors.example");
+    }
+
+    #[test]
+    fn last_resort_is_host_port_when_nothing_else_is_known() {
+        let mut cfg = server_config();
+        cfg.host = "0.0.0.0".to_string();
+        let h = headers(&[]);
+        // Documents the unavoidable last resort: no request authority, no CORS
+        // origin, no explicit base URL. Operators hit this only with an empty
+        // Host header, which real clients do not send.
+        assert_eq!(resolve_public_origin(&cfg, &h, false), "http://0.0.0.0:3000");
+    }
 }
