@@ -12,8 +12,7 @@
 use std::io::Read;
 
 /// The result of a comparison. The numeric values are the process exit codes
-/// defined by the CLI contract: 0 = Accepted, 1 = WrongAnswer,
-/// 2 = PresentationError.
+/// defined by the CLI contract: 0 = Accepted, 1 = WrongAnswer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
     Accepted,
@@ -29,7 +28,7 @@ impl Verdict {
         }
     }
 
-    /// A short human-readable message for stdout.
+    /// A short human-readable message for stderr.
     pub fn message(self) -> &'static str {
         match self {
             Verdict::Accepted => "Accepted",

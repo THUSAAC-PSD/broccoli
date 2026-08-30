@@ -3,7 +3,7 @@
 //! Reads a solution's output on **stdin** and an expected answer from a
 //! **file** (`--answer <path>`), compares them according to `--mode`, prints a
 //! short human message to **stderr**, and exits with a verdict code:
-//! `0` = Accepted, `1` = WrongAnswer, `2` = PresentationError.
+//! `0` = Accepted, `1` = WrongAnswer.
 //!
 //! CLI contract:
 //! ```text
@@ -74,7 +74,7 @@ fn main() -> ExitCode {
         }
         Err(err) => {
             eprintln!("broccoli-compare: {err:#}");
-            // Reserve 0/1/2 for verdicts; use a distinct code for usage/IO errors.
+            // Reserve 0/1 for verdicts; use a distinct code for usage/IO errors.
             ExitCode::from(64)
         }
     }
