@@ -125,8 +125,10 @@ per problem times, and it defaults to `max_score_time`.
 
 ## Where this differs from CMS and a classic IOI contest
 
-- `group_min` matches CMS GroupMin and `sum` matches CMS Sum, but
-  `group_mul` has no CMS equivalent.
+- `sum` matches CMS Sum and `group_mul` matches CMS GroupMul. `group_min`
+  follows CMS GroupMin only when every test scores full or zero. On a
+  fractional test outcome it drops the whole subtask to zero, where CMS
+  GroupMin would scale the subtask by the lowest test outcome.
 - There is no GroupThreshold method.
 - The default tiebreak is time based, not the classic equal rank.
 - The token model is a subset of the CMS one.

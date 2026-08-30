@@ -48,7 +48,7 @@ same way no matter which evaluator produced it.
 | Area | ICPC | IOI |
 | --- | --- | --- |
 | Partial credit | none, all or nothing per test | yes, via subtasks and fractional checker scores |
-| Subtasks | none | `group_min` (= CMS GroupMin), `sum` (= CMS Sum), `group_mul` (bespoke, no CMS equivalent) |
+| Subtasks | none | `group_min` (= CMS GroupMin for binary outcomes), `sum` (= CMS Sum), `group_mul` (= CMS GroupMul) |
 | Missing CMS feature | not applicable | no GroupThreshold |
 | Cross submission scoring | earliest accepted submission wins, not the last | `max_submission`, `sum_best_subtask` (CMS IOI 2017 plus), `best_tokened_or_last` |
 | Tiebreak | team name order, not last accepted time | default `max_score_time`, time based, not classic equal rank |
@@ -57,5 +57,11 @@ same way no matter which evaluator produced it.
 ## Where this can surprise you
 
 - Sub minute ICPC solves round to zero penalty minutes.
-- `show_test_details` in ICPC is advisory and unenforced.
+- ICPC's contest-level `show_test_details` is a cosmetic advisory flag the
+  plugin never enforces. It is a different field from the core per-problem
+  `show_test_details`, which does gate per-test output on the submission
+  endpoints.
+- IOI `group_min` scores a subtask in full only when every test passes, and
+  zero otherwise. On a fractional test outcome it zeroes the subtask instead
+  of scaling by the lowest outcome the way CMS GroupMin does.
 - The IOI token model is a subset of the CMS one.

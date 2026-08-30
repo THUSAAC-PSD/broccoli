@@ -113,8 +113,10 @@ sidebar_position: 2
 
 ## 与 CMS 及经典 IOI 赛制的差异
 
-- `group_min` 对应 CMS 的 GroupMin，`sum` 对应 CMS 的 Sum，但 `group_mul`
-  在 CMS 中没有对应的方式。
+- `sum` 对应 CMS 的 Sum，`group_mul` 对应 CMS 的 GroupMul。`group_min` 只有在
+  每个测试点都是满分或零分时才与 CMS 的 GroupMin 一致。当某个测试点得到小数
+  分数时，它会把整个子任务判为零分，而 CMS 的 GroupMin 会按最低的测试点得分
+  对子任务进行缩放。
 - 没有 GroupThreshold 评分方式。
 - 默认的平局判定依据用时，而不是经典赛制中的并列名次。
 - 令牌模型只是 CMS 令牌机制的一个子集。

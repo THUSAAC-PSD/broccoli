@@ -43,7 +43,7 @@ ICPC 把它们折算成全部通过或不通过，IOI 把它们折算成子任�
 | 方面 | ICPC | IOI |
 | --- | --- | --- |
 | 部分得分 | 没有，每个测试点非全对即全错 | 有，通过子任务和检查器给出的小数分数 |
-| 子任务 | 没有 | `group_min`（对应 CMS 的 GroupMin）、`sum`（对应 CMS 的 Sum）、`group_mul`（自研方式，CMS 中没有对应） |
+| 子任务 | 没有 | `group_min`（在二元结果下对应 CMS 的 GroupMin）、`sum`（对应 CMS 的 Sum）、`group_mul`（对应 CMS 的 GroupMul） |
 | 缺失的 CMS 功能 | 不适用 | 没有 GroupThreshold |
 | 跨提交评分 | 最早通过的提交胜出，而不是最后一次 | `max_submission`、`sum_best_subtask`（对应 CMS IOI 2017 plus）、`best_tokened_or_last` |
 | 平局判定 | 依据队伍名称顺序，而不是最后一次通过提交的时间 | 默认 `max_score_time`，依据用时，不是经典的并列名次 |
@@ -52,5 +52,10 @@ ICPC 把它们折算成全部通过或不通过，IOI 把它们折算成子任�
 ## 容易让人意外的地方
 
 - 不满一分钟的 ICPC 解题按零罚时分钟数计算。
-- ICPC 的 `show_test_details` 仅作提示用途，插件不会强制执行。
+- ICPC 比赛级别的 `show_test_details` 只是一个提示性的展示字段，插件本身
+  不会据此做任何强制限制。它和核心侧题目级别的 `show_test_details` 是两个
+  不同的字段：后者会在提交相关接口上真正控制每个测试点结果是否返回。
+- IOI 的 `group_min` 只有在每个测试点都通过时才会给子任务满分，否则记零分。
+  当某个测试点得到小数分数时，它会把整个子任务判为零分，而不像 CMS 的
+  GroupMin 那样按最低得分进行缩放。
 - IOI 的令牌模型只是 CMS 令牌机制的一个子集。
