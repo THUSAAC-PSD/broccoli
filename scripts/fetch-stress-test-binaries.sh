@@ -39,18 +39,26 @@ for p in "${PLATFORMS[@]}"; do
   sha_file="$out.sha256"
   curl -fSL --retry 3 -o "$sha_file" "$sha_url"
   pushd "$OUT_DIR" > /dev/null
+  # Compare hash fields directly instead of `sha256sum -c`: the .sha256
+  # release asset records the CI staging path (e.g.
+  # staging/broccoli-stress-test-linux-x86_64), not our renamed local file,
+  # so `-c` would always fail to find the file it names.
+  expected=$(awk 'NR == 1 {print $1}' "$(basename "$sha_file")")
+  if [[ ! "$expected" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "malformed checksum file for $out: '$expected' is not a sha256 hash" >&2
+    exit 1
+  fi
   if command -v sha256sum > /dev/null; then
-    sha256sum -c "$(basename "$sha_file")"
+    actual=$(sha256sum "$(basename "$out")" | awk '{print $1}')
   else
     # macOS fallback
-    expected=$(awk '{print $1}' "$(basename "$sha_file")")
     actual=$(shasum -a 256 "$(basename "$out")" | awk '{print $1}')
-    if [[ "$expected" != "$actual" ]]; then
-      echo "checksum mismatch for $out: expected $expected got $actual" >&2
-      exit 1
-    fi
-    echo "$(basename "$out"): OK"
   fi
+  if [[ "$expected" != "$actual" ]]; then
+    echo "checksum mismatch for $out: expected $expected got $actual" >&2
+    exit 1
+  fi
+  echo "$(basename "$out"): OK"
   rm -f "$(basename "$sha_file")"
   popd > /dev/null
 done

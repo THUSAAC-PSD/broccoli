@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button, FileDropZone } from '@broccoli/web-sdk/ui';
 import { formatBytes } from '@broccoli/web-sdk/utils';
@@ -6,8 +6,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileCode, Loader2, Plus, Trash2, Upload } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-
-import { extractErrorMessage } from '@/lib/extract-error';
 
 interface CheckerSourceFile {
   filename: string;
@@ -103,18 +101,14 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
       });
 
       if (error) {
-        throw new Error(
-          (error as { message?: string }).message ?? 'Upload failed',
-        );
+        throw new Error(getErrorMessage(error, 'Upload failed'));
       }
 
       setStaged([]);
       toast.success(t('admin.checkerSource.uploaded'));
       queryClient.invalidateQueries({ queryKey });
     } catch (err) {
-      toast.error(
-        extractErrorMessage(err, t('admin.checkerSource.uploadError')),
-      );
+      toast.error(getErrorMessage(err, t('admin.checkerSource.uploadError')));
     } finally {
       setUploading(false);
     }
@@ -145,9 +139,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
         toast.success(t('admin.checkerSource.deleted'));
         queryClient.invalidateQueries({ queryKey });
       } catch (err) {
-        toast.error(
-          extractErrorMessage(err, t('admin.checkerSource.deleteError')),
-        );
+        toast.error(getErrorMessage(err, t('admin.checkerSource.deleteError')));
       }
     },
     [files, apiClient, problemId, queryClient, queryKey, t],
@@ -164,9 +156,7 @@ export function CheckerSourceSection({ problemId }: CheckerSourceSectionProps) {
       toast.success(t('admin.checkerSource.cleared'));
       queryClient.invalidateQueries({ queryKey });
     } catch (err) {
-      toast.error(
-        extractErrorMessage(err, t('admin.checkerSource.deleteError')),
-      );
+      toast.error(getErrorMessage(err, t('admin.checkerSource.deleteError')));
     }
   }, [apiClient, problemId, queryClient, queryKey, t]);
 

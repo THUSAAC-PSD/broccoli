@@ -22,7 +22,7 @@ pub async fn purge_plugin_registrations(registries: &RegistryState, plugin_id: &
         .await
         .retain(|_, h| h.plugin_id != plugin_id);
     registries
-        .checker_format_registry
+        .checker_stage_registry
         .write()
         .await
         .retain(|_, h| h.plugin_id != plugin_id);
@@ -220,6 +220,56 @@ async fn register_plugin_hooks(
             scope = ?decl.scope,
             mode = ?decl.mode,
             "Registered hook",
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry::CheckerStageHandlers;
+    use std::collections::HashMap;
+    use tokio::sync::RwLock;
+
+    fn empty_registries() -> RegistryState {
+        RegistryState {
+            contest_type_registry: Arc::new(RwLock::new(HashMap::new())),
+            evaluator_registry: Arc::new(RwLock::new(HashMap::new())),
+            checker_stage_registry: Arc::new(RwLock::new(HashMap::new())),
+            language_resolver_registry: Arc::new(RwLock::new(HashMap::new())),
+            operation_batches: Arc::new(dashmap::DashMap::new()),
+            operation_waiters: Arc::new(dashmap::DashMap::new()),
+            evaluate_batches: Arc::new(dashmap::DashMap::new()),
+            hook_registry: crate::hooks::new_shared_registry(),
+        }
+    }
+
+    fn handlers(plugin_id: &str) -> CheckerStageHandlers {
+        CheckerStageHandlers {
+            plugin_id: plugin_id.to_string(),
+            resolve_fn: "resolve".to_string(),
+            interpret_fn: "interpret".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn purge_removes_checker_stage_registrations() {
+        let registries = empty_registries();
+        {
+            let mut reg = registries.checker_stage_registry.write().await;
+            reg.insert("exact".to_string(), handlers("standard-checkers"));
+            reg.insert("none".to_string(), handlers("standard-checkers"));
+            reg.insert("custom".to_string(), handlers("other-plugin"));
+        }
+
+        purge_plugin_registrations(&registries, "standard-checkers").await;
+
+        let reg = registries.checker_stage_registry.read().await;
+        assert!(!reg.contains_key("exact"), "purged plugin's format removed");
+        assert!(!reg.contains_key("none"), "purged plugin's none removed");
+        assert!(
+            reg.contains_key("custom"),
+            "another plugin's format must be retained"
         );
     }
 }

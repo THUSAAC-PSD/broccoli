@@ -1,0 +1,87 @@
+//! Single source of truth for "clear all judged output before re-dispatch".
+//!
+//! Every re-dispatch path - work-stealing (`dispatcher/steal.rs`), stuck-recovery
+//! (`dlq/stuck/recovery.rs`), DLQ retry (`handlers/dlq.rs`), the submission-dispatch
+//! service (`services/submission_dispatch.rs`), and admin apply-immediately rejudge
+//! (`handlers/submission/rejudge.rs`) - must NULL the same set of judged-output
+//! columns when a submission, code run, or deferred judgement is re-queued for
+//! judging; a column present in one list but not the other leaks stale
+//! results into the re-judged row. The lists were previously hand-maintained
+//! per call site. Add any new judged-output column HERE and every reset path
+//! picks it up.
+
+use sea_orm::sea_query::Expr;
+
+/// Chainable on `Entity::update_many()`: NULLs every judged-output column
+/// for the entity (verdict, compile output, error code/message, score,
+/// time/memory used, and the judged/finalized timestamp).
+pub trait ClearJudgementColumns: Sized {
+    fn clear_judgement_columns(self) -> Self;
+}
+
+/// In-memory twin of [`ClearJudgementColumns`] for `Model` values that are
+/// re-used as re-dispatch payloads after the DB update.
+pub trait ClearJudgementFields {
+    fn clear_judgement_fields(&mut self);
+}
+
+/// `ActiveModel` twin of [`ClearJudgementColumns`] for single-row `.update()`
+/// re-dispatch paths (admin apply-immediately rejudge). Sets each judged-output
+/// column to `Set(None)` so the reset is actually persisted: a Model converted
+/// via `.into()` yields `Unchanged` values that `.update()` would skip, so only
+/// an explicit `Set(None)` NULLs the column.
+pub trait ClearJudgementActiveModel {
+    fn clear_judgement_columns(&mut self);
+}
+
+macro_rules! impl_judgement_reset {
+    ($entity:ident, $ts_col:ident, $ts_field:ident) => {
+        impl ClearJudgementColumns for sea_orm::UpdateMany<super::$entity::Entity> {
+            fn clear_judgement_columns(self) -> Self {
+                use super::$entity::Column;
+                self.col_expr(Column::Verdict, Expr::value(None::<String>).into())
+                    .col_expr(Column::CompileOutput, Expr::value(None::<String>).into())
+                    .col_expr(Column::ErrorCode, Expr::value(None::<String>).into())
+                    .col_expr(Column::ErrorMessage, Expr::value(None::<String>).into())
+                    .col_expr(Column::Score, Expr::value(None::<f64>).into())
+                    .col_expr(Column::TimeUsed, Expr::value(None::<i32>).into())
+                    .col_expr(Column::MemoryUsed, Expr::value(None::<i32>).into())
+                    .col_expr(
+                        Column::$ts_col,
+                        Expr::value(None::<chrono::DateTime<chrono::Utc>>).into(),
+                    )
+            }
+        }
+
+        impl ClearJudgementActiveModel for super::$entity::ActiveModel {
+            fn clear_judgement_columns(&mut self) {
+                use sea_orm::ActiveValue::Set;
+                self.verdict = Set(None);
+                self.compile_output = Set(None);
+                self.error_code = Set(None);
+                self.error_message = Set(None);
+                self.score = Set(None);
+                self.time_used = Set(None);
+                self.memory_used = Set(None);
+                self.$ts_field = Set(None);
+            }
+        }
+
+        impl ClearJudgementFields for super::$entity::Model {
+            fn clear_judgement_fields(&mut self) {
+                self.verdict = None;
+                self.compile_output = None;
+                self.error_code = None;
+                self.error_message = None;
+                self.score = None;
+                self.time_used = None;
+                self.memory_used = None;
+                self.$ts_field = None;
+            }
+        }
+    };
+}
+
+impl_judgement_reset!(submission, JudgedAt, judged_at);
+impl_judgement_reset!(code_run, JudgedAt, judged_at);
+impl_judgement_reset!(submission_judgement, FinalizedAt, finalized_at);

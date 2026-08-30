@@ -1,7 +1,7 @@
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, Environment, EvaluationTimeoutBudget, IOConfig, IOTarget, JudgeFile,
-    OperationTask, OutputSpec, ResolveLanguageOutput, ResourceLimits, RunOptions, SessionFile,
-    Step, StepCacheConfig, seconds_from_ms,
+    BuildEvalOpsInput, Channel, CheckerStage, Environment, EvaluationTimeoutBudget, IOConfig,
+    IOTarget, OperationTask, OutputMode, OutputSpec, ResolveLanguageOutput, ResourceLimits,
+    RunOptions, SessionFile, Step, StepCacheConfig, StepKind, seconds_from_ms,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -119,11 +119,12 @@ fn limit_if_positive(value: u32) -> Option<u32> {
 
 /// Build a sandbox OperationTask from enriched evaluator input.
 ///
-/// Returns `Vec<OperationTask>` ready for `host.operations.start_batch()`.
+/// Returns `Vec<OperationTask>` ready for `host.operations.windowed(...).collect(...)`.
 pub fn build_operation(
     req: &BuildEvalOpsInput,
     lang: &ResolveLanguageOutput,
     config: &SandboxConfig,
+    checker_stage: Option<&CheckerStage>,
 ) -> Result<Vec<OperationTask>, String> {
     if req.solution_source.is_empty() {
         return Err("No source file provided".into());
@@ -154,10 +155,7 @@ pub fn build_operation(
         }
     }
 
-    files_in.push((
-        "input.txt".to_string(),
-        session_file_from_judge_file(&req.test_input),
-    ));
+    files_in.push(("input.txt".to_string(), req.test_input.to_session_file()));
 
     let env = Environment {
         id: "sandbox".to_string(),
@@ -188,6 +186,7 @@ pub fn build_operation(
 
         let compile_step = Step {
             id: "compile".to_string(),
+            kind: StepKind::Compile,
             env_ref: "sandbox".to_string(),
             argv: compile.command.clone(),
             conf: RunOptions {
@@ -212,6 +211,7 @@ pub fn build_operation(
                 key_inputs: compile.cache_inputs.clone(),
                 outputs: cache_outputs,
             }),
+            mounts: vec![],
         };
         steps.push(compile_step);
     }
@@ -223,12 +223,23 @@ pub fn build_operation(
         vec![]
     };
 
+    // Raise the exec process limit to the runtime's floor when it needs more than
+    // the (tight, single-process) admin default - e.g. the JVM, which aborts at
+    // init if it cannot spawn its GC/JIT/VM helper threads. Admin authority over
+    // memory/time/stack is untouched; only the process cap moves, and only upward.
+    let mut exec_limits = config.exec_limits(time_limit_s, memory_limit_kb);
+    if let Some(floor) = lang.run.min_process_limit {
+        let effective = exec_limits.process_limit.unwrap_or(0).max(floor);
+        exec_limits.process_limit = Some(effective);
+    }
+
     let exec_step = Step {
         id: "exec".to_string(),
+        kind: StepKind::Testcase,
         env_ref: "sandbox".to_string(),
         argv: lang.run.command.clone(),
         conf: RunOptions {
-            resource_limits: config.exec_limits(time_limit_s, memory_limit_kb),
+            resource_limits: exec_limits,
             wait: true,
             env_rules: vec![],
             ..Default::default()
@@ -247,38 +258,127 @@ pub fn build_operation(
         collect: vec!["output.txt".to_string(), "stderr.txt".to_string()],
         depends_on: exec_depends,
         cache: None,
+        mounts: vec![],
     };
     steps.push(exec_step);
 
+    let mut environments = vec![env];
+    let mut channels: Vec<Channel> = vec![];
+
+    // Checker fusion: splice the resolved checker stage into this op so the
+    // solution output is checked worker-side (never streamed to the coordinator).
+    if let Some(stage) = checker_stage {
+        splice_checker_stage(&mut steps, &mut environments, &mut channels, stage);
+    }
+
     let op = OperationTask {
-        environments: vec![env],
+        environments,
         tasks: steps,
-        channels: vec![],
+        channels,
         priority: None,
         target_worker_id: req.target_worker_id.clone(),
+        evaluate_batch_id: None,
+        test_case_id: None,
     };
 
     Ok(vec![op])
 }
 
-fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
-    match file {
-        JudgeFile::Blob { file } => SessionFile::Blob {
-            hash: file.blob_hash.clone(),
-        },
-        JudgeFile::Inline { text } => SessionFile::Content {
-            content: text.clone(),
-        },
-        JudgeFile::Missing => SessionFile::Content {
-            content: String::new(),
-        },
+/// Extra result-wait budget (ms) a spliced checker stage adds: the sum of each
+/// checker step's worst-case wall time. Conservative - added regardless of mode.
+/// A Stream checker overlaps `exec`, so for it this only ever OVER-budgets (which
+/// merely delays hung-op detection, never a spurious timeout); a File checker
+/// runs sequentially after `exec`, where the budget is genuinely needed (e.g. a
+/// cold testlib checker compile). Steps with no time limit contribute 0.
+pub fn checker_stage_timeout_ms(stage: &CheckerStage) -> u64 {
+    const WALL_MULTIPLIER: f64 = 3.0;
+    stage
+        .steps
+        .iter()
+        .map(|s| {
+            let limits = &s.conf.resource_limits;
+            let wall_s = limits
+                .wall_time_limit
+                .or_else(|| limits.time_limit.map(|t| t * WALL_MULTIPLIER))
+                .unwrap_or(0.0);
+            (wall_s * 1000.0).ceil().max(0.0) as u64
+        })
+        .sum()
+}
+
+/// Merge a resolved `CheckerStage` into the run op. Generic over checker
+/// identity - wires solution-output handoff purely from the declared
+/// `output_mode`:
+/// - Stream: exec stdout -> FIFO; the check step (which already reads that pipe
+///   on stdin) runs CONCURRENTLY with exec, so it depends on what exec depends
+///   on (the compile step), not on exec itself.
+/// - File: exec stdout -> a worker-local file the check step mounts; the check
+///   step depends on `exec` (needs the completed file; also satisfies the
+///   StepOutput mount's from_step ∈ depends_on requirement).
+///
+/// In both modes the full output is dropped from `exec.collect` (kept
+/// worker-local / piped) so the coordinator never sees it.
+fn splice_checker_stage(
+    steps: &mut Vec<Step>,
+    environments: &mut Vec<Environment>,
+    channels: &mut Vec<Channel>,
+    stage: &CheckerStage,
+) {
+    // The exec step is the last one pushed before the stage is spliced.
+    let exec = steps
+        .last_mut()
+        .expect("exec step is always present before splicing");
+    let exec_depends = exec.depends_on.clone();
+
+    match &stage.output_mode {
+        OutputMode::Stream { channel } => {
+            exec.io.stdout = IOTarget::Pipe {
+                name: channel.clone(),
+            };
+            channels.push(Channel {
+                name: channel.clone(),
+                ..Channel::default()
+            });
+        }
+        OutputMode::File { name } => {
+            exec.io.stdout = IOTarget::File { path: name.clone() };
+        }
+    }
+    exec.collect.retain(|f| f != "output.txt");
+
+    environments.push(stage.checker_env.clone());
+
+    for step in &stage.steps {
+        let mut spliced = step.clone();
+        if spliced.id == stage.result_step_id {
+            match &stage.output_mode {
+                // Concurrent with exec -> share exec's upstream deps (compile).
+                OutputMode::Stream { .. } => {
+                    for dep in &exec_depends {
+                        if !spliced.depends_on.contains(dep) {
+                            spliced.depends_on.push(dep.clone());
+                        }
+                    }
+                }
+                // Sequential after exec -> needs the completed output file.
+                OutputMode::File { .. } => {
+                    let exec_id = "exec".to_string();
+                    if !spliced.depends_on.contains(&exec_id) {
+                        spliced.depends_on.push(exec_id);
+                    }
+                }
+            }
+        }
+        steps.push(spliced);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use broccoli_server_sdk::types::{CompileSpec, FileRef, JudgeFile, RunSpec, SourceFile};
+    use broccoli_server_sdk::types::{
+        CompileSpec, FileRef, JudgeFile, MountSource, MountSpec, RunSpec, SourceFile, StepKind,
+    };
 
     fn make_req() -> BuildEvalOpsInput {
         BuildEvalOpsInput {
@@ -292,11 +392,11 @@ mod tests {
             time_limit_ms: 1000,
             memory_limit_kb: 262144,
             contest_id: None,
+            evaluate_batch_id: None,
             test_input: JudgeFile::inline("hello\n"),
             expected_output: JudgeFile::inline("world\n"),
             checker_format: Some("exact".to_string()),
             checker_config: None,
-            checker_source: None,
             additional_file_refs: vec![],
             target_worker_id: None,
         }
@@ -319,6 +419,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["./solution".to_string()],
                 extra_files: vec![],
+                min_process_limit: None,
             },
         }
     }
@@ -329,6 +430,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["/usr/bin/python3".to_string(), "solution.py".to_string()],
                 extra_files: vec!["solution.py".to_string()],
+                min_process_limit: None,
             },
         }
     }
@@ -339,30 +441,34 @@ mod tests {
 
     #[test]
     fn compiled_language_produces_compile_and_exec_steps() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config(), None).unwrap();
 
         assert_eq!(ops.len(), 1);
         let tasks = &ops[0].tasks;
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].id, "compile");
+        assert_eq!(tasks[0].kind, StepKind::Compile);
         assert_eq!(tasks[1].id, "exec");
+        assert_eq!(tasks[1].kind, StepKind::Testcase);
         assert_eq!(tasks[1].depends_on, vec!["compile"]);
     }
 
     #[test]
     fn interpreted_language_produces_only_exec_step() {
-        let ops = build_operation(&make_req(), &interpreted_lang(), &default_config()).unwrap();
+        let ops =
+            build_operation(&make_req(), &interpreted_lang(), &default_config(), None).unwrap();
 
         assert_eq!(ops.len(), 1);
         let tasks = &ops[0].tasks;
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, "exec");
+        assert_eq!(tasks[0].kind, StepKind::Testcase);
         assert!(tasks[0].depends_on.is_empty());
     }
 
     #[test]
     fn test_input_wired_to_environment_files() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config(), None).unwrap();
 
         let env = &ops[0].environments[0];
         let input_file = env
@@ -388,7 +494,7 @@ mod tests {
             read_token: None,
         });
 
-        let ops = build_operation(&req, &compiled_lang(), &default_config()).unwrap();
+        let ops = build_operation(&req, &compiled_lang(), &default_config(), None).unwrap();
 
         let env = &ops[0].environments[0];
         let input_file = env
@@ -406,7 +512,7 @@ mod tests {
 
     #[test]
     fn source_file_placed_with_correct_filename() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config(), None).unwrap();
 
         let env = &ops[0].environments[0];
         let source_file = env
@@ -430,7 +536,7 @@ mod tests {
             content: "// helper".to_string(),
         });
 
-        let ops = build_operation(&req, &compiled_lang(), &default_config()).unwrap();
+        let ops = build_operation(&req, &compiled_lang(), &default_config(), None).unwrap();
         let env = &ops[0].environments[0];
 
         assert!(env.files_in.iter().any(|(name, _)| name == "main.cpp"));
@@ -449,7 +555,7 @@ mod tests {
 
     #[test]
     fn time_limit_converted_from_ms_to_seconds() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config(), None).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.time_limit, Some(1.0));
@@ -457,7 +563,7 @@ mod tests {
 
     #[test]
     fn memory_limit_passed_through() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config(), None).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.memory_limit, Some(262144));
@@ -467,14 +573,14 @@ mod tests {
     fn no_source_file_returns_error() {
         let mut req = make_req();
         req.solution_source.clear();
-        let result = build_operation(&req, &compiled_lang(), &default_config());
+        let result = build_operation(&req, &compiled_lang(), &default_config(), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No source file"));
     }
 
     #[test]
     fn exec_step_collects_stdout_and_stderr() {
-        let ops = build_operation(&make_req(), &compiled_lang(), &default_config()).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config(), None).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert!(exec.collect.contains(&"output.txt".to_string()));
@@ -485,7 +591,7 @@ mod tests {
     fn negative_memory_limit_returns_error() {
         let mut req = make_req();
         req.memory_limit_kb = -1;
-        let result = build_operation(&req, &compiled_lang(), &default_config());
+        let result = build_operation(&req, &compiled_lang(), &default_config(), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid memory_limit_kb"));
     }
@@ -494,7 +600,7 @@ mod tests {
     fn negative_time_limit_returns_error() {
         let mut req = make_req();
         req.time_limit_ms = -1;
-        let result = build_operation(&req, &compiled_lang(), &default_config());
+        let result = build_operation(&req, &compiled_lang(), &default_config(), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid time_limit_ms"));
     }
@@ -507,7 +613,7 @@ mod tests {
             compile_time_limit_s: 60.0,
             ..SandboxConfig::default()
         };
-        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &config, None).unwrap();
 
         let compile = &ops[0].tasks[0];
         assert_eq!(compile.conf.resource_limits.time_limit, Some(60.0));
@@ -518,13 +624,45 @@ mod tests {
         assert_eq!(exec.conf.resource_limits.wall_time_limit, Some(5.0));
     }
 
+    /// A runtime floor (`RunSpec.min_process_limit`) raises the exec process cap
+    /// above the tight single-process default. This is the JVM path: the default
+    /// `exec_process_limit` of 1 aborts the VM at init, so the language resolver
+    /// hands up a floor and the op builder must honor it.
+    #[test]
+    fn runtime_process_floor_raises_tight_exec_limit() {
+        let mut lang = compiled_lang();
+        lang.run.min_process_limit = Some(64);
+        // Default config leaves exec_process_limit at its tight value of 1.
+        let ops = build_operation(&make_req(), &lang, &default_config(), None).unwrap();
+
+        let exec = &ops[0].tasks[1];
+        assert_eq!(exec.conf.resource_limits.process_limit, Some(64));
+    }
+
+    /// The floor only ever moves the cap upward. When an admin has already
+    /// configured a higher exec process limit than the runtime's floor, the
+    /// configured value wins - the floor is a `max`, not an override.
+    #[test]
+    fn runtime_process_floor_never_lowers_configured_limit() {
+        let mut lang = compiled_lang();
+        lang.run.min_process_limit = Some(64);
+        let config = SandboxConfig {
+            exec_process_limit: 128,
+            ..SandboxConfig::default()
+        };
+        let ops = build_operation(&make_req(), &lang, &config, None).unwrap();
+
+        let exec = &ops[0].tasks[1];
+        assert_eq!(exec.conf.resource_limits.process_limit, Some(128));
+    }
+
     #[test]
     fn compile_limits_use_configured_stack_limit() {
         let config = SandboxConfig {
             compile_stack_limit_kb: 262_144,
             ..SandboxConfig::default()
         };
-        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &config, None).unwrap();
 
         let compile = &ops[0].tasks[0];
         assert_eq!(compile.conf.resource_limits.stack_limit, Some(262_144));
@@ -536,7 +674,7 @@ mod tests {
             exec_stack_limit_kb: 262_144,
             ..SandboxConfig::default()
         };
-        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &config, None).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.stack_limit, Some(262_144));
@@ -550,7 +688,7 @@ mod tests {
             compile_extra_time_s: 1.5,
             ..SandboxConfig::default()
         };
-        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &config, None).unwrap();
 
         let compile = &ops[0].tasks[0];
         assert_eq!(compile.conf.resource_limits.time_limit, Some(40.0));
@@ -564,7 +702,7 @@ mod tests {
             exec_extra_time_s: 2.5,
             ..SandboxConfig::default()
         };
-        let ops = build_operation(&make_req(), &compiled_lang(), &config).unwrap();
+        let ops = build_operation(&make_req(), &compiled_lang(), &config, None).unwrap();
 
         let exec = &ops[0].tasks[1];
         assert_eq!(exec.conf.resource_limits.extra_time, Some(2.5));
@@ -578,6 +716,264 @@ mod tests {
         };
 
         assert_eq!(config.result_timeout_ms_for(1000, 1), 1_200_000);
+    }
+
+    // ----- Checker fusion (Phase 6.1) -----
+
+    fn stream_stage() -> CheckerStage {
+        CheckerStage {
+            checker_env: Environment {
+                id: "checker".to_string(),
+                files_in: vec![(
+                    "answer.txt".to_string(),
+                    SessionFile::Content {
+                        content: "world\n".to_string(),
+                    },
+                )],
+            },
+            steps: vec![Step {
+                id: "check".to_string(),
+                kind: StepKind::Checker,
+                env_ref: "checker".to_string(),
+                argv: vec!["/tools/broccoli-compare".to_string()],
+                conf: RunOptions::default(),
+                io: IOConfig {
+                    stdin: IOTarget::Pipe {
+                        name: "sol_out".to_string(),
+                    },
+                    stdout: IOTarget::File {
+                        path: "check_msg.txt".to_string(),
+                    },
+                    stderr: IOTarget::File {
+                        path: "check_err.txt".to_string(),
+                    },
+                },
+                collect: vec!["check_msg.txt".to_string(), "preview.txt".to_string()],
+                depends_on: vec![],
+                cache: None,
+                mounts: vec![],
+            }],
+            output_mode: OutputMode::Stream {
+                channel: "sol_out".to_string(),
+            },
+            result_step_id: "check".to_string(),
+        }
+    }
+
+    fn file_stage() -> CheckerStage {
+        CheckerStage {
+            checker_env: Environment {
+                id: "checker".to_string(),
+                files_in: vec![
+                    (
+                        "answer.txt".to_string(),
+                        SessionFile::Content {
+                            content: "world\n".to_string(),
+                        },
+                    ),
+                    (
+                        "input.txt".to_string(),
+                        SessionFile::Content {
+                            content: "hello\n".to_string(),
+                        },
+                    ),
+                ],
+            },
+            steps: vec![Step {
+                id: "check".to_string(),
+                kind: StepKind::Checker,
+                env_ref: "checker".to_string(),
+                argv: vec!["./checker".to_string()],
+                conf: RunOptions::default(),
+                io: IOConfig {
+                    stdin: IOTarget::Null,
+                    stdout: IOTarget::File {
+                        path: "checker_out.txt".to_string(),
+                    },
+                    stderr: IOTarget::File {
+                        path: "checker_err.txt".to_string(),
+                    },
+                },
+                collect: vec!["checker_out.txt".to_string()],
+                depends_on: vec![],
+                cache: None,
+                mounts: vec![MountSpec {
+                    inside_path: "output.txt".to_string(),
+                    source: MountSource::StepOutput {
+                        from_step: "exec".to_string(),
+                        file: "output.txt".to_string(),
+                    },
+                }],
+            }],
+            output_mode: OutputMode::File {
+                name: "output.txt".to_string(),
+            },
+            result_step_id: "check".to_string(),
+        }
+    }
+
+    fn find_step<'a>(ops: &'a [OperationTask], id: &str) -> &'a Step {
+        ops[0]
+            .tasks
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap_or_else(|| panic!("step '{id}' not found"))
+    }
+
+    #[test]
+    fn fused_stream_pipes_exec_output_and_adds_channel() {
+        let stage = stream_stage();
+        let ops = build_operation(
+            &make_req(),
+            &compiled_lang(),
+            &default_config(),
+            Some(&stage),
+        )
+        .unwrap();
+
+        // exec stdout becomes a FIFO; the full output is NOT collected.
+        let exec = find_step(&ops, "exec");
+        match &exec.io.stdout {
+            IOTarget::Pipe { name } => assert_eq!(name, "sol_out"),
+            other => panic!("expected exec stdout Pipe, got {other:?}"),
+        }
+        assert!(!exec.collect.contains(&"output.txt".to_string()));
+        assert!(exec.collect.contains(&"stderr.txt".to_string()));
+
+        // The channel is declared on the op.
+        assert!(ops[0].channels.iter().any(|c| c.name == "sol_out"));
+
+        // The checker env + check step are present.
+        assert!(ops[0].environments.iter().any(|e| e.id == "checker"));
+        let check = find_step(&ops, "check");
+        match &check.io.stdin {
+            IOTarget::Pipe { name } => assert_eq!(name, "sol_out"),
+            other => panic!("expected check stdin Pipe, got {other:?}"),
+        }
+        // Concurrent with exec -> depends on compile (NOT exec).
+        assert!(check.depends_on.contains(&"compile".to_string()));
+        assert!(!check.depends_on.contains(&"exec".to_string()));
+    }
+
+    #[test]
+    fn fused_file_writes_output_file_and_check_depends_on_exec() {
+        let stage = file_stage();
+        let ops = build_operation(
+            &make_req(),
+            &compiled_lang(),
+            &default_config(),
+            Some(&stage),
+        )
+        .unwrap();
+
+        let exec = find_step(&ops, "exec");
+        match &exec.io.stdout {
+            IOTarget::File { path } => assert_eq!(path, "output.txt"),
+            other => panic!("expected exec stdout File, got {other:?}"),
+        }
+        // Output stays worker-local for the mount -> not collected.
+        assert!(!exec.collect.contains(&"output.txt".to_string()));
+        // No channels for File mode.
+        assert!(ops[0].channels.is_empty());
+
+        let check = find_step(&ops, "check");
+        // Needs the completed output file (also satisfies the StepOutput mount).
+        assert!(check.depends_on.contains(&"exec".to_string()));
+        assert_eq!(check.mounts.len(), 1);
+    }
+
+    fn step_with_limits(id: &str, time_limit: Option<f64>, wall: Option<f64>) -> Step {
+        Step {
+            id: id.to_string(),
+            kind: StepKind::Checker,
+            env_ref: "checker".to_string(),
+            argv: vec!["x".to_string()],
+            conf: RunOptions {
+                resource_limits: ResourceLimits {
+                    time_limit,
+                    wall_time_limit: wall,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            io: IOConfig::default(),
+            collect: vec![],
+            depends_on: vec![],
+            cache: None,
+            mounts: vec![],
+        }
+    }
+
+    fn stage_with_steps(steps: Vec<Step>) -> CheckerStage {
+        CheckerStage {
+            checker_env: Environment {
+                id: "checker".to_string(),
+                files_in: vec![],
+            },
+            steps,
+            output_mode: OutputMode::File {
+                name: "output.txt".to_string(),
+            },
+            result_step_id: "check".to_string(),
+        }
+    }
+
+    #[test]
+    fn checker_stage_timeout_sums_step_wall_budgets() {
+        // compile_checker (10s cpu, no wall) + check (5s cpu, no wall):
+        // each cpu limit is scaled by the 3x wall multiplier -> (30 + 15)s.
+        let stage = stage_with_steps(vec![
+            step_with_limits("compile_checker", Some(10.0), None),
+            step_with_limits("check", Some(5.0), None),
+        ]);
+        assert_eq!(checker_stage_timeout_ms(&stage), 45_000);
+    }
+
+    #[test]
+    fn checker_stage_timeout_prefers_explicit_wall_limit() {
+        let stage = stage_with_steps(vec![step_with_limits("check", Some(5.0), Some(8.0))]);
+        assert_eq!(checker_stage_timeout_ms(&stage), 8_000);
+    }
+
+    #[test]
+    fn checker_stage_timeout_zero_when_no_limits() {
+        // Built-in check step uses RunOptions::default() (no time limit).
+        let stage = stage_with_steps(vec![step_with_limits("check", None, None)]);
+        assert_eq!(checker_stage_timeout_ms(&stage), 0);
+    }
+
+    #[test]
+    fn fused_op_never_puts_answer_in_solution_env() {
+        let ops = build_operation(
+            &make_req(),
+            &compiled_lang(),
+            &default_config(),
+            Some(&stream_stage()),
+        )
+        .unwrap();
+        let solution_env = ops[0]
+            .environments
+            .iter()
+            .find(|e| e.id == "sandbox")
+            .expect("solution env present");
+        assert!(
+            !solution_env.files_in.iter().any(|(n, _)| n == "answer.txt"),
+            "answer must never appear in the solution env"
+        );
+    }
+
+    #[test]
+    fn no_stage_keeps_legacy_collected_output() {
+        // None checker stage (e.g. the `none` format) -> unchanged behavior.
+        let ops = build_operation(&make_req(), &compiled_lang(), &default_config(), None).unwrap();
+        let exec = find_step(&ops, "exec");
+        match &exec.io.stdout {
+            IOTarget::File { path } => assert_eq!(path, "output.txt"),
+            other => panic!("expected exec stdout File, got {other:?}"),
+        }
+        assert!(exec.collect.contains(&"output.txt".to_string()));
+        assert!(ops[0].channels.is_empty());
+        assert_eq!(ops[0].environments.len(), 1);
     }
 
     #[test]

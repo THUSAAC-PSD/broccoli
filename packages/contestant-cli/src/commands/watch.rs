@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -180,6 +180,9 @@ struct AppData {
     clar_prev: HashMap<String, usize>,
     /// False until the first poll, so existing items don't flash/badge on startup.
     clar_inited: bool,
+    /// False until the first submissions poll, so pre-existing Accepted
+    /// submissions don't flash "✓ Accepted" or steal the cursor on startup.
+    subs_inited: bool,
     /// When `Some`, the in-progress clarification input text.
     compose: Option<String>,
     /// Transient one-line footer status.
@@ -314,14 +317,16 @@ pub fn run(args: WatchArgs) -> anyhow::Result<()> {
         clar_acked: HashMap::new(),
         clar_prev: HashMap::new(),
         clar_inited: false,
+        subs_inited: false,
         compose: None,
         flash: None,
         flash_at: None,
     };
 
-    // One shared Client: refresh tokens rotate server-side, so two clients would
-    // invalidate each other's refresh token.
-    let client = Arc::new(Mutex::new(client));
+    // One shared Client across the poller and UI threads. The Client is Sync and
+    // serializes token refresh internally (via its TokenStore), so no outer lock
+    // is needed and concurrent calls never double-rotate the refresh token.
+    let client = Arc::new(client);
 
     let (tx, rx) = mpsc::channel::<PollUpdate>();
     let cid = contest_id.clone();
@@ -339,13 +344,8 @@ pub fn run(args: WatchArgs) -> anyhow::Result<()> {
     let poll_client = Arc::clone(&client);
 
     let poller = thread::spawn(move || {
-        // Lock the shared Client only per-call so a user action never waits long.
-        let fetch = |path: &str| -> Option<serde_json::Value> {
-            poll_client
-                .lock()
-                .ok()
-                .and_then(|c| c.get_json_value(path).ok())
-        };
+        let fetch =
+            |path: &str| -> Option<serde_json::Value> { poll_client.get_json_value(path).ok() };
         'outer: while poller_running.load(Ordering::Relaxed) {
             let mut ok = true;
             match fetch(&subs_path) {
@@ -398,7 +398,7 @@ fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<&mut io::Stdout>>,
     app: &mut AppData,
     rx: &mpsc::Receiver<PollUpdate>,
-    client: &Arc<Mutex<Client>>,
+    client: &Arc<Client>,
     refresh_now: &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     loop {
@@ -425,7 +425,14 @@ fn run_event_loop(
                         .map(|s| s.id.clone())
                         .collect();
                     update_submissions(app, &d);
-                    consider(2, notify_new_accept(app, &was_accepted), &mut pending_flash);
+                    if app.subs_inited {
+                        consider(2, notify_new_accept(app, &was_accepted), &mut pending_flash);
+                    } else {
+                        // First poll: adopt existing submissions as the baseline so a
+                        // pre-existing AC doesn't flash or jump the cursor (mirrors
+                        // clar_inited for clarifications).
+                        app.subs_inited = true;
+                    }
                     subs_changed = true;
                 }
                 PollUpdate::Clarifications(d) => {
@@ -446,7 +453,7 @@ fn run_event_loop(
             app.flash = Some(msg);
             app.flash_at = None; // restamp the freshly-set flash
         }
-        // Clear the "Refreshing…" toast once fresh data lands.
+        // Clear the "Refreshing..." toast once fresh data lands.
         if got_poll && app.flash.as_deref() == Some("Refreshing…") {
             app.flash = None;
             app.flash_at = None;
@@ -462,11 +469,8 @@ fn run_event_loop(
                     .unwrap_or(true);
                 if still_judging {
                     let id = id.clone();
-                    // try_lock: skip this refresh rather than block the render loop.
-                    if let Ok(c) = client.try_lock() {
-                        if let Ok(sub) = c.get_submission(&id) {
-                            app.submission_detail = Some(sub);
-                        }
+                    if let Ok(sub) = client.get_submission(&id) {
+                        app.submission_detail = Some(sub);
                     }
                 }
             }
@@ -551,11 +555,7 @@ fn run_event_loop(
                 app.flash = Some("Refreshing…".to_string());
             }
             KeyCode::Char('a') => app.compose = Some(String::new()),
-            // try_lock so a keypress never blocks behind an in-flight poll.
-            KeyCode::Enter => match client.try_lock() {
-                Ok(c) => open_detail(app, &c),
-                Err(_) => app.flash = Some("Loading… press Enter again.".to_string()),
-            },
+            KeyCode::Enter => open_detail(app, client),
             _ => {}
         }
     }
@@ -634,11 +634,7 @@ fn open_detail(app: &mut AppData, client: &Client) {
 }
 
 /// Submit the compose buffer and force a refresh; keeps the text on failure.
-fn submit_clarification(
-    app: &mut AppData,
-    client: &Arc<Mutex<Client>>,
-    refresh_now: &Arc<AtomicBool>,
-) {
+fn submit_clarification(app: &mut AppData, client: &Arc<Client>, refresh_now: &Arc<AtomicBool>) {
     let Some(content) = app.compose.take().map(|c| c.trim().to_string()) else {
         return;
     };
@@ -646,20 +642,14 @@ fn submit_clarification(
         app.flash = Some("Nothing to ask — clarification cancelled.".to_string());
         return;
     }
-    match client.try_lock() {
-        Ok(c) => match c.create_clarification(&app.contest_id, &content) {
-            Ok(cl) => {
-                app.flash = Some(format!("✓ Clarification #{} submitted", cl.id));
-                refresh_now.store(true, Ordering::Relaxed);
-            }
-            Err(e) => {
-                app.compose = Some(content); // keep the draft on failure
-                app.flash = Some(format!("Could not submit: {}", e));
-            }
-        },
-        Err(_) => {
-            app.compose = Some(content);
-            app.flash = Some("Busy — press Enter again.".to_string());
+    match client.create_clarification(&app.contest_id, &content) {
+        Ok(cl) => {
+            app.flash = Some(format!("✓ Clarification #{} submitted", cl.id));
+            refresh_now.store(true, Ordering::Relaxed);
+        }
+        Err(e) => {
+            app.compose = Some(content); // keep the draft on failure
+            app.flash = Some(format!("Could not submit: {}", e));
         }
     }
 }
@@ -763,7 +753,7 @@ fn build_submission_lines(
             ]));
         }
         if let Some(s) = r.score {
-            lines.push(field("Score", format!("{}/100", s)));
+            lines.push(field("Score", fmt::score(s)));
         }
         lines.push(field(
             "Time",
@@ -952,12 +942,21 @@ fn open_problem_externally(
     document.push_str(body);
     document.push('\n');
 
+    // Random nonce + create_new: a predictable name in the shared temp dir lets a
+    // co-located user pre-plant a symlink for the write to follow (cf. ScratchDir).
+    let nonce: u64 = rand::random();
     let path = std::env::temp_dir().join(format!(
-        "broccoli-problem-{}-{}.md",
+        "broccoli-problem-{}-{}-{:016x}.md",
         app.contest_id,
-        std::process::id()
+        std::process::id(),
+        nonce
     ));
-    if std::fs::write(&path, &document).is_err() {
+    let write_result = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, document.as_bytes()));
+    if write_result.is_err() {
         app.flash = Some("Could not write temp file for the viewer".to_string());
         return Ok(());
     }
@@ -1421,10 +1420,7 @@ fn render_submissions(f: &mut Frame, app: &AppData, area: Rect) {
                 Some(v) => (v.human().to_string(), v.color()),
                 None => (s.status.human().to_string(), s.status.color()),
             };
-            let score = s
-                .score
-                .map(|v| format!("{:.0}/100", v))
-                .unwrap_or_else(|| "—".into());
+            let score = s.score.map(fmt::score).unwrap_or_else(|| "—".into());
             let time = s.time_used.map(fmt::time_ms).unwrap_or_else(|| "—".into());
             let memory = s
                 .memory_used
@@ -1688,6 +1684,7 @@ mod tests {
             clar_acked: HashMap::new(),
             clar_prev: HashMap::new(),
             clar_inited: true,
+            subs_inited: true,
             compose: None,
             flash: None,
             flash_at: None,

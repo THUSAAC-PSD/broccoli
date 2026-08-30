@@ -1,6 +1,11 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
-import { useAuth } from '@broccoli/web-sdk/auth';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth, useAuthReady } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  CONTEST_MANAGE,
+  SUBMISSION_REJUDGE,
+  SUBMISSION_VIEW_ALL,
+} from '@broccoli/web-sdk/permissions';
 import {
   getStatusLabel,
   SUBMISSION_STATUS_FILTER_OPTIONS,
@@ -29,7 +34,6 @@ import {
   fetchAllContestSubmissions,
   fetchContestSubmissions,
 } from '@/features/submission/api/fetch-contest-submissions';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 import { SubmissionsTable } from './SubmissionsTable';
 
@@ -52,6 +56,7 @@ function parseStatus(value: string | null): SubmissionStatusFilterValue {
 export function ContestSubmissions({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const authReady = useAuthReady();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -61,10 +66,10 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
   >(() => new Set<number>());
   const [bulkApplyImmediately, setBulkApplyImmediately] = useState(true);
 
-  const canBulkRejudge = !!user?.permissions.includes('submission:rejudge');
+  const canBulkRejudge = !!user?.permissions.includes(SUBMISSION_REJUDGE);
   const scopedUserId =
-    user?.permissions.includes('submissions:view_all') ||
-    user?.permissions.includes('contest:manage')
+    user?.permissions.includes(SUBMISSION_VIEW_ALL) ||
+    user?.permissions.includes(CONTEST_MANAGE)
       ? undefined
       : user?.id;
 
@@ -144,6 +149,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
 
   const { data: problems = [] } = useQuery({
     queryKey: ['contest-problems', contestId],
+    enabled: authReady && Number.isFinite(contestId),
     queryFn: () => fetchContestProblemList(apiClient, contestId),
   });
 
@@ -208,7 +214,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
         return data;
       }
 
-      const message = extractErrorMessage(error, '');
+      const message = getErrorMessage(error, '');
 
       // Compatibility fallback for older backend instances that still expect filter fields.
       if (message.includes('At least one filter field must be provided')) {
@@ -217,6 +223,9 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
         for (const submissionId of submissionIds) {
           const single = await apiClient.POST('/submissions/{id}/rejudge', {
             params: { path: { id: submissionId } },
+            // Carry the user's choice through the fallback; an empty body
+            // would silently default to apply_immediately=true server-side.
+            body: { apply_immediately: bulkApplyImmediately },
           });
 
           if (!single.error) {
@@ -250,9 +259,7 @@ export function ContestSubmissions({ contestId }: { contestId: number }) {
       });
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, t('submissions.bulkRejudge.error')),
-      );
+      toast.error(getErrorMessage(error, t('submissions.bulkRejudge.error')));
     },
   });
 

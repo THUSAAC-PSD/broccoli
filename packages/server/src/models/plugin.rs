@@ -33,8 +33,6 @@ pub struct RegistriesResponse {
 
     pub evaluators: Vec<EvaluatorEntry>,
 
-    pub checker_format_handlers: Vec<CheckerFormatEntry>,
-
     pub contest_type_handlers: Vec<ContestTypeEntry>,
 
     pub hooks: Vec<HookEntryInfo>,
@@ -51,20 +49,6 @@ pub struct EvaluatorEntry {
     pub plugin_id: String,
     /// Plugin function invoked to evaluate test cases for this problem type.
     #[schema(example = "evaluate_communication")]
-    pub function_name: String,
-}
-
-/// A single checker format registration entry.
-#[derive(Serialize, utoipa::ToSchema)]
-pub struct CheckerFormatEntry {
-    /// Checker format identifier (e.g. "exact", "tokens", "testlib").
-    #[schema(example = "exact")]
-    pub checker_format: String,
-    /// Plugin that registered this checker format.
-    #[schema(example = "standard-checkers")]
-    pub plugin_id: String,
-    /// Plugin function invoked to run the checker.
-    #[schema(example = "check_exact")]
     pub function_name: String,
 }
 

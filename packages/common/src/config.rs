@@ -16,6 +16,14 @@ pub struct DlqConfig {
     pub retry_cleanup_interval_secs: u64,
     #[serde(default = "default_dlq_retry_max_age_secs")]
     pub retry_max_age_secs: u64,
+    /// Hard cap on how long a row may sit in a claimed, non-terminal state
+    /// (`Pending`/`Compiling`/`Running`) measured from its immutable `leased_at`
+    /// dispatch anchor - independent of `lease_heartbeat_at`, which a live server
+    /// keeps refreshing even for a silently-wedged worker. Past this age the
+    /// stuck-job detector recovers the row directly. Well above the worst-case
+    /// legitimate evaluate, below the 6h `stuck_job_timeout_secs` net. `0` disables.
+    #[serde(default = "default_dlq_max_inflight_secs")]
+    pub max_inflight_secs: u64,
 }
 
 fn default_dlq_max_retries() -> u8 {
@@ -28,7 +36,7 @@ fn default_dlq_max_delay_ms() -> u64 {
     60_000
 }
 fn default_dlq_stuck_job_timeout_secs() -> u64 {
-    7200
+    21_600
 }
 fn default_dlq_stuck_job_scan_interval_secs() -> u64 {
     60
@@ -38,6 +46,9 @@ fn default_dlq_retry_cleanup_interval_secs() -> u64 {
 }
 fn default_dlq_retry_max_age_secs() -> u64 {
     7200
+}
+fn default_dlq_max_inflight_secs() -> u64 {
+    3600
 }
 
 impl Default for DlqConfig {
@@ -50,6 +61,7 @@ impl Default for DlqConfig {
             stuck_job_scan_interval_secs: default_dlq_stuck_job_scan_interval_secs(),
             retry_cleanup_interval_secs: default_dlq_retry_cleanup_interval_secs(),
             retry_max_age_secs: default_dlq_retry_max_age_secs(),
+            max_inflight_secs: default_dlq_max_inflight_secs(),
         }
     }
 }
@@ -81,13 +93,17 @@ fn default_mq_url() -> String {
 fn default_mq_pool_size() -> u8 {
     5
 }
-fn default_operation_queue_name() -> String {
+// `pub` so the worker's config builder can reference these as the single source
+// of truth instead of re-hardcoding the same string literals in its
+// `set_default(...)` calls (the builder default overrides the serde default, so
+// the two must agree).
+pub fn default_operation_queue_name() -> String {
     "operation_tasks".into()
 }
-fn default_operation_result_queue_name() -> String {
+pub fn default_operation_result_queue_name() -> String {
     "operation_results".into()
 }
-fn default_operation_dlq_queue_name() -> String {
+pub fn default_operation_dlq_queue_name() -> String {
     "operation_tasks_dlq".into()
 }
 

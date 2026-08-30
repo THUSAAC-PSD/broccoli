@@ -21,9 +21,6 @@ pub struct Model {
     #[sea_orm(default_value = "batch")]
     pub problem_type: String,
 
-    #[sea_orm(column_type = "JsonBinary", nullable)]
-    pub checker_source: Option<serde_json::Value>,
-
     #[sea_orm(column_type = "Text", default_value = "exact")]
     pub checker_format: String,
 
@@ -32,6 +29,9 @@ pub struct Model {
 
     #[sea_orm(default_value = false)]
     pub show_test_details: bool,
+
+    #[sea_orm(default_value = false)]
+    pub is_public: bool,
 
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub submission_format: Option<serde_json::Value>,

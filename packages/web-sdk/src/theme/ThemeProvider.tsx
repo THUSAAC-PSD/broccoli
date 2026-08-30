@@ -3,6 +3,9 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { ThemeContext } from '@/theme/theme-context';
 import type { Theme } from '@/theme/types';
 
+/** localStorage key where the active theme is persisted. */
+export const THEME_STORAGE_KEY = 'theme';
+
 interface ThemeProviderProps {
   children: ReactNode;
   defaultTheme?: Theme;
@@ -12,7 +15,7 @@ interface ThemeProviderProps {
 export function ThemeProvider({
   children,
   defaultTheme = 'light',
-  storageKey = 'theme',
+  storageKey = THEME_STORAGE_KEY,
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {

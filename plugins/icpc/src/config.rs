@@ -13,13 +13,94 @@ pub struct ContestConfig {
     /// Whether contestants see per-test-case verdicts (default: false).
     #[serde(default)]
     pub show_test_details: bool,
+
+    /// Whether contestants see the FULL live scoreboard during the contest
+    /// (standard public-ICPC behavior). Default false = each contestant sees only
+    /// their own row until the contest ends; organizers (contest:manage) always
+    /// see all rows.
+    #[serde(default)]
+    pub public_standings: bool,
+
+    /// Scoreboard freeze window in minutes before the contest end (0 = disabled).
+    /// Like real ICPC: in the final N minutes, a contestant's view stops updating
+    /// rank/solved/penalty, and submissions made during the freeze show as PENDING
+    /// ("?") instead of AC/WA. Organizers (contest:manage) always see the real
+    /// board; the board unfreezes for everyone once the contest ends.
+    #[serde(default)]
+    pub freeze_minutes: i32,
 }
 
 fn default_penalty_minutes() -> i32 {
     20
 }
 
-/// Per-user per-problem penalty tracking state, stored in plugin storage.
+/// The freeze-gating decision for one viewer, computed purely (no DB/host) so it
+/// can be unit-tested. `freeze_start_ms` is the elapsed time at/after which a
+/// submission is frozen (`i64::MAX` = nothing is frozen).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FreezeView {
+    pub freeze_start_ms: i64,
+    pub frozen: bool,
+    pub can_reveal: bool,
+}
+
+/// Elapsed-ms offset (from contest start) at which the freeze window opens.
+/// `i64::MAX` means there is no freeze. Shared by `freeze_view` and the reveal
+/// endpoint so both agree on where the window starts.
+pub fn freeze_window_start_ms(freeze_minutes: i32, duration_ms: i64) -> i64 {
+    if freeze_minutes > 0 {
+        (duration_ms - i64::from(freeze_minutes) * 60_000).max(0)
+    } else {
+        i64::MAX
+    }
+}
+
+/// Whether the freeze window is currently OPEN: freeze configured, in the
+/// 'during'/'after' phase, past the window start, and not yet revealed.
+pub fn freeze_window_open(
+    freeze_minutes: i32,
+    phase: &str,
+    revealed: bool,
+    duration_ms: i64,
+    now_elapsed_ms: i64,
+) -> bool {
+    let in_window_phase = phase == "during" || phase == "after";
+    freeze_minutes > 0
+        && !revealed
+        && in_window_phase
+        && now_elapsed_ms >= freeze_window_start_ms(freeze_minutes, duration_ms)
+}
+
+/// Decide the freeze view. Freeze holds for a CONTESTANT (`!can_view_all`) once
+/// the window opens and until an organizer reveals, spanning the 'during' and
+/// 'after' phases. Organizers are never frozen but may reveal ONLY while the
+/// board is actually frozen (window open) - an early click cannot silently
+/// disable the freeze. No freeze before the contest, when `freeze_minutes == 0`,
+/// or once revealed.
+pub fn freeze_view(
+    freeze_minutes: i32,
+    phase: &str,
+    can_view_all: bool,
+    revealed: bool,
+    duration_ms: i64,
+    now_elapsed_ms: i64,
+) -> FreezeView {
+    let window_start = freeze_window_start_ms(freeze_minutes, duration_ms);
+    let window_open =
+        freeze_window_open(freeze_minutes, phase, revealed, duration_ms, now_elapsed_ms);
+    FreezeView {
+        // Only a frozen CONTESTANT view splits submissions at the window start.
+        freeze_start_ms: if window_open && !can_view_all {
+            window_start
+        } else {
+            i64::MAX
+        },
+        frozen: window_open && !can_view_all,
+        can_reveal: window_open && can_view_all,
+    }
+}
+
+/// Per-user per-problem state derived from current finalized judgements.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProblemState {
     /// Number of penalty-eligible wrong submissions before AC.
@@ -29,11 +110,6 @@ pub struct ProblemState {
     /// Milliseconds from contest start to the accepted submission.
     /// Only meaningful when `solved == true`.
     pub solve_time_ms: Option<i64>,
-}
-
-/// Build the plugin-storage key for a user's per-problem penalty state.
-pub fn standings_key(contest_id: i32, user_id: i32, problem_id: i32) -> String {
-    format!("standings:{contest_id}:{user_id}:{problem_id}")
 }
 
 impl ProblemState {
@@ -55,6 +131,74 @@ mod tests {
     fn custom_penalty_minutes() {
         let config: ContestConfig = serde_json::from_str(r#"{"penalty_minutes": 10}"#).unwrap();
         assert_eq!(config.penalty_minutes, 10);
+    }
+
+    // duration 300min, freeze 60min -> freeze window opens at 240min elapsed.
+    const DUR: i64 = 300 * 60_000;
+    const FREEZE_START: i64 = 240 * 60_000;
+
+    #[test]
+    fn freeze_off_before_contest_or_when_zero() {
+        let before = freeze_view(60, "before", false, false, DUR, 0);
+        assert!(!before.frozen && !before.can_reveal && before.freeze_start_ms == i64::MAX);
+        let zero = freeze_view(0, "during", false, false, DUR, 290 * 60_000);
+        assert!(!zero.frozen && !zero.can_reveal && zero.freeze_start_ms == i64::MAX);
+    }
+
+    #[test]
+    fn contestant_frozen_only_inside_window() {
+        // before the window opens: not frozen, and no split (freeze_start = MAX).
+        let before = freeze_view(60, "during", false, false, DUR, 200 * 60_000);
+        assert!(!before.frozen, "before the window: live");
+        assert_eq!(
+            before.freeze_start_ms,
+            i64::MAX,
+            "no split before the window"
+        );
+        // inside the window: frozen, split at the window start.
+        let inside = freeze_view(60, "during", false, false, DUR, 250 * 60_000);
+        assert!(inside.frozen, "inside the window: frozen");
+        assert_eq!(inside.freeze_start_ms, FREEZE_START);
+    }
+
+    #[test]
+    fn contestant_frozen_through_after_until_revealed() {
+        let now = 400 * 60_000; // past end
+        let unrevealed = freeze_view(60, "after", false, false, DUR, now);
+        assert!(unrevealed.frozen);
+        assert_eq!(unrevealed.freeze_start_ms, FREEZE_START);
+        let revealed = freeze_view(60, "after", false, true, DUR, now);
+        assert!(!revealed.frozen && revealed.freeze_start_ms == i64::MAX);
+    }
+
+    #[test]
+    fn organizer_reveal_only_while_window_open() {
+        // Footgun guard: an organizer CANNOT reveal before the freeze window opens.
+        let before_window = freeze_view(60, "during", true, false, DUR, 100 * 60_000);
+        assert!(!before_window.frozen, "organizer never frozen");
+        assert!(
+            !before_window.can_reveal,
+            "no reveal before the window opens"
+        );
+        assert_eq!(
+            before_window.freeze_start_ms,
+            i64::MAX,
+            "organizer never split"
+        );
+        // once the window is open (and after end), reveal is offered until revealed.
+        assert!(freeze_view(60, "during", true, false, DUR, 250 * 60_000).can_reveal);
+        assert!(freeze_view(60, "after", true, false, DUR, 400 * 60_000).can_reveal);
+        assert!(!freeze_view(60, "after", true, true, DUR, 400 * 60_000).can_reveal);
+    }
+
+    #[test]
+    fn freeze_window_open_helper_matrix() {
+        assert!(!freeze_window_open(60, "before", false, DUR, 0));
+        assert!(!freeze_window_open(60, "during", false, DUR, 200 * 60_000)); // pre-window
+        assert!(freeze_window_open(60, "during", false, DUR, 250 * 60_000)); // in window
+        assert!(freeze_window_open(60, "after", false, DUR, 400 * 60_000)); // after
+        assert!(!freeze_window_open(60, "after", true, DUR, 400 * 60_000)); // revealed
+        assert!(!freeze_window_open(0, "during", false, DUR, 290 * 60_000)); // disabled
     }
 
     #[test]

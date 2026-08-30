@@ -210,6 +210,8 @@ fn verdict_short(name: &str) -> &str {
         "RuntimeError" => "RE",
         "CompilationError" => "CE",
         "SystemError" => "SE",
+        "Skipped" => "SKIP",
+        "Cancelled" => "CAN",
         "Pending" => "PEND",
         "Running" => "RUN",
         other => other,
@@ -219,6 +221,8 @@ fn verdict_short(name: &str) -> &str {
 fn verdict_color(short: &str, theme: &Theme) -> Style {
     let token = if short == "AC" {
         ColorToken::Ok
+    } else if matches!(short, "SKIP" | "CAN") {
+        ColorToken::Dim
     } else {
         ColorToken::Err
     };

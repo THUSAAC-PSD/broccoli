@@ -1,0 +1,152 @@
+# Contest hand-off: export problems → bring up the contest cluster (offline LAN)
+
+This directory is for handing a finished problem set from the **authoring/staging
+server** to a **contest cluster** that runs on an isolated LAN (e.g. lab machines
+in mainland China with **no internet**). It contains:
+
+| File | Role |
+|------|------|
+| `export-problems.sh` | Dump all non-deleted problems (DB rows + referenced blobs) from a running server into one portable `.tar.gz`. |
+| `import-problems.sh`  | Restore that archive into a fresh contest server. |
+| `s3copy.py`           | Dependency-free (stdlib-only) SeaweedFS/S3 copy used by both. No `aws`/`pip`/internet needed. |
+| `bring-up-worker.sh`  | Thin non-interactive wrapper around `../install.sh worker`. |
+
+The infra/server/worker bring-up itself is done by the bundle's role installer
+`../install.sh` (Postgres + Redis + **SeaweedFS** + server, then workers). This
+runbook sequences the whole hand-off around it.
+
+> **Verified:** the export→import round-trip (problem rows, `checker_source`,
+> per-problem plugin config, communication manager blobs, and a 1.2 MB test-case
+> blob) has been tested byte-for-byte on staging — problem and test-case rows
+> restore md5-identical and blob SHA-256 matches its content-hash key.
+
+---
+
+## The three phases (airgap pattern)
+
+```
+  (A) BUILD  ── connected, OUTSIDE the airgap ──►  one self-contained bundle .tar
+  (B) SHIP   ── USB / scp into the LAN ───────────►  every contest box
+  (C) DEPLOY ── offline, on the LAN ─────────────►  infra+server box, then workers
+```
+
+China LAN reality baked in: **nothing is fetched at deploy time.** Docker images
+are `docker load`-ed from the bundle (never pulled), the S3 copy is pure Python
+stdlib (no `aws-cli`), and the time-check is skipped (`BROCCOLI_SKIP_TIME_CHECK=1`).
+
+---
+
+## (A) Build the bundle — connected machine, before the contest
+
+The bundle's `install.sh` loads `images/*.tar.gz` and only falls back to a
+registry pull if an image is missing — so the bundle must ship **every** image
+built from the contest source branch (server, worker-icpc, postgres, redis,
+seaweedfs, caddy). Build it where you have internet (crates/toolchain/base
+images), `docker save` the images into the bundle, and include this `contest/`
+directory plus the exported problem archive.
+
+> ⚠️ The images must be built from the **contest branch** (the one carrying the
+> judge fixes + contestant-CLI + printing-plugin), not `master`. Building from
+> the wrong ref ships a different, untested judge. See "Open items" at the end.
+
+## (A′) Export the problems — on the staging/authoring server
+
+Run on the box that has the authored problems (reads DB + S3 creds straight from
+its `config.toml`):
+
+```bash
+./export-problems.sh                 # writes broccoli-problems-<UTC>.tar.gz
+#   --config PATH    broccoli config.toml (default /data/broccoli/config/config.toml)
+#   --out PATH       archive path
+#   --all-blobs      ship the whole bucket instead of only referenced blobs
+```
+
+It dumps **non-deleted** problems only (`problem`, `test_case`,
+`problem_attachment`, `additional_file`) plus plugin config (global `plugin`
+scope + per-problem `problem` scope) and exactly the object-storage blobs those
+rows reference. It does **not** export contests, users, or submissions — the
+admin re-creates the contest and accounts on the contest server.
+
+Put the resulting `broccoli-problems-*.tar.gz` into the bundle (or carry it
+alongside).
+
+## (B) Ship
+
+Copy the bundle `.tar` (images + `install.sh` + compose templates + plugins +
+`broccoli-compare` + this `contest/` dir + the problem archive) onto every
+contest box over USB or LAN scp. Extract to the same directory on each.
+
+## (C) Deploy on the LAN — offline
+
+### Box 1 — infra + server (Postgres, Redis, SeaweedFS, API)
+
+```bash
+cd <bundle>
+export BROCCOLI_SKIP_TIME_CHECK=1            # offline: no NTP/HTTPS clock check
+export BROCCOLI_INFRA_HOST=<box1-LAN-IP>     # so workers reach DB/MQ/S3 over the LAN
+./install.sh infra server
+#   - choose object_storage (SeaweedFS) at the storage menu  [recommended]
+#   - writes connection.env and server-secrets.env in this dir
+```
+
+The server auto-creates its schema and registers plugins on first boot. Then
+load the problems (it reads the contest box's own `config.toml`):
+
+```bash
+cd contest
+./import-problems.sh ../broccoli-problems-*.tar.gz
+#   --config PATH   target config.toml (default /data/broccoli/config/config.toml)
+#   --truncate      replace problems if the target already has some
+```
+
+Verify it prints `problems=<N> (manifest <N>)` and `blobs_loaded=<M>`.
+
+### Boxes 2..N — workers
+
+Copy `connection.env` from Box 1 into each worker's bundle dir, then:
+
+```bash
+cd <bundle>
+# (connection.env from box 1 is in this dir)
+export BROCCOLI_SKIP_TIME_CHECK=1
+BROCCOLI__WORKER__ID=worker-2 ./install.sh worker     # worker-3, worker-4, ...
+#   choose the 'icpc' worker image (C/C++/Python) at the worker-image menu
+```
+
+`bring-up-worker.sh` wraps this non-interactively for fleets:
+
+```bash
+./contest/bring-up-worker.sh --id worker-2            # reads ./connection.env
+```
+
+### Sanity check
+
+From any box on the LAN: open `http://<box1-LAN-IP>/`, log in as admin, confirm
+the problem list, and submit one solution to confirm a worker picks it up.
+
+---
+
+## Notes / gotchas
+
+- **SeaweedFS volume capacity.** Blobs live in a per-bucket *collection*; the
+  first write needs a volume. `import-problems.sh` retries transient 5xx while
+  SeaweedFS auto-grows one. If imports fail with "not enough volumes", the
+  seaweedfs `volumeSizeLimitMB` / max-volumes is too low for the dataset — raise
+  it in the infra config before importing.
+- **Postgres version.** Staging dumps are plain `COPY` data (PG 14) and restore
+  into the bundle's Postgres (PG 18) — the forward-compatible direction.
+- **Run as the broccoli user** (or one that can read `config.toml` and reach
+  Postgres/SeaweedFS). `export`/`import` read DB + S3 creds from `config.toml`.
+- **testlib special judges** carry their `testlib.h` inside `checker_source`
+  (stored in the DB), so they export/import intact with no internet — the
+  `fetch-testlib.sh` in `examples/testlib-checker` is only for authoring new
+  problems on a connected machine.
+
+## Open items before this is contest-final
+- Build the bundle images from the **rebased contest branch** (master's
+  contestant-CLI + printing-plugin merged in), then re-run the judge test
+  battery.
+- Distribute/point the **contestant CLI** at `http://<box1-LAN-IP>` and wire the
+  **printing plugin** to the contest printer (LAN).
+- Decide whether Box 1 should also judge (`install.sh single-host` adds a local
+  worker) or stay infra+server only.

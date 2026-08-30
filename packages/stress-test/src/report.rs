@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::load::LoadOutcome;
+use crate::mixed::MixedOutcome;
 
 pub const JSON_SCHEMA_VERSION: u32 = 1;
 
@@ -15,6 +16,7 @@ pub struct RunSummary {
     pub bootstrap_error: Option<String>,
     pub correctness: Option<CorrectnessSummary>,
     pub load: Option<LoadSummary>,
+    pub mixed: Option<MixedSummary>,
     pub passthrough: PassthroughSummary,
     pub cleanup_warnings: Vec<String>,
     pub log_file: Option<PathBuf>,
@@ -51,6 +53,27 @@ pub struct LoadSummary {
     pub passed_overall: bool,
 }
 
+#[derive(Debug)]
+pub struct MixedSummary {
+    pub total: u64,
+    pub completed: u64,
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+    pub p99_ms: u64,
+    pub max_ms: u64,
+    pub error_count: usize,
+    pub error_samples: Vec<String>,
+    pub by_action: Vec<MixedActionSummary>,
+    pub passed_overall: bool,
+}
+
+#[derive(Debug)]
+pub struct MixedActionSummary {
+    pub action: String,
+    pub ok: u64,
+    pub error: u64,
+}
+
 impl LoadSummary {
     pub fn from_outcome(outcome: &LoadOutcome, total: u64, p95_budget_ms: u64) -> Self {
         let error_samples = outcome
@@ -71,6 +94,40 @@ impl LoadSummary {
             passed_budget: outcome.passed_budget,
             error_count: outcome.errors.len(),
             error_samples,
+            passed_overall: outcome.passed_overall,
+        }
+    }
+}
+
+impl MixedSummary {
+    pub fn from_outcome(outcome: &MixedOutcome) -> Self {
+        let error_samples = outcome
+            .errors
+            .iter()
+            .take(5)
+            .map(|(_, msg)| msg.clone())
+            .collect();
+        let mut by_action: Vec<MixedActionSummary> = outcome
+            .by_action
+            .iter()
+            .map(|(action, stats)| MixedActionSummary {
+                action: action.label().to_string(),
+                ok: stats.ok,
+                error: stats.error,
+            })
+            .collect();
+        by_action.sort_by(|a, b| a.action.cmp(&b.action));
+
+        Self {
+            total: outcome.total,
+            completed: outcome.completed,
+            p50_ms: outcome.histogram.value_at_quantile(0.50),
+            p95_ms: outcome.histogram.value_at_quantile(0.95),
+            p99_ms: outcome.histogram.value_at_quantile(0.99),
+            max_ms: outcome.histogram.max(),
+            error_count: outcome.errors.len(),
+            error_samples,
+            by_action,
             passed_overall: outcome.passed_overall,
         }
     }
@@ -99,13 +156,14 @@ impl RunSummary {
             .as_ref()
             .is_none_or(|c| c.failed_scenarios.is_empty());
         let load_ok = self.load.as_ref().is_none_or(|l| l.passed_overall);
+        let mixed_ok = self.mixed.as_ref().is_none_or(|m| m.passed_overall);
         let passthrough_ok = matches!(
             self.passthrough,
             PassthroughSummary::NotRun
                 | PassthroughSummary::Skipped { .. }
                 | PassthroughSummary::Completed { ok: true, .. }
         );
-        correctness_ok && load_ok && passthrough_ok
+        correctness_ok && load_ok && mixed_ok && passthrough_ok
     }
 
     pub fn to_json(&self, exit_code: u8) -> Value {
@@ -121,11 +179,34 @@ impl RunSummary {
             }),
             "correctness": correctness_json(self.correctness.as_ref()),
             "load": load_json(self.load.as_ref()),
+            "mixed": mixed_json(self.mixed.as_ref()),
             "passthrough": passthrough_json(&self.passthrough),
             "cleanup": json!({
                 "warnings": self.cleanup_warnings,
             }),
         })
+    }
+}
+
+fn mixed_json(m: Option<&MixedSummary>) -> Value {
+    match m {
+        None => Value::Null,
+        Some(m) => json!({
+            "total": m.total,
+            "completed": m.completed,
+            "p50_ms": m.p50_ms,
+            "p95_ms": m.p95_ms,
+            "p99_ms": m.p99_ms,
+            "max_ms": m.max_ms,
+            "error_count": m.error_count,
+            "error_samples": m.error_samples,
+            "by_action": m.by_action.iter().map(|a| json!({
+                "action": a.action,
+                "ok": a.ok,
+                "error": a.error,
+            })).collect::<Vec<_>>(),
+            "passed_overall": m.passed_overall,
+        }),
     }
 }
 
@@ -332,6 +413,27 @@ pub fn format_summary(summary: &RunSummary, use_color: bool) -> String {
         }
     }
 
+    if let Some(m) = &summary.mixed {
+        let glyph = if m.passed_overall {
+            p.green("✓")
+        } else {
+            p.red("✗")
+        };
+        let counts = p.bold(&format!(
+            "{}/{}",
+            m.completed.saturating_sub(m.error_count as u64),
+            m.total
+        ));
+        let _ = writeln!(
+            out,
+            "{}{} {} ops   {}",
+            label("Mixed"),
+            glyph,
+            counts,
+            p.dim(&format!("p95 {}ms", m.p95_ms)),
+        );
+    }
+
     match &summary.passthrough {
         PassthroughSummary::NotRun | PassthroughSummary::Skipped { .. } => {
             let reason = match &summary.passthrough {
@@ -378,6 +480,16 @@ pub fn format_summary(summary: &RunSummary, use_color: bool) -> String {
             p.red(&l.error_count.to_string())
         };
         let _ = writeln!(out, "{}{}", label("Errors"), err_painted);
+    }
+
+    if let Some(m) = &summary.mixed {
+        let _ = writeln!(out);
+        let err_painted = if m.error_count == 0 {
+            p.green("0")
+        } else {
+            p.red(&m.error_count.to_string())
+        };
+        let _ = writeln!(out, "{}{}", label("Mixed errors"), err_painted);
     }
 
     let _ = writeln!(out);
@@ -443,6 +555,25 @@ pub fn format_summary(summary: &RunSummary, use_color: bool) -> String {
                 );
             }
         }
+        if let Some(m) = &summary.mixed {
+            if m.completed != m.total {
+                let _ = writeln!(
+                    out,
+                    "{} only {} of {} mixed operations completed",
+                    bullet,
+                    p.bold(&m.completed.to_string()),
+                    m.total,
+                );
+            }
+            if m.error_count > 0 {
+                let _ = writeln!(
+                    out,
+                    "{} {} mixed operation failures",
+                    bullet,
+                    p.red(&m.error_count.to_string()),
+                );
+            }
+        }
         if let PassthroughSummary::Completed { ok: false, count } = summary.passthrough {
             let _ = writeln!(
                 out,
@@ -466,6 +597,25 @@ pub fn format_summary(summary: &RunSummary, use_color: bool) -> String {
             };
             let _ = writeln!(out, "  {}", p.yellow(&header));
             for sample in &l.error_samples {
+                let _ = writeln!(out, "  {} {}", p.dim("•"), p.dim(sample));
+            }
+        }
+
+        if let Some(m) = &summary.mixed
+            && !m.error_samples.is_empty()
+        {
+            let _ = writeln!(out);
+            let header = if m.error_count > m.error_samples.len() {
+                format!(
+                    "First {} of {} mixed failures:",
+                    m.error_samples.len(),
+                    m.error_count,
+                )
+            } else {
+                "Mixed failures:".to_string()
+            };
+            let _ = writeln!(out, "  {}", p.yellow(&header));
+            for sample in &m.error_samples {
                 let _ = writeln!(out, "  {} {}", p.dim("•"), p.dim(sample));
             }
         }
@@ -543,6 +693,7 @@ mod tests {
                 error_samples: vec![],
                 passed_overall: true,
             }),
+            mixed: None,
             passthrough: PassthroughSummary::NotRun,
             cleanup_warnings: vec![],
             log_file: None,
@@ -600,6 +751,7 @@ mod tests {
             bootstrap_error: None,
             correctness: None,
             load: None,
+            mixed: None,
             passthrough: PassthroughSummary::Skipped {
                 reason: "no contestid".into(),
             },

@@ -1,0 +1,9 @@
+[
+  {
+    "targets": ["node-exporter:9100"],
+    "labels": {
+      "service": "node",
+      "role": "local"
+    }
+  }
+]

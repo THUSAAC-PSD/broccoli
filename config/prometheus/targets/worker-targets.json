@@ -1,0 +1,10 @@
+[
+  {
+    "targets": ["host.docker.internal:9091"],
+    "labels": {
+      "service": "broccoli-worker",
+      "role": "worker",
+      "worker_id": "local"
+    }
+  }
+]

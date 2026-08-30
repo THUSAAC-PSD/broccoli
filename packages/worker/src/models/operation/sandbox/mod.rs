@@ -1,12 +1,14 @@
 #![allow(unused_imports)]
 
+mod capture;
 pub mod error;
 pub mod isolate;
 pub mod mock;
 
 use async_trait::async_trait;
-pub use broccoli_server_sdk::types::{
+pub use broccoli_types::types::{
     DirectoryOptions, DirectoryRule, EnvRule, ExecutionResult, ResourceLimits, RunOptions,
+    SandboxStatus,
 };
 use error::SandboxError;
 use std::path::PathBuf;

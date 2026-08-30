@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use broccoli_server_sdk::permissions as perm;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -77,7 +78,7 @@ pub struct LoginResponse {
     pub username: String,
     #[schema(example = json!(["contestant"]))]
     pub roles: Vec<String>,
-    #[schema(example = json!(["submission:submit"]))]
+    #[schema(example = json!([perm::SUBMISSION_SUBMIT]))]
     pub permissions: Vec<String>,
 }
 
@@ -89,7 +90,7 @@ pub struct MeResponse {
     pub username: String,
     #[schema(example = json!(["contestant"]))]
     pub roles: Vec<String>,
-    #[schema(example = json!(["submission:submit"]))]
+    #[schema(example = json!([perm::SUBMISSION_SUBMIT]))]
     pub permissions: Vec<String>,
 }
 

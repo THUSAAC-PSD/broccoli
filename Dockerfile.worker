@@ -34,6 +34,8 @@ RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
 FROM ${RUST_IMAGE} AS rust-builder
 
 ARG USE_CN_MIRRORS=false
+ARG CARGO_BUILD_PROFILE=release
+ARG CARGO_BUILD_RUSTFLAGS=
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 WORKDIR /app
 
@@ -46,6 +48,11 @@ RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
 COPY --from=chef /usr/local/cargo/bin/cargo-chef /usr/local/cargo/bin/cargo-chef
 COPY --from=chef /app/recipe.json recipe.json
 COPY rust-toolchain.toml rust-toolchain.toml
+# The root [patch.crates-io] repoints broccoli_queue at the vendored crate under
+# third_party/. `cargo chef cook` resolves that patch before `COPY . .`, so the
+# vendored source must be present now or cook panics ("patch location ... does
+# not contain packages matching broccoli_queue").
+COPY third_party third_party
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
@@ -54,7 +61,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
       export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup \
         RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup; \
     fi && \
-    cargo chef cook --release --locked --recipe-path recipe.json --package worker
+    cargo chef cook --release --locked --recipe-path recipe.json --package worker --package broccoli-compare
 
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -64,10 +71,16 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
       export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup \
         RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup; \
     fi && \
-    cargo build --release --locked --package worker && \
+    if [ -n "$CARGO_BUILD_RUSTFLAGS" ]; then \
+      export RUSTFLAGS="$CARGO_BUILD_RUSTFLAGS"; \
+    fi && \
+    cargo build --profile "$CARGO_BUILD_PROFILE" --locked --package worker --package broccoli-compare && \
     mkdir -p /out && \
-    cp target/release/worker /out/broccoli-worker && \
-    strip /out/broccoli-worker
+    cp "target/$CARGO_BUILD_PROFILE/worker" /out/broccoli-worker && \
+    cp "target/$CARGO_BUILD_PROFILE/broccoli-compare" /out/broccoli-compare && \
+    if [ "$CARGO_BUILD_PROFILE" != "profiling" ]; then \
+      strip /out/broccoli-worker /out/broccoli-compare; \
+    fi
 
 FROM ${DEBIAN_IMAGE} AS isolate-builder
 
@@ -147,14 +160,19 @@ RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
     echo 'worker:1000000:65536' >> /etc/subgid
 
 COPY --from=rust-builder --chown=root:root /out/broccoli-worker /usr/local/bin/broccoli-worker
+# broccoli-compare is the native output comparator the fused `check` step mounts
+# into the isolate sandbox as a MountSource::PlatformTool. Ship it in a stable
+# tools dir and point the worker at it so judging resolves the tool by name.
+COPY --from=rust-builder --chown=root:root /out/broccoli-compare /opt/broccoli/tools/broccoli-compare
 COPY --from=isolate-builder --chown=root:root /out/isolate/ /
 COPY --chown=root:root docker-entrypoint-worker.sh /usr/local/bin/docker-entrypoint-worker.sh
 
-RUN chmod 0755 /usr/local/bin/broccoli-worker /usr/local/bin/docker-entrypoint-worker.sh
+RUN chmod 0755 /usr/local/bin/broccoli-worker /usr/local/bin/docker-entrypoint-worker.sh /opt/broccoli/tools/broccoli-compare
 
 ENV BROCCOLI__WORKER__SANDBOX_BACKEND=isolate \
     BROCCOLI__WORKER__ISOLATE_BIN=/usr/local/bin/isolate \
     BROCCOLI__WORKER__ENABLE_CGROUPS=true \
+    BROCCOLI__WORKER__TOOLS__DIR=/opt/broccoli/tools \
     BROCCOLI__STORAGE__DATA_DIR=/data \
     RUST_LOG=info
 

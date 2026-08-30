@@ -2,13 +2,14 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::*;
 use std::collections::{HashMap, HashSet};
 use tracing::instrument;
 
 use crate::entity::{clarification, clarification_reply, user};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::clarification::*;
@@ -63,7 +64,7 @@ pub async fn list_clarifications(
     let contest = find_contest(&state.db, contest_id).await?;
     check_contest_access(&state.db, &auth_user, &contest).await?;
 
-    let is_admin = auth_user.has_permission("contest:manage");
+    let is_admin = auth_user.has_permission(perm::CONTEST_MANAGE);
 
     let mut select =
         clarification::Entity::find().filter(clarification::Column::ContestId.eq(contest_id));
@@ -142,9 +143,18 @@ pub async fn list_clarifications(
                 || r.recipient_id == Some(auth_user.user_id);
             let show_question = is_participant || r.is_public;
 
-            let replies = replies_map
-                .remove(&r.id)
-                .unwrap_or_default()
+            let all_replies = replies_map.remove(&r.id).unwrap_or_default();
+            // The legacy denormalized `reply_*` fields mirror the LATEST reply,
+            // whereas `reply_is_public` is recomputed as "ANY reply is public"
+            // (see toggle_reply_public). Gating the legacy content on
+            // reply_is_public would therefore leak the latest reply's private
+            // content whenever some OTHER, older reply is public. Gate on the
+            // latest reply's own visibility instead; if there is no reply to
+            // confirm (legacy rows), hide it from non-participants.
+            let latest_reply_public = all_replies.last().map(|rep| rep.is_public).unwrap_or(false);
+            let show_reply = is_participant || latest_reply_public;
+
+            let replies = all_replies
                 .into_iter()
                 .filter(|rep| is_admin || rep.is_public || is_participant)
                 .map(|rep| ClarificationReplyResponse {
@@ -178,11 +188,11 @@ pub async fn list_clarifications(
                 recipient_id: r.recipient_id,
                 recipient_name,
                 is_public: r.is_public,
-                reply_content: r.reply_content,
-                reply_author_id: r.reply_author_id,
-                reply_author_name,
+                reply_content: if show_reply { r.reply_content } else { None },
+                reply_author_id: if show_reply { r.reply_author_id } else { None },
+                reply_author_name: if show_reply { reply_author_name } else { None },
                 reply_is_public: r.reply_is_public,
-                replied_at: r.replied_at,
+                replied_at: if show_reply { r.replied_at } else { None },
                 replies,
                 resolved: r.resolved,
                 resolved_at: r.resolved_at,
@@ -227,14 +237,19 @@ pub async fn create_clarification(
     let contest = find_contest(&state.db, contest_id).await?;
     check_contest_access(&state.db, &auth_user, &contest).await?;
 
-    let is_admin = auth_user.has_permission("contest:manage");
+    let is_admin = auth_user.has_permission(perm::CONTEST_MANAGE);
 
     if !is_admin && payload.clarification_type != "question" {
         return Err(AppError::PermissionDenied);
     }
 
+    // Only admins may direct a clarification to a specific recipient. Honoring a
+    // caller-supplied recipient_id for a non-admin would let a contestant inject
+    // a privately-visible clarification into any chosen user's view.
+    let recipient_id = if is_admin { payload.recipient_id } else { None };
+
     let mut recipient_name = None;
-    if let Some(recipient_id) = payload.recipient_id {
+    if let Some(recipient_id) = recipient_id {
         let recipient = user::Entity::find_by_id(recipient_id)
             .one(&state.db)
             .await?
@@ -242,10 +257,15 @@ pub async fn create_clarification(
         recipient_name = Some(recipient.username);
     }
 
+    // Only admins may publish a clarification to ALL participants. A non-admin's
+    // supplied is_public is ignored (forced false), the same way recipient_id and
+    // the announcement type are gated above - otherwise a contestant could set
+    // is_public:true on their own "question" and broadcast arbitrary content to
+    // every participant, an unmoderated cross-contestant channel.
     let is_public = if payload.clarification_type == "announcement" {
         true
     } else {
-        payload.is_public.unwrap_or(false)
+        is_admin && payload.is_public.unwrap_or(false)
     };
 
     let now = chrono::Utc::now();
@@ -254,7 +274,7 @@ pub async fn create_clarification(
         author_id: Set(auth_user.user_id),
         content: Set(sanitize_db_text(payload.content.trim())),
         clarification_type: Set(payload.clarification_type.clone()),
-        recipient_id: Set(payload.recipient_id),
+        recipient_id: Set(recipient_id),
         is_public: Set(is_public),
         reply_is_public: Set(false),
         created_at: Set(now),
@@ -315,7 +335,7 @@ pub async fn create_clarification(
 )]
 #[instrument(skip(state, auth_user, payload))]
 pub async fn reply_clarification(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((contest_id, clarification_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<ReplyClarificationRequest>,
@@ -328,7 +348,7 @@ pub async fn reply_clarification(
         .await?
         .ok_or_else(|| AppError::NotFound("Clarification not found".into()))?;
 
-    let is_admin = auth_user.has_permission("contest:manage");
+    let is_admin = auth_user.has_permission(perm::CONTEST_MANAGE);
     let is_author = existing.author_id == auth_user.user_id;
     let is_recipient = existing.recipient_id == Some(auth_user.user_id);
 
@@ -339,20 +359,39 @@ pub async fn reply_clarification(
     let now = chrono::Utc::now();
     let txn = state.db.begin().await?;
 
+    // Only admins may publish a reply to ALL participants - the same gate the
+    // create path and toggle_reply_public enforce. A non-admin author/recipient
+    // may reply, but their supplied `is_public` is forced false; otherwise they
+    // could broadcast arbitrary content to every participant. Forcing it here (as
+    // the create path does) is why the documented `is_public` field had no effect:
+    // replies were pinned private and an admin had to make a second toggle call.
+    let reply_public = is_admin && payload.is_public;
+
     let new_reply = clarification_reply::ActiveModel {
         clarification_id: Set(clarification_id),
         author_id: Set(auth_user.user_id),
         content: Set(sanitize_db_text(payload.content.trim())),
-        is_public: Set(false),
+        is_public: Set(reply_public),
         created_at: Set(now),
         ..Default::default()
     };
     new_reply.insert(&txn).await?;
 
+    // The parent `reply_is_public` is the "ANY reply is public" aggregate
+    // (see toggle_reply_public), not the latest reply's own flag. Recompute it
+    // across every reply - including the one just inserted - instead of clobbering
+    // it to false, which would drop an already-public earlier reply's aggregate.
+    let any_reply_public = clarification_reply::Entity::find()
+        .filter(clarification_reply::Column::ClarificationId.eq(clarification_id))
+        .filter(clarification_reply::Column::IsPublic.eq(true))
+        .count(&txn)
+        .await?
+        > 0;
+
     let mut active: clarification::ActiveModel = existing.into();
     active.reply_content = Set(Some(sanitize_db_text(payload.content.trim())));
     active.reply_author_id = Set(Some(auth_user.user_id));
-    active.reply_is_public = Set(false);
+    active.reply_is_public = Set(any_reply_public);
     active.replied_at = Set(Some(now));
     active.updated_at = Set(now);
     let model = active.update(&txn).await?;
@@ -459,12 +498,12 @@ pub async fn reply_clarification(
 )]
 #[instrument(skip(state, auth_user, query))]
 pub async fn toggle_reply_public(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((contest_id, clarification_id, reply_id)): AppPath<(i32, i32, i32)>,
     Query(query): Query<ToggleReplyPublicQuery>,
 ) -> Result<Json<ClarificationReplyResponse>, AppError> {
-    auth_user.require_permission("contest:manage")?;
+    auth_user.require_permission(perm::CONTEST_MANAGE)?;
 
     let txn = state.db.begin().await?;
 
@@ -540,7 +579,7 @@ pub async fn toggle_reply_public(
 )]
 #[instrument(skip(state, auth_user, payload))]
 pub async fn resolve_clarification(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((contest_id, clarification_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<ResolveClarificationRequest>,
@@ -551,7 +590,7 @@ pub async fn resolve_clarification(
         .await?
         .ok_or_else(|| AppError::NotFound("Clarification not found".into()))?;
 
-    let is_admin = auth_user.has_permission("contest:manage");
+    let is_admin = auth_user.has_permission(perm::CONTEST_MANAGE);
     let is_author = existing.author_id == auth_user.user_id;
 
     if !is_admin && !is_author {

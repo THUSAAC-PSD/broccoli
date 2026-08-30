@@ -1,6 +1,22 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import { useAuth, USER_PERMISSIONS } from '@broccoli/web-sdk/auth';
+import {
+  useAuth,
+  useAuthReady,
+  USER_PERMISSIONS,
+} from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  CONTEST_MANAGE,
+  DLQ_MANAGE,
+  PLUGIN_MANAGE,
+  PROBLEM_CREATE,
+  PROBLEM_DELETE,
+  PROBLEM_EDIT,
+  ROLE_MANAGE,
+  SUBMISSION_VIEW_ALL,
+  SYSTEM_VIEW,
+  USER_MANAGE,
+} from '@broccoli/web-sdk/permissions';
 import { Slot } from '@broccoli/web-sdk/slot';
 import {
   DropdownMenu,
@@ -60,10 +76,10 @@ const adminMenuItems: MenuItem[] = [
     url: '/admin',
     exact: true,
     requiredPermissions: [
-      'user:manage',
-      'problem:create',
-      'contest:manage',
-      'plugin:manage',
+      USER_MANAGE,
+      PROBLEM_CREATE,
+      CONTEST_MANAGE,
+      PLUGIN_MANAGE,
     ],
   },
   {
@@ -71,49 +87,49 @@ const adminMenuItems: MenuItem[] = [
     icon: Users,
     url: '/admin/users',
     exact: false,
-    requiredPermissions: ['user:manage', 'role:manage'],
+    requiredPermissions: [USER_MANAGE, ROLE_MANAGE],
   },
   {
     key: 'sidebar.problems',
     icon: Code2,
     url: '/problems',
     exact: false,
-    requiredPermissions: ['problem:create', 'problem:edit', 'problem:delete'],
+    requiredPermissions: [PROBLEM_CREATE, PROBLEM_EDIT, PROBLEM_DELETE],
   },
   {
     key: 'sidebar.contests',
     icon: Trophy,
     url: '/contests',
     exact: false,
-    requiredPermissions: ['contest:manage'],
+    requiredPermissions: [CONTEST_MANAGE],
   },
   {
     key: 'sidebar.plugins',
     icon: Puzzle,
     url: '/admin/plugins',
     exact: false,
-    requiredPermissions: ['plugin:manage'],
+    requiredPermissions: [PLUGIN_MANAGE],
   },
   {
     key: 'sidebar.allSubmissions',
     icon: Activity,
     url: '/admin/submissions',
     exact: false,
-    requiredPermissions: ['submission:view_all'],
+    requiredPermissions: [SUBMISSION_VIEW_ALL],
   },
   {
     key: 'sidebar.system',
     icon: Server,
     url: '/admin/system',
     exact: false,
-    requiredPermissions: ['system:view'],
+    requiredPermissions: [SYSTEM_VIEW],
   },
   {
     key: 'sidebar.dlq',
     icon: Inbox,
     url: '/admin/dlq',
     exact: false,
-    requiredPermissions: ['dlq:manage'],
+    requiredPermissions: [DLQ_MANAGE],
   },
 ];
 
@@ -161,6 +177,7 @@ function ContestProblemsGroup() {
   const { contestId: ctxContestId, contestTitle } = useContest();
   const { pathname } = useLocation();
   const apiClient = useApiClient();
+  const authReady = useAuthReady();
 
   const urlContestId = (() => {
     const m = pathname.match(/^\/contests\/(\d+)/);
@@ -171,7 +188,7 @@ function ContestProblemsGroup() {
 
   const { data: contestData } = useQuery({
     queryKey: ['contest', contestId],
-    enabled: !!contestId && !contestTitle,
+    enabled: authReady && !!contestId && !contestTitle,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}', {
         params: { path: { id: contestId! } },
@@ -185,7 +202,7 @@ function ContestProblemsGroup() {
 
   const { data: problems = [] } = useQuery({
     queryKey: ['contest-problems', contestId],
-    enabled: !!contestId,
+    enabled: authReady && !!contestId,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}/problems', {
         params: { path: { id: contestId! } },

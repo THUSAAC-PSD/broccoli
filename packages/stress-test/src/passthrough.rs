@@ -353,6 +353,7 @@ fn verdict_str(v: &Verdict) -> String {
         Verdict::RuntimeError => "RuntimeError".into(),
         Verdict::SystemError => "SystemError".into(),
         Verdict::Skipped => "Skipped".into(),
+        Verdict::Cancelled => "Cancelled".into(),
         Verdict::Other(s) => format!("Other({s})"),
     }
 }

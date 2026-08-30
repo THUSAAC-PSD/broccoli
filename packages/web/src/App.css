@@ -1,4 +1,32 @@
-@layer plugin;
+/*
+  Cascade layer order. Declared before the Tailwind import so it wins: the
+  first @layer statement fixes the order, and Tailwind's own
+  `@layer theme, base, components, utilities;` cannot reorder layers that
+  already exist.
+
+  `plugin` is the layer that plugin frontends compile their Tailwind
+  utilities into (see web-sdk/src/plugin.css). Its position is a two-sided
+  constraint:
+
+    - It MUST sit ABOVE `base`, otherwise preflight rules like
+      `button { background-color: transparent; color: inherit; font: inherit }`
+      outrank every plugin utility on form controls, rendering plugin-styled
+      buttons/inputs unstyled (e.g. an invisible white-on-transparent button).
+
+    - It MUST sit BELOW `components`/`utilities`. Plugin CSS is injected as a
+      global <link> (no shadow DOM), so every utility a plugin emits is a
+      global rule. A plugin's Tailwind build re-emits whatever base utilities
+      its own markup uses (e.g. `.hidden`), and if `plugin` outranked
+      `utilities` those rules would win on HOST elements too: the shadcn
+      sidebar carries `hidden ... md:block`, and a plugin's layer-elevated
+      `.hidden` beat the host's `.md:block`, collapsing the sidebar on every
+      desktop page. Sitting below `utilities` lets the host's own utilities
+      win that global conflict. This costs nothing on plugin markup: the host
+      and plugins share the same theme tokens, so overlapping standard
+      utilities are byte-identical, while plugin-unique/arbitrary utilities
+      aren't emitted by the host and win regardless of layer position.
+*/
+@layer theme, base, plugin, components, utilities;
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import '../../web-sdk/src/index.css';

@@ -1,6 +1,11 @@
+import {
+  CONTEST_MANAGE,
+  SUBMISSION_VIEW_ALL,
+} from '@broccoli/web-sdk/permissions';
+
 const PRIVILEGED_SUBMISSION_PERMISSIONS = [
-  'contest:manage',
-  'submission:view_all',
+  CONTEST_MANAGE,
+  SUBMISSION_VIEW_ALL,
 ] as const;
 
 export function canViewPrivilegedSubmissionFeedback(

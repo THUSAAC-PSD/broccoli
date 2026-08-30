@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Button,
@@ -17,7 +17,6 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { ManagedUserRow } from '@/features/user-management/types';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 interface EditUserDialogProps {
   user?: ManagedUserRow;
@@ -73,7 +72,7 @@ export function EditUserDialog({
     setIsSubmitting(false);
 
     if (error) {
-      toast.error(extractErrorMessage(error, t('users.users.updateUserError')));
+      toast.error(getErrorMessage(error, t('users.users.updateUserError')));
       return;
     }
 

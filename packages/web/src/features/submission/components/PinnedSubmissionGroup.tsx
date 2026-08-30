@@ -1,17 +1,15 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import type { SubmissionStatus, Verdict } from '@broccoli/web-sdk/submission';
+import {
+  isTerminalStatus,
+  type SubmissionStatus,
+  type Verdict,
+} from '@broccoli/web-sdk/submission';
 import { Badge } from '@broccoli/web-sdk/ui';
 import { AlertTriangle, Loader2, Pin } from 'lucide-react';
 import { useNavigate } from 'react-router';
 
 import type { SubmissionEntry } from '@/features/submission/hooks/use-submissions';
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
-
-const TERMINAL_STATUSES = new Set([
-  'Judged',
-  'CompilationError',
-  'SystemError',
-]);
 
 interface Props {
   /** All entries belonging to one fan-out group, in any order. */
@@ -48,7 +46,7 @@ export function PinnedSubmissionGroup({ entries, linkBuilder }: Props) {
     .map(buildRow)
     .sort((a, b) => a.workerId.localeCompare(b.workerId));
 
-  const allTerminal = rows.every((r) => TERMINAL_STATUSES.has(r.status));
+  const allTerminal = rows.every((r) => isTerminalStatus(r.status));
   const verdictsSeen = new Set(rows.map((r) => r.verdict ?? r.status));
   const diverges = allTerminal && verdictsSeen.size > 1;
   const allAccepted =

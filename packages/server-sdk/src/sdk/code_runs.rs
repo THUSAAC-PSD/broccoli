@@ -4,11 +4,31 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use crate::error::SdkError;
-use crate::types::{CodeRunResultRow, CodeRunUpdate};
+use crate::types::{CodeRunResultRow, CodeRunUpdate, SubmissionStatus};
 
 pub struct CodeRuns {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) inner: CodeRunsMock,
+}
+
+impl CodeRuns {
+    pub fn set_compiling(&self, code_run_id: i32, judge_epoch: i32) -> Result<(), SdkError> {
+        self.update(&CodeRunUpdate {
+            code_run_id,
+            judge_epoch,
+            status: Some(SubmissionStatus::Compiling),
+            ..Default::default()
+        })
+    }
+
+    pub fn set_running(&self, code_run_id: i32, judge_epoch: i32) -> Result<(), SdkError> {
+        self.update(&CodeRunUpdate {
+            code_run_id,
+            judge_epoch,
+            status: Some(SubmissionStatus::Running),
+            ..Default::default()
+        })
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -37,9 +57,11 @@ impl CodeRuns {
         }
 
         let sql = format!(
-            "UPDATE code_run SET {} WHERE id = {}",
+            "UPDATE code_run SET {} WHERE id = {} AND judge_epoch = {} \
+             AND status NOT IN ('Judged', 'CompilationError', 'SystemError')",
             sets.join(", "),
             p.bind(update.code_run_id),
+            p.bind(update.judge_epoch),
         );
         super::shared::raw_execute(&sql, &p.into_args())?;
         Ok(())
@@ -63,8 +85,9 @@ impl CodeRuns {
             let stdout = r.stdout.as_deref().map(sanitize_result_text_field);
             let stderr = r.stderr.as_deref().map(sanitize_result_text_field);
             rows.push(format!(
-                "({}, {}, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
+                "({}, {}, {}, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
                 p.bind(r.code_run_id),
+                p.bind(r.judge_epoch),
                 p.bind(r.run_index),
                 p.bind(r.verdict.to_db_str()),
                 p.bind(score_val),
@@ -78,9 +101,15 @@ impl CodeRuns {
 
         let sql = format!(
             "INSERT INTO code_run_result \
-             (code_run_id, run_index, verdict, score, \
+             (code_run_id, judge_epoch, run_index, verdict, score, \
               time_used, memory_used, checker_output, stdout, stderr, created_at) \
-             VALUES {}",
+             SELECT v.code_run_id, v.judge_epoch, v.run_index, v.verdict, v.score, \
+                    v.time_used, v.memory_used, v.checker_output, v.stdout, v.stderr, v.created_at \
+             FROM (VALUES {}) AS v( \
+                 code_run_id, judge_epoch, run_index, verdict, score, \
+                 time_used, memory_used, checker_output, stdout, stderr, created_at \
+             ) \
+             JOIN code_run cr ON cr.id = v.code_run_id AND cr.judge_epoch = v.judge_epoch",
             rows.join(", ")
         );
         super::shared::raw_execute(&sql, &p.into_args())?;
@@ -146,5 +175,26 @@ impl CodeRuns {
 
     pub fn results(&self) -> Vec<CodeRunResultRow> {
         self.inner.results.borrow().clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sdk::Host;
+    use crate::types::SubmissionStatus;
+
+    #[test]
+    fn status_helpers_write_compiling_and_running_updates() {
+        let host = Host::mock();
+
+        host.code_run.set_compiling(10, 30).unwrap();
+        host.code_run.set_running(10, 30).unwrap();
+
+        let updates = host.code_run.updates();
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].code_run_id, 10);
+        assert_eq!(updates[0].judge_epoch, 30);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::Running));
     }
 }

@@ -4,8 +4,8 @@ use tracing::instrument;
 
 use crate::error::AppError;
 use crate::models::plugin::{
-    ActivePluginResponse, CheckerFormatEntry, ContestTypeEntry, EvaluatorEntry, HookEntryInfo,
-    LanguageRegistryItem, RegistriesResponse,
+    ActivePluginResponse, ContestTypeEntry, EvaluatorEntry, HookEntryInfo, LanguageRegistryItem,
+    RegistriesResponse,
 };
 use crate::state::AppState;
 
@@ -39,21 +39,13 @@ pub async fn list_registries(
         evaluators.iter().map(|e| e.problem_type.clone()).collect();
     problem_types.sort();
 
-    let mut checker_format_handlers: Vec<CheckerFormatEntry> = {
-        let reg = state.registries.checker_format_registry.read().await;
-        reg.iter()
-            .map(|(checker_format, h)| CheckerFormatEntry {
-                checker_format: checker_format.clone(),
-                plugin_id: h.plugin_id.clone(),
-                function_name: h.function_name.clone(),
-            })
-            .collect()
+    // Selectable checker formats come from the fused checker-stage registry
+    // (exact/lines/tokens*/testlib/none) - the legacy checker_format_registry was
+    // removed with checker fusion.
+    let mut checker_formats: Vec<String> = {
+        let reg = state.registries.checker_stage_registry.read().await;
+        reg.keys().cloned().collect()
     };
-    checker_format_handlers.sort_by(|a, b| a.checker_format.cmp(&b.checker_format));
-    let mut checker_formats: Vec<String> = checker_format_handlers
-        .iter()
-        .map(|e| e.checker_format.clone())
-        .collect();
     checker_formats.sort();
 
     let mut contest_type_handlers: Vec<ContestTypeEntry> = {
@@ -115,7 +107,6 @@ pub async fn list_registries(
         contest_types,
         languages,
         evaluators,
-        checker_format_handlers,
         contest_type_handlers,
         hooks,
     }))

@@ -1,12 +1,9 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import type { Submission } from '@broccoli/web-sdk/submission';
+import {
+  isTerminalStatus,
+  type Submission,
+} from '@broccoli/web-sdk/submission';
 import { useQuery } from '@tanstack/react-query';
-
-export const TERMINAL_STATUSES = new Set([
-  'Judged',
-  'CompilationError',
-  'SystemError',
-]);
 
 export function useSubmissionDetail(submissionId: number) {
   const apiClient = useApiClient();
@@ -26,7 +23,7 @@ export function useSubmissionDetail(submissionId: number) {
     },
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      if (status && TERMINAL_STATUSES.has(status)) return false;
+      if (status && isTerminalStatus(status)) return false;
       return 1000;
     },
   });

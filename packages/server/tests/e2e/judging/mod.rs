@@ -1,6 +1,7 @@
 mod code_run;
 mod lifecycle;
 mod submission;
+mod testlib_checker;
 mod verdicts;
 
 pub const CPP_SUM: &str = r#"

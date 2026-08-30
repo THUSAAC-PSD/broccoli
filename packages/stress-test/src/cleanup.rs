@@ -17,6 +17,10 @@ impl CleanupOutcome {
 pub async fn run(client: &Client, state: &BootstrapState) -> CleanupOutcome {
     let mut outcome = CleanupOutcome::default();
 
+    if !state.owns_fixtures {
+        return outcome;
+    }
+
     match client.delete_contest(state.contest_id).await {
         Ok(()) => {}
         Err(StressError::Api { status: 404, .. }) => {}
@@ -100,6 +104,7 @@ mod tests {
             problem_type: "batch".into(),
             contest_id: TEST_CONTEST_ID,
             problem_ids_by_scenario: map,
+            owns_fixtures: true,
         }
     }
 
@@ -251,5 +256,19 @@ mod tests {
             "warning must mention contest, got: {}",
             outcome.warnings[0]
         );
+    }
+
+    #[tokio::test]
+    async fn existing_contest_state_is_not_deleted() {
+        let server = MockServer::start().await;
+        let client = build_client(&server).await;
+
+        let mut state = state_with(&[("a", 10)]);
+        state.owns_fixtures = false;
+        let outcome = run(&client, &state).await;
+
+        assert_eq!(outcome.deleted, 0);
+        assert!(outcome.warnings.is_empty());
+        assert!(outcome.is_clean());
     }
 }

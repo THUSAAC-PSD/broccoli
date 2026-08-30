@@ -1,22 +1,13 @@
-use crate::entity::{additional_file, plugin_config, problem, test_case};
-use crate::registry::{BatchState, EvaluateBatches, EvaluatorRegistry};
-use common::storage::{BlobStore, ContentHash};
-use common::submission_dispatch::{
-    BuildEvalOpsInput, FileRef, JudgeFile, SdkVerdict, SourceFile, StartEvaluateBatchInput,
-    TestCaseBodyRef, TestCaseVerdict,
+use broccoli_server_sdk::types::{
+    DetachedEvaluateSession, StartDetachedWindowedEvaluateInput, StartEvaluateBatchInput,
+    TestCaseVerdict,
 };
 use extism::{Function, UserData, Val, ValType};
-use plugin_core::traits::PluginManager;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-use tokio::sync::Semaphore;
-use uuid::Uuid;
+use std::time::Duration;
 
-const INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
+use crate::host_funcs::context::EvaluateHostDeps;
+use crate::services::evaluate_batch;
 
 #[derive(Deserialize)]
 struct GetNextEvaluateResultInput {
@@ -29,36 +20,21 @@ struct CancelEvaluateBatchInput {
     batch_id: String,
 }
 
+#[derive(Deserialize)]
+struct CancelEvaluateTestCasesInput {
+    evaluate_batch_id: String,
+    test_case_ids: Vec<i32>,
+}
+
 struct EvaluateContext {
     plugin_id: String,
-    plugin_manager: Arc<dyn PluginManager>,
-    evaluator_registry: EvaluatorRegistry,
-    evaluate_batches: EvaluateBatches,
-    evaluator_slots: Arc<Semaphore>,
-    blob_store: Arc<dyn BlobStore>,
-    db: DatabaseConnection,
+    deps: EvaluateHostDeps,
 }
 
 type EvaluateUserData = EvaluateContext;
 
-pub fn create_evaluate_functions(
-    plugin_id: String,
-    plugin_manager: Arc<dyn PluginManager>,
-    evaluator_registry: EvaluatorRegistry,
-    evaluate_batches: EvaluateBatches,
-    evaluator_slots: Arc<Semaphore>,
-    blob_store: Arc<dyn BlobStore>,
-    db: DatabaseConnection,
-) -> Vec<Function> {
-    let user_data: UserData<EvaluateUserData> = UserData::new(EvaluateContext {
-        plugin_id,
-        plugin_manager,
-        evaluator_registry,
-        evaluate_batches,
-        evaluator_slots,
-        blob_store,
-        db,
-    });
+pub fn create_evaluate_functions(plugin_id: String, deps: EvaluateHostDeps) -> Vec<Function> {
+    let user_data: UserData<EvaluateUserData> = UserData::new(EvaluateContext { plugin_id, deps });
 
     vec![
         Function::new(
@@ -67,6 +43,13 @@ pub fn create_evaluate_functions(
             [ValType::I64],
             user_data.clone(),
             start_evaluate_batch_fn,
+        ),
+        Function::new(
+            "start_detached_windowed_evaluate",
+            [ValType::I64],
+            [ValType::I64],
+            user_data.clone(),
+            start_detached_windowed_evaluate_fn,
         ),
         Function::new(
             "get_next_evaluate_result",
@@ -79,10 +62,42 @@ pub fn create_evaluate_functions(
             "cancel_evaluate_batch",
             [ValType::I64],
             [],
-            user_data,
+            user_data.clone(),
             cancel_evaluate_batch_fn,
         ),
+        Function::new(
+            "cancel_evaluate_test_cases",
+            [ValType::I64],
+            [ValType::I64],
+            user_data,
+            cancel_evaluate_test_cases_fn,
+        ),
     ]
+}
+
+fn start_detached_windowed_evaluate_fn(
+    plugin: &mut extism::CurrentPlugin,
+    inputs: &[Val],
+    outputs: &mut [Val],
+    user_data: UserData<EvaluateUserData>,
+) -> Result<(), extism::Error> {
+    let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
+    let input: StartDetachedWindowedEvaluateInput = serde_json::from_slice(&input_bytes)
+        .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
+
+    let (caller_plugin_id, deps) = {
+        let user_data_guard = user_data.get()?;
+        let guard = user_data_guard
+            .lock()
+            .map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        (guard.plugin_id.clone(), guard.deps.clone())
+    };
+    let span = super::host_fn_span("start_detached_windowed_evaluate", &caller_plugin_id);
+    let _enter = span.enter();
+
+    let session = evaluate_batch::start_detached_windowed_evaluate(caller_plugin_id, deps, input)
+        .map_err(|e| extism::Error::msg(e.to_string()))?;
+    write_session(plugin, outputs, session)
 }
 
 fn start_evaluate_batch_fn(
@@ -95,347 +110,23 @@ fn start_evaluate_batch_fn(
     let input: StartEvaluateBatchInput = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
-    let (
-        caller_plugin_id,
-        plugin_manager,
-        evaluator_registry,
-        evaluate_batches,
-        evaluator_slots,
-        blob_store,
-        db,
-    ) = {
+    let (caller_plugin_id, deps) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        (
-            guard.plugin_id.clone(),
-            guard.plugin_manager.clone(),
-            guard.evaluator_registry.clone(),
-            guard.evaluate_batches.clone(),
-            guard.evaluator_slots.clone(),
-            guard.blob_store.clone(),
-            guard.db.clone(),
-        )
+        (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("start_evaluate_batch", &caller_plugin_id);
+    let _enter = span.enter();
 
-    let problem_type = input.problem_type.clone();
-    let evaluator = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let registry = evaluator_registry.read().await;
-            registry.get(&problem_type).cloned()
-        })
-    });
-
-    let evaluator = evaluator.ok_or_else(|| {
-        extism::Error::msg(format!(
-            "No evaluator registered for problem type: {}",
-            problem_type
+    let batch_id = tokio::runtime::Handle::current()
+        .block_on(evaluate_batch::start_evaluate_batch(
+            caller_plugin_id,
+            deps,
+            input,
         ))
-    })?;
-
-    let resolved_inputs = if input.test_cases.is_empty() {
-        Vec::new()
-    } else {
-        let problem_id = input.test_cases[0].problem_id;
-
-        if input
-            .test_cases
-            .iter()
-            .any(|tc| tc.problem_id != problem_id)
-        {
-            return Err(extism::Error::msg(
-                "All test cases in a batch must belong to the same problem",
-            ));
-        }
-
-        let solution_language = input.test_cases[0].solution_language.clone();
-        if input
-            .test_cases
-            .iter()
-            .any(|tc| tc.solution_language != solution_language)
-        {
-            return Err(extism::Error::msg(
-                "All test cases in a batch must use the same solution_language",
-            ));
-        }
-
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let problem_model = problem::Entity::find_by_id(problem_id)
-                    .one(&db)
-                    .await
-                    .map_err(|e| extism::Error::msg(format!("Failed to query problem: {}", e)))?
-                    .ok_or_else(|| {
-                        extism::Error::msg(format!("Problem {} not found", problem_id))
-                    })?;
-
-                let checker_ns = format!("{}:checker", caller_plugin_id);
-                let checker_config_model = plugin_config::Entity::find_by_id((
-                    "problem".to_string(),
-                    problem_id.to_string(),
-                    checker_ns,
-                ))
-                .one(&db)
-                .await
-                .map_err(|e| {
-                    extism::Error::msg(format!("Failed to query checker config: {}", e))
-                })?;
-
-                let af_models = additional_file::Entity::find()
-                    .filter(additional_file::Column::ProblemId.eq(problem_id))
-                    .filter(additional_file::Column::Language.eq(solution_language.as_str()))
-                    .all(&db)
-                    .await
-                    .map_err(|e| {
-                        extism::Error::msg(format!("Failed to query additional_files: {}", e))
-                    })?;
-
-                let additional_file_refs: Vec<FileRef> = af_models
-                    .into_iter()
-                    .map(|r| FileRef {
-                        filename: r.path,
-                        content_type: r.content_type,
-                        blob_hash: r.content_hash,
-                        read_token: None,
-                    })
-                    .collect();
-
-                let checker_format = Some(problem_model.checker_format.clone());
-                let parsed_checker_source: Option<Vec<SourceFile>> =
-                    problem_model.checker_source.as_ref().and_then(
-                        |v| match serde_json::from_value::<Vec<SourceFile>>(v.clone()) {
-                            Ok(parsed) => Some(parsed),
-                            Err(e) => {
-                                tracing::warn!(
-                                    problem_id,
-                                    error = %e,
-                                    "Failed to parse checker_source JSON"
-                                );
-                                None
-                            }
-                        },
-                    );
-
-                let checker_config_value: Option<serde_json::Value> =
-                    checker_config_model.map(|pc| pc.config);
-
-                let test_cases = input.test_cases;
-                let db_needed_ids: Vec<i32> = test_cases
-                    .iter()
-                    .filter(|tc| {
-                        !tc.is_custom && (tc.input.is_missing() || tc.expected_output.is_missing())
-                    })
-                    .map(|tc| tc.test_case_id)
-                    .collect();
-                let mut db_case_map: HashMap<i32, test_case::Model> = if db_needed_ids.is_empty() {
-                    HashMap::new()
-                } else {
-                    test_case::Entity::find()
-                        .filter(test_case::Column::ProblemId.eq(problem_id))
-                        .filter(test_case::Column::Id.is_in(db_needed_ids))
-                        .all(&db)
-                        .await
-                        .map_err(|e| {
-                            extism::Error::msg(format!("Failed to query test case data: {}", e))
-                        })?
-                        .into_iter()
-                        .map(|tc| (tc.id, tc))
-                        .collect()
-                };
-
-                let mut resolved = Vec::with_capacity(test_cases.len());
-                for tc in test_cases {
-                    let db_case = if !tc.is_custom
-                        && (tc.input.is_missing() || tc.expected_output.is_missing())
-                    {
-                        Some(db_case_map.remove(&tc.test_case_id).ok_or_else(|| {
-                            extism::Error::msg(format!(
-                                "Test case {} not found in database",
-                                tc.test_case_id
-                            ))
-                        })?)
-                    } else {
-                        None
-                    };
-
-                    let (
-                        db_input,
-                        db_input_blob_hash,
-                        db_expected_output,
-                        db_expected_output_blob_hash,
-                    ) = match db_case {
-                        Some(tc) => (
-                            Some(tc.input),
-                            tc.input_blob_hash,
-                            Some(tc.expected_output),
-                            tc.expected_output_blob_hash,
-                        ),
-                        None => (None, None, None, None),
-                    };
-
-                    let test_input = resolve_evaluate_body(
-                        tc.input,
-                        db_input,
-                        db_input_blob_hash,
-                        "input.txt",
-                        "evaluate input",
-                        blob_store.clone(),
-                    )
-                    .await?;
-                    let expected_output = resolve_evaluate_body(
-                        tc.expected_output,
-                        db_expected_output,
-                        db_expected_output_blob_hash,
-                        "answer.txt",
-                        "evaluate answer",
-                        blob_store.clone(),
-                    )
-                    .await?;
-                    let tc_checker_format = if expected_output.present {
-                        checker_format.clone()
-                    } else {
-                        Some("none".to_string())
-                    };
-
-                    resolved.push(BuildEvalOpsInput {
-                        problem_id: tc.problem_id,
-                        test_case_id: tc.test_case_id,
-                        solution_source: tc.solution_source,
-                        solution_language: tc.solution_language,
-                        time_limit_ms: tc.time_limit_ms,
-                        memory_limit_kb: tc.memory_limit_kb,
-                        contest_id: tc.contest_id,
-                        test_input: test_input.file,
-                        expected_output: expected_output.file,
-                        checker_format: tc_checker_format,
-                        checker_config: checker_config_value.clone(),
-                        checker_source: parsed_checker_source.clone(),
-                        additional_file_refs: additional_file_refs.clone(),
-                        target_worker_id: tc.target_worker_id,
-                    });
-                }
-
-                Ok::<_, extism::Error>(resolved)
-            })
-        })?
-    };
-
-    let test_case_count = resolved_inputs.len();
-    let batch_id = Uuid::new_v4().to_string();
-
-    let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
-    let pending_count = Arc::new(AtomicUsize::new(test_case_count));
-
-    evaluate_batches.insert(
-        batch_id.clone(),
-        BatchState {
-            result_rx: batch_rx,
-            pending_count: pending_count.clone(),
-            created_at: Instant::now(),
-            cleanup_keys: Arc::new(Vec::new()),
-            poisoned: AtomicBool::new(false),
-        },
-    );
-
-    tracing::info!(
-        caller = %caller_plugin_id,
-        batch_id = %batch_id,
-        problem_type = %problem_type,
-        test_case_count = test_case_count,
-        evaluator_plugin = %evaluator.plugin_id,
-        evaluator_fn = %evaluator.function_name,
-        "Starting evaluate batch"
-    );
-
-    for tc_input in resolved_inputs {
-        let pm = plugin_manager.clone();
-        let eval_plugin_id = evaluator.plugin_id.clone();
-        let eval_fn_name = evaluator.function_name.clone();
-        let evaluator_slots = evaluator_slots.clone();
-        let batch_tx = batch_tx.clone();
-        let pending = pending_count.clone();
-        let tc_id = tc_input.test_case_id;
-
-        tokio::spawn(async move {
-            let _permit = match evaluator_slots.acquire_owned().await {
-                Ok(permit) => permit,
-                Err(_) => {
-                    let _ = batch_tx.send(TestCaseVerdict {
-                        test_case_id: tc_id,
-                        verdict: SdkVerdict::SystemError,
-                        score: 0.0,
-                        time_used_ms: None,
-                        memory_used_kb: None,
-                        message: Some("Evaluator dispatcher is shutting down".into()),
-                        stdout: None,
-                        stderr: None,
-                    });
-                    pending.fetch_sub(1, Ordering::SeqCst);
-                    return;
-                }
-            };
-
-            let input_bytes = match serde_json::to_vec(&tc_input) {
-                Ok(b) => b,
-                Err(e) => {
-                    let _ = batch_tx.send(TestCaseVerdict {
-                        test_case_id: tc_id,
-                        verdict: SdkVerdict::SystemError,
-                        score: 0.0,
-                        time_used_ms: None,
-                        memory_used_kb: None,
-                        message: Some(format!("Failed to serialize evaluator input: {}", e)),
-                        stdout: None,
-                        stderr: None,
-                    });
-                    pending.fetch_sub(1, Ordering::SeqCst);
-                    return;
-                }
-            };
-
-            match pm
-                .call_raw(&eval_plugin_id, &eval_fn_name, input_bytes)
-                .await
-            {
-                Ok(result_bytes) => {
-                    match serde_json::from_slice::<TestCaseVerdict>(&result_bytes) {
-                        Ok(verdict) => {
-                            let _ = batch_tx.send(verdict);
-                        }
-                        Err(e) => {
-                            let _ = batch_tx.send(TestCaseVerdict {
-                                test_case_id: tc_id,
-                                verdict: SdkVerdict::SystemError,
-                                score: 0.0,
-                                time_used_ms: None,
-                                memory_used_kb: None,
-                                message: Some(format!(
-                                    "Failed to deserialize evaluator result: {}",
-                                    e
-                                )),
-                                stdout: None,
-                                stderr: None,
-                            });
-                        }
-                    }
-                }
-                Err(e) => {
-                    let _ = batch_tx.send(TestCaseVerdict {
-                        test_case_id: tc_id,
-                        verdict: SdkVerdict::SystemError,
-                        score: 0.0,
-                        time_used_ms: None,
-                        memory_used_kb: None,
-                        message: Some(format!("Evaluator call failed: {}", e)),
-                        stdout: None,
-                        stderr: None,
-                    });
-                }
-            }
-            pending.fetch_sub(1, Ordering::SeqCst);
-        });
-    }
+        .map_err(|e| extism::Error::msg(e.to_string()))?;
 
     let response = serde_json::json!({ "batch_id": batch_id });
     let output_bytes = serde_json::to_vec(&response)
@@ -444,96 +135,6 @@ fn start_evaluate_batch_fn(
     outputs[0] = Val::I64(offset.offset() as i64);
 
     Ok(())
-}
-
-struct ResolvedEvaluateBody {
-    file: JudgeFile,
-    present: bool,
-}
-
-async fn resolve_evaluate_body(
-    body: TestCaseBodyRef,
-    db_inline: Option<String>,
-    db_blob_hash: Option<String>,
-    filename: &str,
-    log_label: &str,
-    blob_store: Arc<dyn BlobStore>,
-) -> Result<ResolvedEvaluateBody, extism::Error> {
-    let content = match body {
-        TestCaseBodyRef::Blob { hash } => {
-            return Ok(ResolvedEvaluateBody {
-                file: JudgeFile::blob(file_ref(filename, hash)),
-                present: true,
-            });
-        }
-        TestCaseBodyRef::Inline { text } => text,
-        TestCaseBodyRef::Missing => {
-            if let Some(hash) = db_blob_hash {
-                return Ok(ResolvedEvaluateBody {
-                    file: JudgeFile::blob(file_ref(filename, hash)),
-                    present: true,
-                });
-            }
-            let Some(content) = db_inline else {
-                return Ok(ResolvedEvaluateBody {
-                    file: JudgeFile::Missing,
-                    present: false,
-                });
-            };
-            content
-        }
-    };
-
-    let (inline, reference) =
-        maybe_externalize_text_file(content, filename, log_label, blob_store).await?;
-    Ok(ResolvedEvaluateBody {
-        file: reference
-            .map(JudgeFile::blob)
-            .unwrap_or_else(|| JudgeFile::inline(inline)),
-        present: true,
-    })
-}
-
-async fn maybe_externalize_text_file(
-    content: String,
-    filename: &str,
-    log_label: &str,
-    blob_store: Arc<dyn BlobStore>,
-) -> Result<(String, Option<FileRef>), extism::Error> {
-    if content.len() < INLINE_TEST_INPUT_BLOB_THRESHOLD_BYTES {
-        return Ok((content, None));
-    }
-
-    let content_len = content.len();
-    let hash = ContentHash::compute(content.as_bytes());
-    let exists = blob_store
-        .exists(&hash)
-        .await
-        .map_err(|e| extism::Error::msg(format!("Failed to check evaluate blob: {}", e)))?;
-    if !exists {
-        blob_store
-            .put(content.as_bytes())
-            .await
-            .map_err(|e| extism::Error::msg(format!("Failed to store evaluate blob: {}", e)))?;
-    }
-
-    tracing::info!(
-        content_bytes = content_len,
-        blob_hash = %hash.to_hex(),
-        label = log_label,
-        "Externalized large evaluate file to blob storage"
-    );
-
-    Ok((String::new(), Some(file_ref(filename, hash.to_hex()))))
-}
-
-fn file_ref(filename: &str, blob_hash: String) -> FileRef {
-    FileRef {
-        filename: filename.to_string(),
-        content_type: Some("text/plain".to_string()),
-        blob_hash,
-        read_token: None,
-    }
 }
 
 fn get_next_evaluate_result_fn(
@@ -546,56 +147,26 @@ fn get_next_evaluate_result_fn(
     let input: GetNextEvaluateResultInput = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
-    let (plugin_id, batches) = {
+    let (plugin_id, deps) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        (guard.plugin_id.clone(), guard.evaluate_batches.clone())
+        (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("get_next_evaluate_result", &plugin_id);
+    let _enter = span.enter();
 
-    let (result_rx, pending_count) = {
-        let batch = batches
-            .get(&input.batch_id)
-            .ok_or_else(|| extism::Error::msg(format!("Batch not found: {}", input.batch_id)))?;
-        (batch.result_rx.clone(), batch.pending_count.clone())
-    };
-
-    let result = result_rx.recv_timeout(Duration::from_millis(input.timeout_ms));
-
-    match result {
-        Ok(verdict) => {
-            tracing::debug!(
-                plugin_id = %plugin_id,
-                batch_id = %input.batch_id,
-                test_case_id = verdict.test_case_id,
-                verdict = %verdict.verdict,
-                "Evaluate result received"
-            );
-
-            if pending_count.load(Ordering::SeqCst) == 0 && result_rx.is_empty() {
-                batches.remove(&input.batch_id);
-            }
-
-            let response = serde_json::json!({ "result": verdict });
-            let output_bytes = serde_json::to_vec(&response)
-                .map_err(|e| extism::Error::msg(format!("Failed to serialize result: {}", e)))?;
-            let offset = plugin.memory_new(&output_bytes)?;
-            outputs[0] = Val::I64(offset.offset() as i64);
-            Ok(())
-        }
-        Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
-            let response = serde_json::json!({ "result": null });
-            let output_bytes = serde_json::to_vec(&response)
-                .map_err(|e| extism::Error::msg(format!("Failed to serialize result: {}", e)))?;
-            let offset = plugin.memory_new(&output_bytes)?;
-            outputs[0] = Val::I64(offset.offset() as i64);
-            Ok(())
-        }
-        Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
-            Err(extism::Error::msg("Evaluate batch channel disconnected"))
-        }
-    }
+    let result = evaluate_batch::next_evaluate_result(
+        &plugin_id,
+        &deps.evaluate_batches,
+        deps.metrics.as_ref(),
+        &deps.evaluate_ops_registry,
+        &input.batch_id,
+        Duration::from_millis(input.timeout_ms),
+    )
+    .map_err(|e| extism::Error::msg(e.to_string()))?;
+    write_result(plugin, outputs, result)
 }
 
 fn cancel_evaluate_batch_fn(
@@ -608,21 +179,125 @@ fn cancel_evaluate_batch_fn(
     let input: CancelEvaluateBatchInput = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
-    let (plugin_id, batches) = {
+    let (plugin_id, deps) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        (guard.plugin_id.clone(), guard.evaluate_batches.clone())
+        (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("cancel_evaluate_batch", &plugin_id);
+    let _enter = span.enter();
 
-    batches.remove(&input.batch_id);
+    if deps.cancel_primitive_enabled
+        && let Some(client) = deps.redis_client.as_ref()
+    {
+        let op_task_ids = deps
+            .evaluate_ops_registry
+            .operation_task_ids_for_batch(&input.batch_id);
+        let client = client.clone();
+        let batch_id = input.batch_id.clone();
+        tokio::runtime::Handle::current().block_on(async move {
+            if let Err(e) = common::cancel::set_cancel_batch_key(&client, &batch_id)
+                .await
+            {
+                tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis batch cancel key");
+            }
+            if !op_task_ids.is_empty()
+                && let Err(e) =
+                    common::cancel::set_cancel_op_keys(&client, &op_task_ids).await
+            {
+                tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
+            }
+        });
+    }
 
-    tracing::info!(
-        plugin_id = %plugin_id,
-        batch_id = %input.batch_id,
-        "Evaluate batch cancelled"
+    deps.evaluate_ops_registry
+        .mark_batch_cancelled(&input.batch_id);
+
+    evaluate_batch::cancel_evaluate_batch(
+        &plugin_id,
+        &deps.evaluate_batches,
+        deps.metrics.as_ref(),
+        &deps.evaluate_ops_registry,
+        &input.batch_id,
     );
 
+    Ok(())
+}
+
+fn cancel_evaluate_test_cases_fn(
+    plugin: &mut extism::CurrentPlugin,
+    inputs: &[Val],
+    outputs: &mut [Val],
+    user_data: UserData<EvaluateUserData>,
+) -> Result<(), extism::Error> {
+    let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
+    let input: CancelEvaluateTestCasesInput = serde_json::from_slice(&input_bytes)
+        .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
+
+    let (plugin_id, deps) = {
+        let user_data_guard = user_data.get()?;
+        let guard = user_data_guard
+            .lock()
+            .map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        (guard.plugin_id.clone(), guard.deps.clone())
+    };
+    let span = super::host_fn_span("cancel_evaluate_test_cases", &plugin_id);
+    let _enter = span.enter();
+
+    let count = deps
+        .evaluate_ops_registry
+        .mark_cancelled(&input.evaluate_batch_id, &input.test_case_ids);
+
+    if deps.cancel_primitive_enabled
+        && let Some(client) = deps.redis_client.as_ref()
+    {
+        let op_task_ids = deps
+            .evaluate_ops_registry
+            .operation_task_ids_for_test_cases(&input.evaluate_batch_id, &input.test_case_ids);
+        if !op_task_ids.is_empty() {
+            let client = client.clone();
+            let batch_id = input.evaluate_batch_id.clone();
+            tokio::runtime::Handle::current().block_on(async move {
+                if let Err(e) =
+                    common::cancel::set_cancel_op_keys(&client, &op_task_ids).await
+                {
+                    tracing::warn!(error = %e, batch_id = %batch_id, "Failed to set Redis op cancel keys");
+                }
+            });
+        }
+    }
+
+    let response = serde_json::json!({ "count": count });
+    let output_bytes = serde_json::to_vec(&response)
+        .map_err(|e| extism::Error::msg(format!("Failed to serialize count: {}", e)))?;
+    let offset = plugin.memory_new(&output_bytes)?;
+    outputs[0] = Val::I64(offset.offset() as i64);
+    Ok(())
+}
+
+fn write_result(
+    plugin: &mut extism::CurrentPlugin,
+    outputs: &mut [Val],
+    result: Option<TestCaseVerdict>,
+) -> Result<(), extism::Error> {
+    let response = serde_json::json!({ "result": result });
+    let output_bytes = serde_json::to_vec(&response)
+        .map_err(|e| extism::Error::msg(format!("Failed to serialize result: {}", e)))?;
+    let offset = plugin.memory_new(&output_bytes)?;
+    outputs[0] = Val::I64(offset.offset() as i64);
+    Ok(())
+}
+
+fn write_session(
+    plugin: &mut extism::CurrentPlugin,
+    outputs: &mut [Val],
+    session: DetachedEvaluateSession,
+) -> Result<(), extism::Error> {
+    let output_bytes = serde_json::to_vec(&session)
+        .map_err(|e| extism::Error::msg(format!("Failed to serialize session: {}", e)))?;
+    let offset = plugin.memory_new(&output_bytes)?;
+    outputs[0] = Val::I64(offset.offset() as i64);
     Ok(())
 }

@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use worker::WorkerAppConfig;
 use worker::models::operation::executor::OperationTaskExecutor;
 use worker::models::operation::models::{
-    Environment, IOConfig, IOTarget, OperationResult, OperationTask, Step,
+    Environment, IOConfig, IOTarget, OperationResult, OperationTask, Step, StepKind,
 };
 use worker::models::operation::sandbox::isolate::IsolateSandboxManager;
 use worker::models::operation::sandbox::{
@@ -73,6 +73,7 @@ fn build_operation_task(command: &str) -> OperationTask {
         }],
         tasks: vec![Step {
             id: "step-1".to_string(),
+            kind: StepKind::Generic,
             env_ref: "env-1".to_string(),
             argv: vec!["/bin/sh".to_string(), "-c".to_string(), command.to_string()],
             conf: RunOptions::default(),
@@ -80,10 +81,13 @@ fn build_operation_task(command: &str) -> OperationTask {
             collect: vec![],
             depends_on: vec![],
             cache: None,
+            mounts: vec![],
         }],
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     }
 }
 
@@ -111,9 +115,11 @@ async fn execute_operation_with_isolate(
         executor_name: "operation".to_string(),
         payload: serde_json::to_value(operation).unwrap(),
         result_queue: "test_results".into(),
+        operation_batch_id: None,
         reply_queue: None,
         priority: None,
         trace_context: None,
+        enqueued_at_unix_ms: None,
     };
 
     let result = worker.execute_task(task).await.unwrap();
@@ -189,6 +195,7 @@ printf '2 40\n' > input.txt
         tasks: vec![
             Step {
                 id: "prepare".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -206,9 +213,11 @@ printf '2 40\n' > input.txt
                 collect: vec![],
                 depends_on: vec![],
                 cache: None,
+                mounts: vec![],
             },
             Step {
                 id: "compile".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -226,9 +235,11 @@ printf '2 40\n' > input.txt
                 collect: vec![],
                 depends_on: vec!["prepare".to_string()],
                 cache: None,
+                mounts: vec![],
             },
             Step {
                 id: "run".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec!["./main".to_string()],
                 conf: RunOptions::default(),
@@ -246,9 +257,11 @@ printf '2 40\n' > input.txt
                 collect: vec![],
                 depends_on: vec!["compile".to_string()],
                 cache: None,
+                mounts: vec![],
             },
             Step {
                 id: "verify".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -266,11 +279,14 @@ printf '2 40\n' > input.txt
                 collect: vec![],
                 depends_on: vec!["run".to_string()],
                 cache: None,
+                mounts: vec![],
             },
         ],
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     };
 
     let (result, operation_result) =
@@ -315,6 +331,7 @@ CPP
         tasks: vec![
             Step {
                 id: "prepare-bad".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -326,9 +343,11 @@ CPP
                 collect: vec![],
                 depends_on: vec![],
                 cache: None,
+                mounts: vec![],
             },
             Step {
                 id: "compile-bad".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     compiler,
@@ -342,9 +361,11 @@ CPP
                 collect: vec![],
                 depends_on: vec!["prepare-bad".to_string()],
                 cache: None,
+                mounts: vec![],
             },
             Step {
                 id: "run-should-skip".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-1".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -356,11 +377,14 @@ CPP
                 collect: vec![],
                 depends_on: vec!["compile-bad".to_string()],
                 cache: None,
+                mounts: vec![],
             },
         ],
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     };
 
     let (result, operation_result) =
@@ -395,6 +419,7 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail_isolate() {
         }],
         tasks: vec![Step {
             id: "pipe-invalid".to_string(),
+            kind: StepKind::Generic,
             env_ref: "env-1".to_string(),
             argv: vec![
                 "/bin/sh".to_string(),
@@ -412,10 +437,13 @@ async fn execute_operation_task_with_empty_pipe_name_should_fail_isolate() {
             collect: vec![],
             depends_on: vec![],
             cache: None,
+            mounts: vec![],
         }],
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     };
 
     let (result, operation_result) =
@@ -463,6 +491,7 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
         tasks: vec![
             Step {
                 id: "producer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-a".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -477,9 +506,11 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
                 collect: vec![],
                 depends_on: vec![],
                 cache: None,
+                mounts: vec![],
             },
             Step {
                 id: "consumer".to_string(),
+                kind: StepKind::Generic,
                 env_ref: "env-b".to_string(),
                 argv: vec![
                     "/bin/sh".to_string(),
@@ -499,11 +530,14 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
                 collect: vec![],
                 depends_on: vec!["producer".to_string()],
                 cache: None,
+                mounts: vec![],
             },
         ],
         channels: vec![],
         priority: None,
         target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
     };
 
     let (result, operation_result) =
@@ -519,4 +553,347 @@ async fn execute_operation_task_with_two_envs_shared_directory_mapping_isolate()
     let consumer = operation_result.task_results.get("consumer").unwrap();
     assert!(consumer.success);
     assert_eq!(consumer.sandbox_result.exit_code, Some(0));
+}
+
+// Phase 3 Task 3.1 - a `MountSource::PlatformTool` resolves to a read-only mount
+// of a worker-configured tool, executed under real isolate. This is the on-CI
+// proof of exec-from-mount (the open decision: if isolate refuses to `--dir`-bind
+// a single file, `platform_tool_directory_rule` must mount the tools dir instead;
+// the mock-sandbox test in worker_mock_sandbox.rs is the local equivalent).
+#[tokio::test]
+#[ignore = "requires Linux isolate sandbox installed and configured"]
+#[serial]
+async fn platform_tool_mount_executes_under_isolate() {
+    use worker::models::operation::file_cacher::UnavailableFileCacher;
+    use worker::models::operation::handler::OperationHandler;
+    use worker::models::operation::models::{MountSource, MountSpec};
+    use worker::models::operation::task_cache::NoopTaskCacheStore;
+
+    assert!(isolate_available(), "isolate is not available");
+
+    let (metrics, _registry) = common::observability::init_metrics("broccoli-worker-test");
+
+    let tools_dir = unique_shared_dir();
+    std::fs::create_dir_all(&tools_dir).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&tools_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let tool = tools_dir.join("echo-tool");
+    std::fs::write(&tool, "#!/bin/sh\necho tool-ran-under-isolate\n").unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let handler = OperationHandler::new(
+        Box::new(IsolateSandboxManager::default()),
+        Box::new(UnavailableFileCacher::new("no blobs needed")),
+        Box::new(NoopTaskCacheStore),
+        String::new(),
+        metrics,
+    )
+    .with_tools_dir(Some(tools_dir.clone()));
+
+    let operation = OperationTask {
+        environments: vec![Environment {
+            id: "env-1".to_string(),
+            files_in: vec![],
+        }],
+        tasks: vec![Step {
+            id: "step-1".to_string(),
+            kind: StepKind::Generic,
+            env_ref: "env-1".to_string(),
+            argv: vec!["/tools/echo-tool".to_string()],
+            conf: RunOptions::default(),
+            io: IOConfig::default(),
+            collect: vec![],
+            depends_on: vec![],
+            cache: None,
+            mounts: vec![MountSpec {
+                inside_path: "/tools/echo-tool".to_string(),
+                source: MountSource::PlatformTool {
+                    name: "echo-tool".to_string(),
+                },
+            }],
+        }],
+        channels: vec![],
+        priority: None,
+        target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
+    };
+
+    let result = handler.execute(&operation).await.unwrap();
+    let step = result.task_results.get("step-1").unwrap();
+    assert!(
+        step.success,
+        "isolate tool step failed: {:?}",
+        step.sandbox_result
+    );
+    assert!(
+        step.sandbox_result
+            .stdout
+            .contains("tool-ran-under-isolate"),
+        "tool did not run; stdout: {:?}",
+        step.sandbox_result.stdout
+    );
+
+    let _ = std::fs::remove_dir_all(&tools_dir);
+}
+
+// Phase 3 Task 3.2 - StepOutput intra-op handoff under real isolate: a dependent
+// step reads a prior step's captured output file directly (no blob), seeing ONLY
+// that file, read-only. On-CI counterpart to the mock-sandbox test.
+#[tokio::test]
+#[ignore = "requires Linux isolate sandbox installed and configured"]
+#[serial]
+async fn step_output_mount_handoff_under_isolate() {
+    use worker::models::operation::file_cacher::UnavailableFileCacher;
+    use worker::models::operation::handler::OperationHandler;
+    use worker::models::operation::models::{MountSource, MountSpec};
+    use worker::models::operation::task_cache::NoopTaskCacheStore;
+
+    assert!(isolate_available(), "isolate is not available");
+
+    let (metrics, _registry) = common::observability::init_metrics("broccoli-worker-test");
+    let handler = OperationHandler::new(
+        Box::new(IsolateSandboxManager::default()),
+        Box::new(UnavailableFileCacher::new("no blobs needed")),
+        Box::new(NoopTaskCacheStore),
+        String::new(),
+        metrics,
+    );
+
+    let operation = OperationTask {
+        environments: vec![
+            Environment {
+                id: "a".to_string(),
+                files_in: vec![],
+            },
+            Environment {
+                id: "b".to_string(),
+                files_in: vec![],
+            },
+        ],
+        tasks: vec![
+            Step {
+                id: "producer".to_string(),
+                kind: StepKind::Generic,
+                env_ref: "a".to_string(),
+                argv: vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "printf payload-isolate > out.txt".to_string(),
+                ],
+                conf: RunOptions::default(),
+                io: IOConfig::default(),
+                collect: vec![],
+                depends_on: vec![],
+                cache: None,
+                mounts: vec![],
+            },
+            Step {
+                id: "consumer".to_string(),
+                kind: StepKind::Generic,
+                env_ref: "b".to_string(),
+                argv: vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "cat /in.txt".to_string(),
+                ],
+                conf: RunOptions::default(),
+                io: IOConfig::default(),
+                collect: vec![],
+                depends_on: vec!["producer".to_string()],
+                cache: None,
+                mounts: vec![MountSpec {
+                    inside_path: "/in.txt".to_string(),
+                    source: MountSource::StepOutput {
+                        from_step: "producer".to_string(),
+                        file: "out.txt".to_string(),
+                    },
+                }],
+            },
+        ],
+        channels: vec![],
+        priority: None,
+        target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
+    };
+
+    let result = handler.execute(&operation).await.unwrap();
+    let consumer = result.task_results.get("consumer").unwrap();
+    assert!(
+        consumer.success,
+        "consumer failed: {:?}",
+        consumer.sandbox_result
+    );
+    assert!(
+        consumer.sandbox_result.stdout.contains("payload-isolate"),
+        "consumer did not read the handed-off output; stdout: {:?}",
+        consumer.sandbox_result.stdout
+    );
+}
+
+// Phase 7 - Checker fusion under real isolate: the on-CI twin of the mock-sandbox
+// `fused_builtin_stream_*` tests. A `solution` step streams its stdout over a FIFO
+// to a `check` step running the REAL broccoli-compare (mounted via PlatformTool),
+// which compares against an answer present ONLY in the checker env. Proves the
+// exit-code verdict AND that the solution env never sees the answer, under the
+// real sandbox. Verdict->TestCaseVerdict mapping is unit-tested separately.
+#[tokio::test]
+#[ignore = "requires Linux isolate sandbox and a built broccoli-compare"]
+#[serial]
+async fn fused_builtin_stream_under_isolate() {
+    use worker::models::operation::file_cacher::UnavailableFileCacher;
+    use worker::models::operation::handler::OperationHandler;
+    use worker::models::operation::models::{Channel, MountSource, MountSpec, SessionFile};
+    use worker::models::operation::task_cache::NoopTaskCacheStore;
+
+    assert!(isolate_available(), "isolate is not available");
+
+    // Locate (and stage) the built comparator into a fresh tools dir.
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let Some(src) = ["debug", "release"].into_iter().find_map(|p| {
+        let c = PathBuf::from(manifest)
+            .join("../../target")
+            .join(p)
+            .join("broccoli-compare");
+        c.exists().then_some(c)
+    }) else {
+        eprintln!("skipping: broccoli-compare not built (cargo build -p broccoli-compare)");
+        return;
+    };
+    let tools_dir = unique_shared_dir();
+    std::fs::create_dir_all(&tools_dir).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&tools_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let dst = tools_dir.join("broccoli-compare");
+    std::fs::copy(&src, &dst).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let (metrics, _registry) = common::observability::init_metrics("broccoli-worker-test");
+    let handler = OperationHandler::new(
+        Box::new(IsolateSandboxManager::default()),
+        Box::new(UnavailableFileCacher::new("no blobs needed")),
+        Box::new(NoopTaskCacheStore),
+        String::new(),
+        metrics,
+    )
+    .with_tools_dir(Some(tools_dir.clone()));
+
+    let operation = OperationTask {
+        environments: vec![
+            Environment {
+                id: "solution".to_string(),
+                files_in: vec![],
+            },
+            Environment {
+                id: "checker".to_string(),
+                files_in: vec![(
+                    "answer.txt".to_string(),
+                    SessionFile::Content {
+                        content: "3 1 4\n".to_string(),
+                    },
+                )],
+            },
+        ],
+        tasks: vec![
+            Step {
+                id: "exec".to_string(),
+                kind: StepKind::Generic,
+                env_ref: "solution".to_string(),
+                argv: vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    // Probe for the answer (must miss) then emit the real output.
+                    "[ -e answer.txt ] && echo LEAK >&2; printf '3 1 4\\n'".to_string(),
+                ],
+                conf: RunOptions::default(),
+                io: IOConfig {
+                    stdin: IOTarget::Inherit,
+                    stdout: IOTarget::Pipe {
+                        name: "sol_out".to_string(),
+                    },
+                    stderr: IOTarget::File {
+                        path: "exec_err.txt".to_string(),
+                    },
+                },
+                collect: vec![],
+                depends_on: vec![],
+                cache: None,
+                mounts: vec![],
+            },
+            Step {
+                id: "check".to_string(),
+                kind: StepKind::Checker,
+                env_ref: "checker".to_string(),
+                argv: vec![
+                    "/tools/broccoli-compare".to_string(),
+                    "--mode".to_string(),
+                    "tokens".to_string(),
+                    "--answer".to_string(),
+                    "answer.txt".to_string(),
+                ],
+                conf: RunOptions::default(),
+                io: IOConfig {
+                    stdin: IOTarget::Pipe {
+                        name: "sol_out".to_string(),
+                    },
+                    stdout: IOTarget::File {
+                        path: "preview.txt".to_string(),
+                    },
+                    stderr: IOTarget::File {
+                        path: "msg.txt".to_string(),
+                    },
+                },
+                collect: vec![],
+                depends_on: vec![],
+                cache: None,
+                mounts: vec![MountSpec {
+                    inside_path: "/tools/broccoli-compare".to_string(),
+                    source: MountSource::PlatformTool {
+                        name: "broccoli-compare".to_string(),
+                    },
+                }],
+            },
+        ],
+        channels: vec![Channel {
+            name: "sol_out".to_string(),
+            buffer_size: Some(8192),
+            ..Channel::default()
+        }],
+        priority: None,
+        target_worker_id: None,
+        evaluate_batch_id: None,
+        test_case_id: None,
+    };
+
+    let result = handler.execute(&operation).await.unwrap();
+
+    let exec = result.task_results.get("exec").unwrap();
+    assert!(
+        !exec.sandbox_result.stderr.contains("LEAK"),
+        "solution env must not contain the answer; stderr: {:?}",
+        exec.sandbox_result.stderr
+    );
+    assert!(
+        exec.collected_outputs.is_empty(),
+        "solution output must not be collected: {:?}",
+        exec.collected_outputs
+    );
+
+    let check = result.task_results.get("check").unwrap();
+    assert_eq!(
+        check.sandbox_result.exit_code,
+        Some(0),
+        "matching output should be AC; msg: {:?}",
+        check.sandbox_result.stderr
+    );
+    assert!(
+        check.sandbox_result.stdout.contains("3 1 4"),
+        "preview should carry the streamed solution output; got: {:?}",
+        check.sandbox_result.stdout
+    );
+
+    let _ = std::fs::remove_dir_all(&tools_dir);
 }

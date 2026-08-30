@@ -1,309 +1,56 @@
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use axum::http::{HeaderName, HeaderValue, Method};
-use common::storage::config::create_blob_store;
-use dashmap::DashMap;
-use mq::{MqConfig as MqConnConfig, init_mq};
-use tokio::sync::RwLock;
-use tower_http::cors::CorsLayer;
-use tracing::{info, warn};
+use server::config::AppConfig;
+use server::runtime::ServerRuntime;
+use tracing::info;
 
-use server::build_router;
-use server::config::{AppConfig, per_replica_result_queue_name, resolve_server_id};
-use server::consumers::{consume_operation_dlq, consume_operation_results};
-use server::dlq::run_stuck_job_detector;
-use server::manager::ServerManager;
-use server::registry;
-use server::serve::serve_with_shutdown;
-use server::state::AppState;
-use server::utils::plugin::sync_plugins;
+// Use jemalloc instead of the system (glibc) allocator. Under concurrent judging
+// of large-testcase problems glibc retains freed mmap'd allocations and inflates
+// RSS far past the live working set; jemalloc returns memory to the OS
+// aggressively, keeping RSS close to the actual in-use set. (See the dep note in
+// Cargo.toml; `profiling` feature enables `_RJEM_MALLOC_CONF=prof:true` diagnosis.)
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     if std::env::args().any(|a| a == "--version" || a == "-V") {
         println!("broccoli-server {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
-    let mut app_config = AppConfig::load().context("Failed to load configuration")?;
+    let app_config = AppConfig::load().context("Failed to load configuration")?;
+
+    if app_config.jwt_secret_is_weak() {
+        tracing::warn!(
+            min_recommended_bytes = server::config::MIN_RECOMMENDED_JWT_SECRET_BYTES,
+            "auth.jwt_secret is shorter than the recommended minimum; a weak HS256 secret makes all access tokens forgeable (full account takeover). Set a long, random secret."
+        );
+    }
+
+    let max_blocking_threads = app_config.server.effective_max_blocking_threads();
+    info!(
+        max_blocking_threads,
+        configured = ?app_config.server.max_blocking_threads,
+        "Sizing tokio blocking-thread pool"
+    );
+
+    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .max_blocking_threads(max_blocking_threads)
+        .thread_name("broccoli-server")
+        .build()
+        .context("Failed to build tokio runtime")?;
 
     if std::env::args().any(|a| a == "--healthcheck") {
-        let exit_code = run_healthcheck(&app_config).await;
+        let exit_code = tokio_runtime.block_on(run_healthcheck(&app_config));
         std::process::exit(exit_code);
     }
 
-    let _telemetry_guard = common::observability::init_tracing(&app_config.observability);
-
-    // Resolve the per-replica server identity and rewrite the result-queue
-    // name in-place so every downstream user sees the same suffixed value.
-    let server_id = resolve_server_id(&app_config.server.id);
-    app_config.server.id = server_id.clone();
-    let per_replica_op_result_queue =
-        per_replica_result_queue_name(&app_config.mq.operation_result_queue_name, &server_id);
-    app_config.mq.operation_result_queue_name = per_replica_op_result_queue.clone();
-    info!(
-        server_id = %server_id,
-        result_queue = %per_replica_op_result_queue,
-        "Resolved server identity"
-    );
-
-    let (metrics, prometheus_registry) =
-        common::observability::init_metrics(&app_config.observability.otlp.service_name);
-
-    let db = server::database::init_db_with_max_connections(
-        &app_config.database.url,
-        app_config.database.max_connections,
-    )
-    .await?;
-    let blob_store = create_blob_store(&app_config.storage, db.clone())
-        .await
-        .context("Failed to initialize blob storage")?;
-    info!(
-        "Blob storage initialized (backend: {})",
-        app_config.storage.backend
-    );
-
-    server::seed::seed_role_permissions(&db).await?;
-    server::seed::ensure_bootstrap_admin(
-        &db,
-        &app_config.bootstrap.admin_username,
-        &app_config.bootstrap.admin_password,
-    )
-    .await?;
-    server::seed::ensure_indexes(&db).await?;
-    server::seed::backfill_submission_judgements(&db).await?;
-    server::seed::spawn_large_test_case_body_backfill(db.clone(), Arc::clone(&blob_store));
-
-    let mq = if app_config.mq.enabled {
-        match init_mq(MqConnConfig {
-            url: app_config.mq.url.clone(),
-            pool_size: app_config.mq.pool_size,
-        })
-        .await
-        {
-            Ok(queue) => {
-                info!("MQ connected to {}", app_config.mq.url);
-                Some(Arc::new(queue))
-            }
-            Err(e) => {
-                warn!("MQ connection failed, submissions won't be queued: {}", e);
-                None
-            }
-        }
-    } else {
-        info!("MQ disabled by configuration");
-        None
-    };
-
-    let redis_client = if app_config.mq.enabled {
-        match redis::Client::open(app_config.mq.url.as_str()) {
-            Ok(c) => Some(Arc::new(c)),
-            Err(e) => {
-                warn!(
-                    "Redis admin client init failed, /admin/system endpoints will degrade: {}",
-                    e
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
-
-    if let Some(ref mq_arc) = mq {
-        let op_dlq_consumer_db = db.clone();
-        let op_dlq_consumer_mq = Arc::clone(mq_arc);
-        let op_dlq_queue = app_config.mq.operation_dlq_queue_name.clone();
-        tokio::spawn(async move {
-            consume_operation_dlq(op_dlq_consumer_db, op_dlq_consumer_mq, op_dlq_queue).await;
-        });
-        info!("Operation DLQ consumer started");
-    }
-
-    {
-        let detector_db = db.clone();
-        let detector_config = app_config.mq.dlq.clone();
-        tokio::spawn(async move {
-            run_stuck_job_detector(detector_db, detector_config).await;
-        });
-        info!("Stuck job detector started");
-    }
-
-    let contest_type_registry = Arc::new(RwLock::new(HashMap::new()));
-    let evaluator_registry = Arc::new(RwLock::new(HashMap::new()));
-    let checker_format_registry = Arc::new(RwLock::new(HashMap::new()));
-    let language_resolver_registry = Arc::new(RwLock::new(HashMap::new()));
-    let operation_batches = Arc::new(DashMap::new());
-    let operation_waiters = Arc::new(DashMap::new());
-    let evaluate_batches = Arc::new(DashMap::new());
-
-    let batch_max_age = Duration::from_secs(app_config.batch_max_age_secs);
-    let reaper_mq = mq.clone();
-    let reaper_op_dlq_queue = app_config.mq.operation_dlq_queue_name.clone();
-    let operation_waiters_for_reaper = operation_waiters.clone();
-    registry::spawn_batch_reaper(
-        "operation",
-        operation_batches.clone(),
-        batch_max_age,
-        move |_batch_id, batch| {
-            for key in batch.cleanup_keys.iter() {
-                operation_waiters_for_reaper.remove(key);
-
-                if let Some(ref mq) = reaper_mq {
-                    let mq = Arc::clone(mq);
-                    let queue = reaper_op_dlq_queue.clone();
-                    let key = key.clone();
-                    tokio::spawn(async move {
-                        let envelope = common::DlqEnvelope {
-                            message_id: key.clone(),
-                            message_type: common::DlqMessageType::OperationTask,
-                            submission_id: None,
-                            payload: serde_json::json!({ "task_id": key }),
-                            error_code: common::DlqErrorCode::StuckJob,
-                            error_message: "Operation batch timed out".into(),
-                            retry_history: vec![],
-                        };
-                        if let Err(e) = mq.publish(&queue, None, &envelope, None).await {
-                            tracing::error!(%key, error = %e, "Failed to publish stale op to DLQ");
-                        }
-                    });
-                }
-            }
-        },
-    );
-    registry::spawn_batch_reaper(
-        "evaluate",
-        evaluate_batches.clone(),
-        batch_max_age,
-        |_batch_id, _batch| {},
-    );
-
-    if let Some(ref mq_arc) = mq {
-        let op_consumer_mq = Arc::clone(mq_arc);
-        let op_result_queue = app_config.mq.operation_result_queue_name.clone();
-        let op_waiters = operation_waiters.clone();
-        tokio::spawn(async move {
-            consume_operation_results(op_consumer_mq, op_waiters, op_result_queue).await;
-        });
-        info!(
-            queue = %app_config.mq.operation_result_queue_name,
-            "Operation result consumer started (per-replica)"
-        );
-    }
-
-    let manager = ServerManager::new(
-        app_config.plugin.clone(),
-        db.clone(),
-        mq.clone(),
-        operation_batches.clone(),
-        operation_waiters.clone(),
-        contest_type_registry.clone(),
-        evaluator_registry.clone(),
-        checker_format_registry.clone(),
-        language_resolver_registry.clone(),
-        evaluate_batches.clone(),
-        blob_store.clone(),
-        app_config.clone(),
-    )
-    .context("Failed to initialize plugin manager")?;
-
-    let device_codes: server::state::DeviceCodeStore = Arc::new(DashMap::new());
-
-    {
-        let codes = device_codes.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
-            loop {
-                interval.tick().await;
-                let now = std::time::Instant::now();
-                codes.retain(|_code, entry| entry.expires_at > now);
-            }
-        });
-    }
-
-    {
-        let cleanup_db = db.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(3600));
-            loop {
-                interval.tick().await;
-                server::middleware::idempotency::cleanup_expired_keys(&cleanup_db).await;
-            }
-        });
-    }
-
-    let state = AppState {
-        plugins: manager,
-        db: db.clone(),
-        config: app_config.clone(),
-        mq: mq.clone(),
-        redis_client,
-        blob_store,
-        registries: server::state::RegistryState {
-            contest_type_registry: contest_type_registry.clone(),
-            evaluator_registry: evaluator_registry.clone(),
-            checker_format_registry: checker_format_registry.clone(),
-            language_resolver_registry: language_resolver_registry.clone(),
-            operation_batches: operation_batches.clone(),
-            operation_waiters: operation_waiters.clone(),
-            evaluate_batches: evaluate_batches.clone(),
-            hook_registry: server::hooks::new_shared_registry(),
-        },
-        device_codes,
-        metrics,
-        prometheus_registry,
-    };
-
-    let _failures = sync_plugins(&state).await?;
-
-    let mut allow_origins = Vec::new();
-    for origin in &app_config.server.cors.allow_origins {
-        allow_origins.push(
-            origin
-                .parse::<HeaderValue>()
-                .with_context(|| format!("Invalid CORS origin: {}", origin))?,
-        );
-    }
-
-    let app = build_router(state).layer(
-        CorsLayer::new()
-            .allow_origin(allow_origins)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::PATCH,
-                Method::DELETE,
-            ])
-            .allow_headers([
-                HeaderName::from_static("content-type"),
-                HeaderName::from_static("authorization"),
-                HeaderName::from_static("idempotency-key"),
-                HeaderName::from_static("x-request-id"),
-            ])
-            .allow_credentials(true)
-            .max_age(Duration::from_secs(app_config.server.cors.max_age)),
-    );
-
-    let addr_str = format!("{}:{}", app_config.server.host, app_config.server.port);
-    let addr: SocketAddr = addr_str
-        .parse()
-        .with_context(|| format!("Invalid server address: {}", addr_str))?;
-
-    info!("Server running at http://{}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("Failed to bind to {}", addr))?;
-    serve_with_shutdown(listener, app)
-        .await
-        .context("Server runtime error")?;
-
-    Ok(())
+    tokio_runtime.block_on(async move {
+        let server_runtime = ServerRuntime::build(app_config).await?;
+        server_runtime.serve().await
+    })
 }
 
 /// Hits the local `/healthz` endpoint and returns a process exit code:
@@ -311,8 +58,19 @@ async fn main() -> anyhow::Result<()> {
 ///
 /// Used by the Docker `HEALTHCHECK` directive in `Dockerfile.server`. Skips
 /// observability initialization so the probe stays fast and silent.
+///
+/// Prefers the port of `server.healthz_listen` (the dedicated runtime, UP#14e)
+/// when configured, so the in-container probe gets the same isolation
+/// benefits as external probes. Falls back to the main listener port
+/// otherwise.
 async fn run_healthcheck(app_config: &AppConfig) -> i32 {
-    let url = format!("http://127.0.0.1:{}/healthz", app_config.server.port);
+    let port = app_config
+        .server
+        .healthz_listen
+        .as_deref()
+        .and_then(parse_port_from_listen_addr)
+        .unwrap_or(app_config.server.port);
+    let url = format!("http://127.0.0.1:{}/healthz", port);
 
     let client = match reqwest::Client::builder()
         .no_proxy()
@@ -336,5 +94,40 @@ async fn run_healthcheck(app_config: &AppConfig) -> i32 {
             eprintln!("healthcheck failed: {e}");
             1
         }
+    }
+}
+
+/// Extracts the port from a `host:port` listen string. Requires a full,
+/// well-formed `SocketAddr` - `0.0.0.0:9091`, `[::]:9091`, `[::1]:8080`. An
+/// unbracketed IPv6 like `"::1"` is rejected (returns `None`) so the caller
+/// falls back to the main listener port rather than silently probing port 1.
+fn parse_port_from_listen_addr(addr: &str) -> Option<u16> {
+    addr.parse::<std::net::SocketAddr>().ok().map(|s| s.port())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_port_from_listen_addr;
+
+    #[test]
+    fn parses_ipv4_listen_addr() {
+        assert_eq!(parse_port_from_listen_addr("0.0.0.0:9091"), Some(9091));
+        assert_eq!(parse_port_from_listen_addr("127.0.0.1:1234"), Some(1234));
+    }
+
+    #[test]
+    fn parses_ipv6_listen_addr() {
+        assert_eq!(parse_port_from_listen_addr("[::]:9091"), Some(9091));
+        assert_eq!(parse_port_from_listen_addr("[::1]:8080"), Some(8080));
+    }
+
+    #[test]
+    fn rejects_invalid_input() {
+        assert_eq!(parse_port_from_listen_addr("not-an-addr"), None);
+        assert_eq!(parse_port_from_listen_addr("host:not-a-port"), None);
+        // Unbracketed IPv6 - would previously yield Some(1), now correctly None.
+        assert_eq!(parse_port_from_listen_addr("::1"), None);
+        // Bare host with no port.
+        assert_eq!(parse_port_from_listen_addr("127.0.0.1"), None);
     }
 }

@@ -1,17 +1,12 @@
-use crate::registry::{BatchState, OperationBatches, OperationWaiters};
-use broccoli_server_sdk::types::{OperationTask, SessionFile};
-use common::storage::BlobStore;
-use common::worker::{Task, TaskResult};
+use crate::host_funcs::context::OperationHostDeps;
+use crate::services::operation_batch;
+use broccoli_server_sdk::types::{
+    DetachedOperationSession, OperationTask, StartDetachedWindowedOperationInput,
+};
+use common::worker::TaskResult;
 use extism::{Function, UserData, Val, ValType};
-use mq::MqQueue;
-use mq::config::PublishConfig;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-use uuid::Uuid;
-
-const INLINE_FILE_BLOB_THRESHOLD_BYTES: usize = 1_048_576;
+use std::time::Duration;
 
 #[derive(Deserialize)]
 struct GetNextResultInput {
@@ -31,43 +26,13 @@ struct ResultResponse {
 
 struct DispatchContext {
     plugin_id: String,
-    mq: Option<Arc<MqQueue>>,
-    blob_store: Arc<dyn BlobStore>,
-    batches: OperationBatches,
-    waiters: OperationWaiters,
-    operation_queue_name: String,
-    result_queue_name: String,
+    deps: OperationHostDeps,
 }
 
 type DispatchUserData = DispatchContext;
 
-/// Defense-in-depth validator for `target_worker_id` values arriving from
-/// plugins. Worker IDs are admin-configured and should already be safe; this
-/// just ensures a malicious plugin cannot inject `..`, glob characters, or
-/// other tokens that would warp the resulting Redis queue name. Shares its
-/// charset rules with the server-id validator in `crate::config`.
-fn is_valid_worker_id(id: &str) -> bool {
-    crate::config::is_valid_server_id(id)
-}
-
-pub fn create_dispatch_functions(
-    plugin_id: String,
-    mq: Option<Arc<MqQueue>>,
-    blob_store: Arc<dyn BlobStore>,
-    operation_batches: OperationBatches,
-    operation_waiters: OperationWaiters,
-    operation_queue_name: String,
-    operation_result_queue_name: String,
-) -> Vec<Function> {
-    let user_data: UserData<DispatchUserData> = UserData::new(DispatchContext {
-        plugin_id,
-        mq,
-        blob_store,
-        batches: operation_batches,
-        waiters: operation_waiters,
-        operation_queue_name,
-        result_queue_name: operation_result_queue_name,
-    });
+pub fn create_dispatch_functions(plugin_id: String, deps: OperationHostDeps) -> Vec<Function> {
+    let user_data: UserData<DispatchUserData> = UserData::new(DispatchContext { plugin_id, deps });
 
     vec![
         Function::new(
@@ -76,6 +41,13 @@ pub fn create_dispatch_functions(
             [ValType::I64],
             user_data.clone(),
             start_operation_batch_fn,
+        ),
+        Function::new(
+            "start_detached_windowed_operation",
+            [ValType::I64],
+            [ValType::I64],
+            user_data.clone(),
+            start_detached_windowed_operation_fn,
         ),
         Function::new(
             "get_next_operation_result",
@@ -94,6 +66,37 @@ pub fn create_dispatch_functions(
     ]
 }
 
+fn start_detached_windowed_operation_fn(
+    plugin: &mut extism::CurrentPlugin,
+    inputs: &[Val],
+    outputs: &mut [Val],
+    user_data: UserData<DispatchUserData>,
+) -> Result<(), extism::Error> {
+    let input_bytes: Vec<u8> = plugin.memory_get_val(&inputs[0])?;
+    let input: StartDetachedWindowedOperationInput = serde_json::from_slice(&input_bytes)
+        .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
+
+    let (plugin_id, deps) = {
+        let user_data_guard = user_data.get()?;
+        let guard = user_data_guard
+            .lock()
+            .map_err(|_| extism::Error::msg("Lock poisoned"))?;
+        (guard.plugin_id.clone(), guard.deps.clone())
+    };
+    let span = super::host_fn_span("start_detached_windowed_operation", &plugin_id);
+    let _enter = span.enter();
+
+    let manager = deps
+        .plugin_manager
+        .clone()
+        .ok_or_else(|| extism::Error::msg("Plugin manager not available for detached operation"))?;
+    let session =
+        operation_batch::start_detached_windowed_operation(plugin_id, manager, deps, input)
+            .map_err(|e| extism::Error::msg(e.to_string()))?;
+
+    write_session(plugin, outputs, session)
+}
+
 fn start_operation_batch_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
@@ -104,153 +107,21 @@ fn start_operation_batch_fn(
     let operations: Vec<OperationTask> = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize operations: {}", e)))?;
 
-    let (plugin_id, mq, blob_store, batches, waiters, queue_name, result_queue_name) = {
+    let (plugin_id, deps) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        (
-            guard.plugin_id.clone(),
-            guard.mq.clone(),
-            guard.blob_store.clone(),
-            guard.batches.clone(),
-            guard.waiters.clone(),
-            guard.operation_queue_name.clone(),
-            guard.result_queue_name.clone(),
-        )
+        (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("start_operation_batch", &plugin_id);
+    let _enter = span.enter();
 
-    let mq = mq
-        .as_ref()
-        .ok_or_else(|| extism::Error::msg("MQ not available"))?;
-
-    let batch_id = Uuid::new_v4().to_string();
-
-    let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
-    let pending_count = Arc::new(AtomicUsize::new(operations.len()));
-    let cleanup_keys = Arc::new(
-        operations
-            .iter()
-            .map(|_| Uuid::new_v4().to_string())
-            .collect::<Vec<_>>(),
-    );
-
-    batches.insert(
-        batch_id.clone(),
-        BatchState {
-            result_rx: batch_rx,
-            pending_count: pending_count.clone(),
-            created_at: Instant::now(),
-            cleanup_keys: cleanup_keys.clone(),
-            poisoned: AtomicBool::new(false),
-        },
-    );
-
-    tracing::info!(
-        plugin_id = %plugin_id,
-        batch_id = %batch_id,
-        operation_count = operations.len(),
-        "Starting operation batch"
-    );
-
-    for (correlation_id, op) in cleanup_keys.iter().cloned().zip(operations) {
-        let (op_tx, op_rx) = tokio::sync::oneshot::channel();
-
-        waiters.insert(correlation_id.clone(), op_tx);
-
-        let batch_tx = batch_tx.clone();
-        let pending_count = pending_count.clone();
-        let correlation_id_clone = correlation_id.clone();
-
-        tokio::spawn(async move {
-            match op_rx.await {
-                Ok(result) => {
-                    let _ = batch_tx.send(result);
-                    pending_count.fetch_sub(1, Ordering::SeqCst);
-                }
-                Err(_) => {
-                    let error_result = TaskResult {
-                        task_id: correlation_id_clone.clone(),
-                        success: false,
-                        output: serde_json::json!({}),
-                        error: Some("Operation cancelled or timed out".into()),
-                    };
-                    let _ = batch_tx.send(error_result);
-                    pending_count.fetch_sub(1, Ordering::SeqCst);
-                }
-            }
-        });
-
-        let target_queue = match op.target_worker_id.as_deref() {
-            Some(worker_id) if is_valid_worker_id(worker_id) => {
-                format!("{}:worker:{}", queue_name, worker_id)
-            }
-            Some(invalid) => {
-                tracing::warn!(
-                    plugin_id = %plugin_id,
-                    target = %invalid,
-                    "Rejecting operation with invalid target_worker_id; falling back to shared queue"
-                );
-                queue_name.clone()
-            }
-            None => queue_name.clone(),
-        };
-
-        let op = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(externalize_large_inline_files(op, blob_store.clone()))
-        })
-        .map_err(|e| {
-            tracing::error!(
-                error = %e,
-                batch_id = %batch_id,
-                correlation_id = %correlation_id,
-                "Failed to externalize large operation files"
-            );
-            extism::Error::msg(format!("Blob store error: {}", e))
-        })?;
-
-        let task = Task {
-            id: correlation_id.clone(),
-            task_type: "operation".to_string(),
-            executor_name: "operation".to_string(),
-            payload: serde_json::to_value(&op)
-                .map_err(|e| extism::Error::msg(format!("Failed to serialize operation: {}", e)))?,
-            result_queue: result_queue_name.clone(),
-            reply_queue: Some(result_queue_name.clone()),
-            priority: op.priority,
-            trace_context: common::observability::inject_trace_context(),
-        };
-
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                mq.publish(
-                    &target_queue,
-                    None,
-                    &task,
-                    task.priority
-                        .map(|p| PublishConfig::builder().priority(p).build()),
-                )
-                .await
-            })
-        })
-        .map_err(|e| {
-            tracing::error!(
-                error = %e,
-                queue = %target_queue,
-                batch_id = %batch_id,
-                correlation_id = %correlation_id,
-                "Failed to publish operation task to MQ"
-            );
-            extism::Error::msg(format!("MQ publish error: {}", e))
-        })?;
-
-        tracing::debug!(
-            batch_id = %batch_id,
-            correlation_id = %correlation_id,
-            "Operation dispatched"
-        );
-    }
+    let batch_id = tokio::runtime::Handle::current()
+        .block_on(operation_batch::start_operation_batch(
+            plugin_id, deps, operations,
+        ))
+        .map_err(|e| extism::Error::msg(e.to_string()))?;
 
     #[derive(Serialize)]
     struct BatchIdResponse {
@@ -266,42 +137,6 @@ fn start_operation_batch_fn(
     Ok(())
 }
 
-async fn externalize_large_inline_files(
-    mut op: OperationTask,
-    blob_store: Arc<dyn BlobStore>,
-) -> Result<OperationTask, common::storage::StorageError> {
-    let mut replaced = 0usize;
-    let mut replaced_bytes = 0usize;
-
-    for env in &mut op.environments {
-        for (_path, file) in &mut env.files_in {
-            let SessionFile::Content { content } = file else {
-                continue;
-            };
-            if content.len() < INLINE_FILE_BLOB_THRESHOLD_BYTES {
-                continue;
-            }
-
-            let hash = blob_store.put(content.as_bytes()).await?;
-            replaced += 1;
-            replaced_bytes += content.len();
-            *file = SessionFile::Blob {
-                hash: hash.to_hex(),
-            };
-        }
-    }
-
-    if replaced > 0 {
-        tracing::info!(
-            replaced,
-            replaced_bytes,
-            "Externalized large inline operation files to blob storage"
-        );
-    }
-
-    Ok(op)
-}
-
 fn get_next_operation_result_fn(
     plugin: &mut extism::CurrentPlugin,
     inputs: &[Val],
@@ -312,59 +147,32 @@ fn get_next_operation_result_fn(
     let input: GetNextResultInput = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
-    let (plugin_id, batches) = {
+    let (plugin_id, deps) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        (guard.plugin_id.clone(), guard.batches.clone())
+        (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("get_next_operation_result", &plugin_id);
+    let _enter = span.enter();
 
-    let (result_rx, pending_count) = {
-        let batch = batches
-            .get(&input.batch_id)
-            .ok_or_else(|| extism::Error::msg(format!("Batch not found: {}", input.batch_id)))?;
-        (batch.result_rx.clone(), batch.pending_count.clone())
-    };
+    let result = operation_batch::next_operation_result(
+        &plugin_id,
+        &deps.operation_batches,
+        deps.metrics.as_ref(),
+        &input.batch_id,
+        Duration::from_millis(input.timeout_ms),
+    )
+    .map_err(|e| extism::Error::msg(e.to_string()))?;
 
-    let result = result_rx.recv_timeout(Duration::from_millis(input.timeout_ms));
+    let response = ResultResponse { result };
+    let output_bytes = serde_json::to_vec(&response)
+        .map_err(|e| extism::Error::msg(format!("Failed to serialize result: {}", e)))?;
+    let offset = plugin.memory_new(&output_bytes)?;
+    outputs[0] = Val::I64(offset.offset() as i64);
 
-    match result {
-        Ok(task_result) => {
-            tracing::debug!(
-                plugin_id = %plugin_id,
-                batch_id = %input.batch_id,
-                task_id = %task_result.task_id,
-                "Operation result received"
-            );
-
-            if pending_count.load(Ordering::SeqCst) == 0 && result_rx.is_empty() {
-                batches.remove(&input.batch_id);
-            }
-
-            let response = ResultResponse {
-                result: Some(task_result),
-            };
-            let output_bytes = serde_json::to_vec(&response)
-                .map_err(|e| extism::Error::msg(format!("Failed to serialize result: {}", e)))?;
-            let offset = plugin.memory_new(&output_bytes)?;
-            outputs[0] = Val::I64(offset.offset() as i64);
-
-            Ok(())
-        }
-        Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
-            let response = ResultResponse { result: None };
-            let output_bytes = serde_json::to_vec(&response)
-                .map_err(|e| extism::Error::msg(format!("Failed to serialize result: {}", e)))?;
-            let offset = plugin.memory_new(&output_bytes)?;
-            outputs[0] = Val::I64(offset.offset() as i64);
-
-            Ok(())
-        }
-        Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
-            Err(extism::Error::msg("Batch channel disconnected"))
-        }
-    }
+    Ok(())
 }
 
 fn cancel_operation_batch_fn(
@@ -377,29 +185,35 @@ fn cancel_operation_batch_fn(
     let input: CancelBatchInput = serde_json::from_slice(&input_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize input: {}", e)))?;
 
-    let (plugin_id, batches, waiters) = {
+    let (plugin_id, deps) = {
         let user_data_guard = user_data.get()?;
         let guard = user_data_guard
             .lock()
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
-        (
-            guard.plugin_id.clone(),
-            guard.batches.clone(),
-            guard.waiters.clone(),
-        )
+        (guard.plugin_id.clone(), guard.deps.clone())
     };
+    let span = super::host_fn_span("cancel_operation_batch", &plugin_id);
+    let _enter = span.enter();
 
-    if let Some((_, batch)) = batches.remove(&input.batch_id) {
-        for key in batch.cleanup_keys.iter() {
-            waiters.remove(key);
-        }
-    }
-
-    tracing::info!(
-        plugin_id = %plugin_id,
-        batch_id = %input.batch_id,
-        "Operation batch cancelled"
+    operation_batch::cancel_operation_batch(
+        &plugin_id,
+        &deps.operation_batches,
+        &deps.operation_waiters,
+        deps.metrics.as_ref(),
+        &input.batch_id,
     );
 
+    Ok(())
+}
+
+fn write_session(
+    plugin: &mut extism::CurrentPlugin,
+    outputs: &mut [Val],
+    session: DetachedOperationSession,
+) -> Result<(), extism::Error> {
+    let output_bytes = serde_json::to_vec(&session)
+        .map_err(|e| extism::Error::msg(format!("Failed to serialize session: {}", e)))?;
+    let offset = plugin.memory_new(&output_bytes)?;
+    outputs[0] = Val::I64(offset.offset() as i64);
     Ok(())
 }

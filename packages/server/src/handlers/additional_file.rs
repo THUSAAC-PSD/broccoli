@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{DefaultBodyLimit, Multipart, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use common::storage::ContentHash;
 use sea_orm::sea_query::OnConflict;
@@ -11,13 +12,15 @@ use uuid::Uuid;
 
 use crate::entity::{additional_file, problem};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
 use crate::models::attachment::{AdditionalFileListResponse, AdditionalFileResponse};
 use crate::state::AppState;
 use crate::upload_limits::LARGE_UPLOAD_LIMIT_BYTES;
-use crate::utils::blob::{BlobMetadata, build_blob_response, stream_field_to_store};
-use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
+use crate::utils::blob::{
+    BlobMetadata, build_blob_response, resolve_virtual_path, stream_field_to_store,
+    take_required_file,
+};
 use crate::utils::soft_delete::SoftDeletable;
 
 pub fn additional_file_upload_body_limit() -> DefaultBodyLimit {
@@ -66,12 +69,12 @@ fn validate_language_code(lang: &str) -> Result<(), AppError> {
 )]
 #[instrument(skip(state, auth_user, multipart), fields(problem_id))]
 pub async fn upload_additional_file(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     problem::Entity::find_active_by_id(problem_id)
         .one(&state.db)
@@ -118,24 +121,12 @@ pub async fn upload_additional_file(
         }
     }
 
-    let (hash, size) =
-        file_result.ok_or_else(|| AppError::Validation("Missing 'file' field".into()))?;
-
-    let filename =
-        file_name.ok_or_else(|| AppError::Validation("File field must have a filename".into()))?;
-    let filename = validate_flat_filename(&filename)
-        .map_err(|e| AppError::Validation(e.message().into()))?
-        .to_string();
+    let (hash, size, filename) = take_required_file(file_result, file_name)?;
 
     let lang = language.ok_or_else(|| AppError::Validation("Missing 'language' field".into()))?;
     validate_language_code(&lang)?;
 
-    let path = match virtual_path {
-        Some(p) if !p.trim().is_empty() => {
-            validate_virtual_path(&p).map_err(|e| AppError::Validation(e.into()))?
-        }
-        _ => validate_virtual_path(&filename).map_err(|e| AppError::Validation(e.into()))?,
-    };
+    let path = resolve_virtual_path(virtual_path.as_deref(), &filename)?;
 
     let content_type = mime_guess::from_path(&filename)
         .first()
@@ -221,7 +212,7 @@ pub async fn list_additional_files(
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
 ) -> Result<Json<AdditionalFileListResponse>, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     problem::Entity::find_active_by_id(problem_id)
         .one(&state.db)
@@ -268,7 +259,7 @@ pub async fn download_additional_file(
     AppPath((problem_id, ref_id)): AppPath<(i32, String)>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     let ref_uuid = Uuid::parse_str(&ref_id)
         .map_err(|_| AppError::Validation("Invalid additional file ID".into()))?;
@@ -306,11 +297,11 @@ pub async fn download_additional_file(
 )]
 #[instrument(skip(state, auth_user), fields(problem_id, ref_id))]
 pub async fn delete_additional_file(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((problem_id, ref_id)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     let ref_uuid = Uuid::parse_str(&ref_id)
         .map_err(|_| AppError::Validation("Invalid additional file ID".into()))?;

@@ -916,7 +916,7 @@ export function IoiSubmissionResult({
   });
   const subtaskScoresData = subtaskScoresQuery.data;
 
-  // Not IOI or no submission — fall through to default slot children
+  // Not IOI or no submission - fall through to default slot children
   if (guardLoading || !isIoi) return <>{children}</>;
   if (!submission) return <>{children}</>;
 

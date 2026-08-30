@@ -53,7 +53,7 @@ export function SubmissionLimitStatus({
         const data = await res.json();
         if (!cancelled) setStatus(data);
       } catch {
-        // silent — status indicator is best-effort
+        // silent - status indicator is best-effort
       }
     }
 

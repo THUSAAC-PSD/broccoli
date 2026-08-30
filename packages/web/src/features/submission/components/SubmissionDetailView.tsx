@@ -1,13 +1,12 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { isTerminalStatus } from '@broccoli/web-sdk/submission';
 import { Badge } from '@broccoli/web-sdk/ui';
 import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
 import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
 import { Link } from 'react-router';
 
-import {
-  TERMINAL_STATUSES,
-  useSubmissionDetail,
-} from '@/features/submission/hooks/use-submission-detail';
+import { useSubmissionDetail } from '@/features/submission/hooks/use-submission-detail';
+import { getSubmissionScoreDisplay } from '@/features/submission/utils/score-display';
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
 
 import { SubmissionJudgementHistory } from './SubmissionJudgementHistory';
@@ -53,13 +52,14 @@ export function SubmissionDetailView({
 
   const status = submission.status;
   const result = submission.result;
-  const isTerminal = TERMINAL_STATUSES.has(status);
+  const isTerminal = isTerminalStatus(status);
 
   const { label: verdictLabel, variant: verdictVariant } = getVerdictBadge(
     result?.verdict ?? null,
     status,
     t,
   );
+  const scoreDisplay = getSubmissionScoreDisplay(status, result?.score, t);
 
   const problemLink = contestId
     ? `/contests/${contestId}/problems/${submission.problem_id}`
@@ -78,12 +78,16 @@ export function SubmissionDetailView({
               {!isTerminal && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
               {verdictLabel}
             </Badge>
-            {result?.score != null && (
+            {scoreDisplay.kind === 'score' ? (
               <span className="ml-auto font-mono text-lg font-bold tabular-nums text-foreground">
-                {result.score}
+                {scoreDisplay.value}
                 <span className="text-sm font-normal text-muted-foreground ml-1">
                   pts
                 </span>
+              </span>
+            ) : (
+              <span className="ml-auto text-sm font-semibold text-muted-foreground">
+                {scoreDisplay.label}
               </span>
             )}
           </div>

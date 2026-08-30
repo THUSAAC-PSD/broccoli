@@ -1,0 +1,23 @@
+[Unit]
+Description=Broccoli Worker
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@DATA_DIR@
+# Read the worker's OWN config (config/worker.toml), never the server's
+# config.toml -- lets infra-server + worker coexist on one box and survive reboot.
+Environment=BROCCOLI_CONFIG=@DATA_DIR@/config/worker
+ExecStart=@DATA_DIR@/target/release/worker
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+StandardOutput=append:@DATA_DIR@/logs/worker.log
+StandardError=append:@DATA_DIR@/logs/worker.log
+
+[Install]
+WantedBy=multi-user.target

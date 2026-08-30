@@ -1,6 +1,6 @@
 /**
  * Wraps the `scoring` object section in a collapsible panel.
- * Uses the "wrap" slot position — receives children as the original field content.
+ * Uses the "wrap" slot position - receives children as the original field content.
  *
  * Receives: { children } (the default SchemaField rendering for scoring)
  */

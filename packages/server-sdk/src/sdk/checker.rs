@@ -1,7 +1,7 @@
 use crate::error::SdkError;
 #[cfg(target_arch = "wasm32")]
-use crate::types::RunCheckerInput;
-use crate::types::{CheckerParseInput, CheckerVerdict};
+use crate::types::InterpretCheckerInput;
+use crate::types::{CheckerRunOutcome, CheckerStage, CheckerVerdict, ResolveCheckerInput};
 
 pub struct Checker {
     #[cfg(not(target_arch = "wasm32"))]
@@ -10,14 +10,28 @@ pub struct Checker {
 
 #[cfg(target_arch = "wasm32")]
 impl Checker {
-    pub fn run(&self, format: &str, input: &CheckerParseInput) -> Result<CheckerVerdict, SdkError> {
-        let run_input = RunCheckerInput {
+    /// Checker fusion: ask the registered checker plugin to resolve a stage to
+    /// splice into the run op. `input.format` selects the checker.
+    pub fn resolve(&self, input: &ResolveCheckerInput) -> Result<CheckerStage, SdkError> {
+        let response_json =
+            unsafe { crate::host::raw::resolve_checker(serde_json::to_string(input)?)? };
+        Ok(serde_json::from_str(&response_json)?)
+    }
+
+    /// Checker fusion: turn the check step's small result into a verdict via the
+    /// registered checker plugin's interpreter.
+    pub fn interpret(
+        &self,
+        format: &str,
+        result: &CheckerRunOutcome,
+    ) -> Result<CheckerVerdict, SdkError> {
+        let input = InterpretCheckerInput {
             format: format.to_string(),
-            input: input.clone(),
+            result: result.clone(),
         };
-        let result_json =
-            unsafe { crate::host::raw::run_checker(serde_json::to_string(&run_input)?)? };
-        Ok(serde_json::from_str(&result_json)?)
+        let response_json =
+            unsafe { crate::host::raw::interpret_checker_result(serde_json::to_string(&input)?)? };
+        Ok(serde_json::from_str(&response_json)?)
     }
 }
 
@@ -33,11 +47,52 @@ impl CheckerMock {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Checker {
-    pub fn run(
+    pub fn resolve(&self, _input: &ResolveCheckerInput) -> Result<CheckerStage, SdkError> {
+        Err(SdkError::Other("Mock checker not implemented".into()))
+    }
+
+    pub fn interpret(
         &self,
         _format: &str,
-        _input: &CheckerParseInput,
+        _result: &CheckerRunOutcome,
     ) -> Result<CheckerVerdict, SdkError> {
         Err(SdkError::Other("Mock checker not implemented".into()))
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use crate::types::JudgeFile;
+
+    fn checker() -> Checker {
+        Checker {
+            inner: CheckerMock::new(),
+        }
+    }
+
+    #[test]
+    fn resolve_mock_returns_err_off_wasm() {
+        let input = ResolveCheckerInput {
+            format: "tokens".to_string(),
+            answer: JudgeFile::inline("ans\n"),
+            test_input: JudgeFile::Missing,
+            problem_id: None,
+            config: None,
+            output_binding: crate::types::OutputMode::Stream {
+                channel: "verdict".to_string(),
+            },
+        };
+        assert!(checker().resolve(&input).is_err());
+    }
+
+    #[test]
+    fn interpret_mock_returns_err_off_wasm() {
+        let result = CheckerRunOutcome {
+            exit_code: Some(0),
+            stderr: String::new(),
+            sandbox_status: Some("OK".to_string()),
+        };
+        assert!(checker().interpret("tokens", &result).is_err());
     }
 }

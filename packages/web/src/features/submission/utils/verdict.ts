@@ -5,6 +5,8 @@ type BadgeVariant = NonNullable<BadgeProps['variant']>;
 
 function getStatusLabel(status: SubmissionStatus, t: (key: string) => string) {
   switch (status) {
+    case 'Queued':
+      return t('result.queued');
     case 'Pending':
       return t('result.pending');
     case 'Compiling':
@@ -39,6 +41,8 @@ function getVerdictLabel(verdict: Verdict, t: (key: string) => string) {
       return t('result.systemError');
     case 'Skipped':
       return t('result.skipped');
+    case 'Cancelled':
+      return t('result.cancelled');
     default:
       return verdictText;
   }
@@ -59,9 +63,10 @@ function getVerdictVariant(verdict: Verdict): BadgeVariant {
       return 'runtimeerror';
     case 'SystemError':
     case 'Skipped':
+    case 'Cancelled':
       return 'secondary';
     default:
-      return 'outline-solid';
+      return 'outline';
   }
 }
 

@@ -1,6 +1,7 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { SUBMISSION_VIEW_ALL } from '@broccoli/web-sdk/permissions';
 import {
   Badge,
   Button,
@@ -205,7 +206,7 @@ export default function OverviewPage() {
                       {t('overview.recentSubmissionsDescription')}
                     </CardDescription>
                   </div>
-                  {user.permissions.includes('submission:view_all') && (
+                  {user.permissions.includes(SUBMISSION_VIEW_ALL) && (
                     <Button variant="ghost" size="sm" asChild>
                       <Link to="/admin/submissions">
                         {t('overview.viewAll')}

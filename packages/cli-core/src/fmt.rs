@@ -22,9 +22,38 @@ pub fn time_ms(ms: i64) -> String {
     }
 }
 
+/// Format a submission score for display: round to two decimals and strip
+/// trailing zeros, guarding non finite values. The score scale is contest type
+/// dependent (a fraction for ICPC, subtask points for IOI), so callers must NOT
+/// append a fabricated denominator such as "/100"; show this value on its own.
+pub fn score(value: f64) -> String {
+    if !value.is_finite() {
+        return value.to_string();
+    }
+    let rounded = (value * 100.0).round() / 100.0;
+    if rounded.fract() == 0.0 {
+        format!("{}", rounded as i64)
+    } else {
+        format!("{:.2}", rounded)
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn score_strips_trailing_zeros() {
+        assert_eq!(score(1.0), "1");
+        assert_eq!(score(0.0), "0");
+        assert_eq!(score(80.0), "80");
+        assert_eq!(score(100.0), "100");
+        assert_eq!(score(45.5), "45.5");
+        assert_eq!(score(45.50), "45.5");
+    }
 
     #[test]
     fn memory_scales_units() {

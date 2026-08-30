@@ -1,0 +1,28 @@
+pg_stat_statements_top:
+  query: |
+    SELECT
+      regexp_replace(query, '\s+', ' ', 'g') AS query,
+      calls,
+      total_exec_time / 1000.0 AS total_exec_seconds,
+      mean_exec_time / 1000.0 AS mean_exec_seconds,
+      rows
+    FROM pg_stat_statements
+    WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+    ORDER BY total_exec_time DESC
+    LIMIT 25
+  metrics:
+    - query:
+        usage: "LABEL"
+        description: "Normalized SQL text"
+    - calls:
+        usage: "COUNTER"
+        description: "Number of times this statement has run"
+    - total_exec_seconds:
+        usage: "COUNTER"
+        description: "Total execution time for this statement in seconds"
+    - mean_exec_seconds:
+        usage: "GAUGE"
+        description: "Mean execution time for this statement in seconds"
+    - rows:
+        usage: "COUNTER"
+        description: "Rows returned or affected by this statement"

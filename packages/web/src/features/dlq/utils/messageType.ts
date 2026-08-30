@@ -1,4 +1,10 @@
-import { Cog, FileText, type LucideIcon } from 'lucide-react';
+import {
+  Cog,
+  FileCode,
+  FileText,
+  History,
+  type LucideIcon,
+} from 'lucide-react';
 
 export interface MessageTypeMeta {
   labelKey: string;
@@ -18,6 +24,20 @@ export function messageTypeMeta(type: string): MessageTypeMeta {
     return {
       labelKey: 'dlq.type.operationTask',
       icon: Cog,
+      retryable: false,
+    };
+  }
+  if (type === 'stuck_code_run') {
+    return {
+      labelKey: 'dlq.type.stuckCodeRun',
+      icon: FileCode,
+      retryable: false,
+    };
+  }
+  if (type === 'stuck_submission_judgement') {
+    return {
+      labelKey: 'dlq.type.stuckSubmissionJudgement',
+      icon: History,
       retryable: false,
     };
   }

@@ -13,7 +13,7 @@ import {
  * @param editorInstance - The mounted Monaco editor (null before mount)
  * @param monacoInstance - The Monaco namespace (needed for KeyCode/KeyMod enums)
  * @param statusBarRef  - A ref to a DOM element for vim's status line
- * @returns [mode, setMode] — current keybinding mode and setter
+ * @returns [mode, setMode] - current keybinding mode and setter
  */
 export function useEditorKeybindings(
   editorInstance: monacoNs.editor.IStandaloneCodeEditor | null,

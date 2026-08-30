@@ -155,6 +155,30 @@ The checked-in Docker Postgres credentials are:
 - Be careful with exported package entrypoints in `packages/sdk`, since its
   `package.json` exposes multiple subpaths.
 
+### Duplication discipline
+
+A July 2026 audit found the repo's real duplication risk is _aware copying_
+(copies that cite their twin in a comment), not failed discovery — including one
+production drift where two forked `Verdict::severity` tables ranked plugin
+custom verdicts oppositely on host vs guest. Rules:
+
+- Rule of three: the moment you write the third copy of a pattern, stop and
+  extract it instead (or, if extraction is genuinely blocked by a boundary such
+  as WASM guest/host or cargo's per-tree test binaries, say so in a comment at
+  the copy site and add the pair to `docs/plans/dedup-backlog.md`).
+- Never copy a block of ~20+ lines between files without either extracting it or
+  leaving a comment that links the copies AND an entry in the dedup backlog. A
+  silent copy is how the `Other(_) => 5` vs `Other(_) => 255` severity fork
+  happened.
+- Reviewers: for any new helper, grep for an existing implementation first
+  (`severity`, `push_judge_sets`, and the judgement-column clear list were all
+  trivially greppable when their second copies were written). Flag hand-rolled
+  duplicates of shared utilities as blocking findings.
+- Cross-boundary mirrors (guest SDK vs host) must live in `broccoli-types` when
+  possible; if a verbatim mirror is unavoidable, both sides must carry a
+  drift-pin test the way `common::submission_status` now pins its severity table
+  to `broccoli_types::types::Verdict`.
+
 ## Testing Guidance
 
 - Prefer the narrowest relevant command first.

@@ -2,14 +2,15 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use sea_orm::sea_query::LockType;
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::entity::{contest, contest_user, refresh_token, role, user, user_role};
+use crate::entity::{contest, contest_user, refresh_token, role, role_permission, user, user_role};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
 use crate::models::user::{RoleAssignmentRequest, UpdateUserRequest, UserResponse};
 use crate::state::AppState;
@@ -35,7 +36,7 @@ pub async fn list_users(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<UserResponse>>, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let users = user::Entity::load()
         .filter(user::Column::DeletedAt.is_null())
@@ -71,7 +72,7 @@ pub async fn get_user(
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<Json<UserResponse>, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let user_model = user::Entity::load()
         .filter(user::Column::Id.eq(id))
@@ -102,12 +103,12 @@ pub async fn get_user(
     security(("jwt" = [])),
 )]
 pub async fn update_user(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
     Json(payload): Json<UpdateUserRequest>,
 ) -> Result<Json<UserResponse>, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let user_model = user::Entity::find_active_by_id(id)
         .one(&state.db)
@@ -125,6 +126,7 @@ pub async fn update_user(
             .map_err(|_| AppError::Validation("Failed to hash password".into()))?;
         active.password = Set(password_hash);
         refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+        user::Entity::touch_credentials_changed(&txn, id).await?;
     }
     let updated_user = active.update(&txn).await?;
 
@@ -159,11 +161,11 @@ pub async fn update_user(
 )]
 #[instrument(skip(state, auth_user), fields(id, user_id = auth_user.user_id))]
 pub async fn delete_user(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let txn = state.db.begin().await?;
 
@@ -223,6 +225,39 @@ pub async fn delete_user(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Privilege ceiling for adding or removing a role: a caller may only touch a role
+/// whose permission set is a SUBSET of the caller's own (SYSTEM_ADMIN bypasses).
+/// USER_MANAGE governs user accounts, not privilege definitions (that is
+/// ROLE_MANAGE); without this ceiling a USER_MANAGE-only principal could assign
+/// itself the all-powerful `admin` role (escalation) or strip `admin` from other
+/// admins (lockout). Mirrors "you cannot grant or revoke what you do not hold".
+async fn require_role_within_ceiling(
+    state: &AppState,
+    auth_user: &FreshAuthUser,
+    role_name: &str,
+) -> Result<(), AppError> {
+    if auth_user.has_permission(perm::SYSTEM_ADMIN) {
+        return Ok(());
+    }
+    let role_permissions = role_permission::Entity::find()
+        .filter(role_permission::Column::Role.eq(role_name.to_string()))
+        .all(&state.db)
+        .await?;
+    if let Some(rp) = role_permissions
+        .iter()
+        .find(|rp| !auth_user.has_permission(&rp.permission))
+    {
+        tracing::warn!(
+            actor = auth_user.user_id,
+            role = %role_name,
+            missing_permission = %rp.permission,
+            "Refused role change crossing the caller's privilege ceiling"
+        );
+        return Err(AppError::PermissionDenied);
+    }
+    Ok(())
+}
+
 #[utoipa::path(
     post,
     path = "/{id}/roles",
@@ -233,7 +268,7 @@ pub async fn delete_user(
     params(("id" = i32, Path, description = "User ID")),
     request_body = RoleAssignmentRequest,
     responses(
-        (status = 204, description = "Role assigned"),
+        (status = 201, description = "Role assigned"),
         (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
@@ -242,12 +277,12 @@ pub async fn delete_user(
     security(("jwt" = [])),
 )]
 pub async fn assign_role(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
     Json(payload): Json<RoleAssignmentRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
 
     let role_model = role::Entity::find()
         .filter(role::Column::Name.eq(payload.role))
@@ -260,9 +295,12 @@ pub async fn assign_role(
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".into()))?;
 
+    require_role_within_ceiling(&state, &auth_user, &role_model.name).await?;
+
     let txn = state.db.begin().await?;
     user_model.assign_role(&txn, role_model.name).await?;
     refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+    user::Entity::touch_credentials_changed(&txn, id).await?;
     txn.commit().await?;
 
     Ok(StatusCode::CREATED)
@@ -288,17 +326,32 @@ pub async fn assign_role(
     security(("jwt" = [])),
 )]
 pub async fn revoke_role(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((id, role_name)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("user:manage")?;
+    auth_user.require_permission(perm::USER_MANAGE)?;
+
+    // Same privilege ceiling as assign_role: revoking a role also crosses the
+    // USER_MANAGE/ROLE_MANAGE boundary. Without it, a USER_MANAGE-only principal
+    // could strip `admin` (system:admin/role:manage) from every other admin - an
+    // administrative lockout, the inverse of the self-escalation assign_role guards.
+    require_role_within_ceiling(&state, &auth_user, &role_name).await?;
 
     let active = user_role::Entity::find_by_id((id, role_name))
         .one(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound("User role not found".into()))?;
-    active.delete(&state.db).await?;
+
+    // Revoke the user's refresh tokens in the same transaction as the role
+    // delete, mirroring `assign_role`. Removing a role is a de-authorization, so
+    // existing sessions must be forced to re-authenticate and re-read the reduced
+    // role set rather than lingering on a stale cached permission.
+    let txn = state.db.begin().await?;
+    active.delete(&txn).await?;
+    refresh_token::Entity::revoke_all_for_user(&txn, id).await?;
+    user::Entity::touch_credentials_changed(&txn, id).await?;
+    txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

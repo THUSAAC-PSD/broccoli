@@ -1,4 +1,4 @@
-use common::submission_dispatch::TestCaseVerdict;
+use broccoli_server_sdk::types::TestCaseVerdict;
 use common::worker::TaskResult;
 use dashmap::DashMap;
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ pub struct ContestTypeHandlers {
 }
 
 pub struct BatchState<T> {
-    pub result_rx: crossbeam::channel::Receiver<T>,
+    pub result_rx: flume::Receiver<T>,
     pub pending_count: Arc<std::sync::atomic::AtomicUsize>,
     pub created_at: Instant,
     pub cleanup_keys: Arc<Vec<String>>,
@@ -33,7 +33,19 @@ pub type ContestTypeRegistry = Arc<RwLock<HashMap<String, ContestTypeHandlers>>>
 
 pub type EvaluatorRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;
 
-pub type CheckerFormatRegistry = Arc<RwLock<HashMap<String, PluginHandler>>>;
+/// The resolve + interpret functions a checker plugin registers for a format
+/// under checker fusion. `resolve_fn` returns a `CheckerStage` to splice into the
+/// run op; `interpret_fn` turns the check step's small result into a
+/// `CheckerVerdict`. Bundled (like [`ContestTypeHandlers`]) so a format registers
+/// once and both host fns share one lookup.
+#[derive(Clone, Debug)]
+pub struct CheckerStageHandlers {
+    pub plugin_id: String,
+    pub resolve_fn: String,
+    pub interpret_fn: String,
+}
+
+pub type CheckerStageRegistry = Arc<RwLock<HashMap<String, CheckerStageHandlers>>>;
 
 #[derive(Clone, Debug)]
 pub struct LanguageResolverEntry {
@@ -55,6 +67,7 @@ pub fn spawn_batch_reaper<T: Send + Sync + 'static, F>(
     label: &'static str,
     batches: Arc<DashMap<String, BatchState<T>>>,
     max_age: Duration,
+    metrics: Option<common::metrics::Metrics>,
     on_expire: F,
 ) where
     F: Fn(&str, &BatchState<T>) + Send + Sync + 'static,
@@ -73,11 +86,30 @@ pub fn spawn_batch_reaper<T: Send + Sync + 'static, F>(
                 }
                 if state.poisoned.load(Ordering::Relaxed) {
                     reaped_count += 1;
+                    if let Some(metrics) = metrics.as_ref() {
+                        let attrs = [
+                            opentelemetry::KeyValue::new("batch.kind", label),
+                            opentelemetry::KeyValue::new("phase", "reaped"),
+                        ];
+                        metrics.batch_reaped_total.add(1, &attrs);
+                        metrics
+                            .batch_active
+                            .add(-1, &[opentelemetry::KeyValue::new("batch.kind", label)]);
+                    }
                     false
                 } else {
                     on_expire(batch_id, state);
                     state.poisoned.store(true, Ordering::Relaxed);
                     poisoned_count += 1;
+                    if let Some(metrics) = metrics.as_ref() {
+                        metrics.batch_reaped_total.add(
+                            1,
+                            &[
+                                opentelemetry::KeyValue::new("batch.kind", label),
+                                opentelemetry::KeyValue::new("phase", "poisoned"),
+                            ],
+                        );
+                    }
                     true
                 }
             });
@@ -88,4 +120,17 @@ pub fn spawn_batch_reaper<T: Send + Sync + 'static, F>(
     });
 }
 
-pub type OperationWaiters = Arc<DashMap<String, oneshot::Sender<TaskResult>>>;
+#[derive(Clone)]
+pub struct OperationWaiter {
+    pub result_tx: Arc<std::sync::Mutex<Option<oneshot::Sender<TaskResult>>>>,
+}
+
+impl OperationWaiter {
+    pub fn new(result_tx: oneshot::Sender<TaskResult>) -> Self {
+        Self {
+            result_tx: Arc::new(std::sync::Mutex::new(Some(result_tx))),
+        }
+    }
+}
+
+pub type OperationWaiters = Arc<DashMap<String, OperationWaiter>>;

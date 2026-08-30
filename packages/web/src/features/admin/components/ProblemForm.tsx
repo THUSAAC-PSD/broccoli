@@ -38,6 +38,7 @@ export interface ProblemFormData {
   checkerFormat: string;
   defaultContestType: string;
   showTestDetails: boolean;
+  isPublic: boolean;
   submissionFormat: Record<string, string[]>;
 }
 
@@ -151,6 +152,10 @@ export function ProblemForm({
 
   const handleShowTestDetailsChange = (showTestDetails: boolean) => {
     onChange({ ...data, showTestDetails });
+  };
+
+  const handleIsPublicChange = (isPublic: boolean) => {
+    onChange({ ...data, isPublic });
   };
 
   const configuredLanguages = useMemo(
@@ -373,6 +378,13 @@ export function ProblemForm({
           label={t('admin.field.showTestDetails')}
           checked={data.showTestDetails}
           onCheckedChange={handleShowTestDetailsChange}
+        />
+        <SwitchField
+          id="problem-is-public"
+          label={t('admin.field.problemIsPublic')}
+          description={t('admin.field.problemIsPublicHelp')}
+          checked={data.isPublic}
+          onCheckedChange={handleIsPublicChange}
         />
       </div>
 

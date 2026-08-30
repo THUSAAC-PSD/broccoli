@@ -1,0 +1,22 @@
+[Unit]
+Description=Broccoli Server
+After=network-online.target postgresql.service redis-server.service broccoli-weed.service
+Wants=network-online.target postgresql.service redis-server.service broccoli-weed.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@DATA_DIR@
+ExecStart=@DATA_DIR@/target/release/server
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+StandardOutput=append:@DATA_DIR@/logs/server.log
+StandardError=append:@DATA_DIR@/logs/server.log
+
+[Install]
+WantedBy=multi-user.target

@@ -7,8 +7,6 @@ pub struct UserResponse {
     pub id: i32,
     #[schema(example = "alice")]
     pub username: String,
-    #[schema(example = "$argon2id$v=19$m=19456,t=2,p=1$...")]
-    pub password: String,
     #[schema(example = json!(["contestant"]))]
     pub roles: Vec<String>,
     #[schema(example = "2026-03-05T10:00:00Z")]
@@ -20,7 +18,6 @@ impl From<crate::entity::user::ModelEx> for UserResponse {
         Self {
             id: user.id,
             username: user.username,
-            password: user.password,
             roles: user.roles.into_iter().map(|r| r.name).collect(),
             created_at: user.created_at,
         }

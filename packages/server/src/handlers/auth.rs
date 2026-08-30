@@ -5,6 +5,7 @@ use axum_extra::extract::CookieJar;
 use sea_orm::*;
 use tracing::instrument;
 
+use crate::client_ip::ClientIp;
 use crate::entity::{refresh_token, role, role_permission, user, user_role};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
@@ -17,6 +18,40 @@ use crate::models::auth::{
 use crate::state::AppState;
 use crate::utils::soft_delete::SoftDeletable;
 use crate::utils::{hash, jwt, refresh};
+
+/// Seconds after a refresh token is rotated during which a replay of it is
+/// treated as a benign concurrent-refresh race (two in-flight requests carried
+/// the same pre-rotation cookie) rather than theft. Past this window, replaying
+/// an already-rotated token is treated as a stolen refresh chain.
+const REFRESH_REUSE_GRACE_SECS: i64 = 10;
+
+/// Handle a presented refresh token whose row was already rotated out
+/// (`revoked_at` is set), returning the error to reject the request with.
+///
+/// Within [`REFRESH_REUSE_GRACE_SECS`] it is a benign concurrent-refresh race
+/// (soft reject, no side effect). Past it, the replay is treated as a stolen
+/// refresh chain and ALL of the user's refresh tokens are revoked (family kill)
+/// so a leaked chain cannot outlive detection. Consumes the transaction.
+async fn reject_reused_refresh_token(
+    txn: sea_orm::DatabaseTransaction,
+    user_id: i32,
+    revoked_at: chrono::DateTime<chrono::Utc>,
+) -> AppError {
+    let elapsed = chrono::Utc::now() - revoked_at;
+    if elapsed > chrono::Duration::seconds(REFRESH_REUSE_GRACE_SECS) {
+        tracing::warn!(
+            user_id,
+            "Refresh token reuse detected past the grace window; revoking all refresh tokens for the user"
+        );
+        if let Err(e) = refresh_token::Entity::revoke_all_for_user(&txn, user_id).await {
+            return AppError::from(e);
+        }
+        if let Err(e) = txn.commit().await {
+            return AppError::from(e);
+        }
+    }
+    AppError::TokenInvalid
+}
 
 #[utoipa::path(
     post,
@@ -94,12 +129,23 @@ pub async fn register(
 #[instrument(skip(state, payload, jar), fields(username = %payload.username))]
 pub async fn login(
     State(state): State<AppState>,
+    ClientIp(client_ip): ClientIp,
     jar: CookieJar,
     AppJson(payload): AppJson<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     validate_login_request(&payload)?;
 
     let username = payload.username.trim();
+
+    // Contest-safe brute-force throttle: only FAILED attempts for this
+    // (username, client IP) pair count and a success clears them, so a
+    // legitimate sign-in is never blocked even when a whole venue shares one NAT
+    // IP. Fails open when the client IP is unknown.
+    if let Some(ip) = client_ip
+        && let Some(retry_after) = state.login_throttle.check(username, ip)
+    {
+        return Err(AppError::RateLimited { retry_after });
+    }
 
     let maybe_user = user::Entity::find_active()
         .filter(user::Column::Username.eq(username))
@@ -114,8 +160,18 @@ pub async fn login(
 
     let user = match maybe_user {
         Some(u) if is_valid => u,
-        _ => return Err(AppError::InvalidCredentials),
+        _ => {
+            if let Some(ip) = client_ip {
+                state.login_throttle.record_failure(username, ip);
+            }
+            return Err(AppError::InvalidCredentials);
+        }
     };
+
+    // Successful auth: clear any accumulated failures for this pair.
+    if let Some(ip) = client_ip {
+        state.login_throttle.clear(username, ip);
+    }
 
     let role_models = user.find_related(role::Entity).all(&state.db).await?;
     let roles: Vec<String> = role_models.iter().map(|r| r.name.clone()).collect();
@@ -151,6 +207,7 @@ pub async fn login(
         user_id: Set(user.id),
         expires_at: Set(expiry),
         created_at: Set(now),
+        revoked_at: Set(None),
     }
     .insert(&state.db)
     .await?;
@@ -214,6 +271,15 @@ pub async fn refresh(
         _ => return Err(AppError::TokenInvalid),
     };
 
+    // Reuse detection: the validator matched, but if this token's row was already
+    // rotated out (`revoked_at` set) it is either a benign concurrent-refresh race
+    // or a replayed stolen token. Past the grace window this kills the whole token
+    // family. A mismatched validator never reaches here (handled above), so an
+    // attacker cannot trip a victim's family-kill by guessing a revoked selector.
+    if let Some(revoked_at) = rt_model.revoked_at {
+        return Err(reject_reused_refresh_token(txn, rt_model.user_id, revoked_at).await);
+    }
+
     if rt_model.expires_at < chrono::Utc::now() {
         rt_model.delete(&txn).await?;
         txn.commit().await?;
@@ -259,7 +325,11 @@ pub async fn refresh(
     let new_validator_hash = hash::hash_password(&new_validator)
         .map_err(|e| AppError::Internal(format!("Refresh token hash error: {}", e)))?;
 
-    rt_model.delete(&txn).await?;
+    // Retain the rotated token (mark revoked) instead of deleting it, so a later
+    // replay is detectable as reuse rather than an unknown selector.
+    let mut rotated: refresh_token::ActiveModel = rt_model.into();
+    rotated.revoked_at = Set(Some(now));
+    rotated.update(&txn).await?;
 
     refresh_token::ActiveModel {
         selector: Set(new_selector.clone()),
@@ -267,9 +337,19 @@ pub async fn refresh(
         user_id: Set(user.id),
         expires_at: Set(new_expiry),
         created_at: Set(now),
+        revoked_at: Set(None),
     }
     .insert(&txn)
     .await?;
+
+    // Bound retention: drop this user's now-expired refresh tokens (rotated or
+    // not). Revoked-but-unexpired rows are kept until expiry so a replay stays
+    // detectable for the token's whole lifetime.
+    refresh_token::Entity::delete_many()
+        .filter(refresh_token::Column::UserId.eq(user.id))
+        .filter(refresh_token::Column::ExpiresAt.lt(chrono::Utc::now()))
+        .exec(&txn)
+        .await?;
 
     txn.commit().await?;
 
@@ -613,6 +693,7 @@ async fn mint_refresh_token<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<
         user_id: Set(user_id),
         expires_at: Set(expiry),
         created_at: Set(now),
+        revoked_at: Set(None),
     }
     .insert(db)
     .await?;
@@ -694,6 +775,13 @@ pub async fn cli_refresh(
         _ => return Err(AppError::TokenInvalid),
     };
 
+    // Reuse detection: same as `refresh` -- a validated but already-rotated token
+    // is a benign concurrent-refresh race or a replayed stolen token (family kill
+    // past the grace window).
+    if let Some(revoked_at) = rt_model.revoked_at {
+        return Err(reject_reused_refresh_token(txn, rt_model.user_id, revoked_at).await);
+    }
+
     if rt_model.expires_at < chrono::Utc::now() {
         rt_model.delete(&txn).await?;
         txn.commit().await?;
@@ -730,9 +818,19 @@ pub async fn cli_refresh(
     )
     .map_err(|e| AppError::Internal(format!("JWT sign error: {}", e)))?;
 
-    // Rotate: delete the old refresh token, mint a new one.
-    rt_model.delete(&txn).await?;
+    // Rotate: retain the old token (mark revoked) so a replay is detectable as
+    // reuse, then mint a new one and drop this user's now-expired rows.
+    let now = chrono::Utc::now();
+    let mut rotated: refresh_token::ActiveModel = rt_model.into();
+    rotated.revoked_at = Set(Some(now));
+    rotated.update(&txn).await?;
     let new_refresh_token = mint_refresh_token(&txn, user_id).await?;
+
+    refresh_token::Entity::delete_many()
+        .filter(refresh_token::Column::UserId.eq(user_id))
+        .filter(refresh_token::Column::ExpiresAt.lt(now))
+        .exec(&txn)
+        .await?;
 
     txn.commit().await?;
 

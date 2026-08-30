@@ -14,6 +14,7 @@ mod meta;
 mod plugin;
 mod plugin_config;
 mod problem;
+mod regression_guards;
 mod scaling;
 mod submission;
 mod user;

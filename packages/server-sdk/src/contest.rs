@@ -6,6 +6,8 @@ use crate::error::SdkError;
 #[cfg(feature = "guest")]
 use crate::types::PluginHttpRequest;
 use crate::types::PluginHttpResponse;
+#[cfg(feature = "guest")]
+use broccoli_types::permissions as perm;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ContestInfo {
@@ -66,7 +68,7 @@ fn can_view(
     contest_id: i32,
     info: &ContestInfo,
 ) -> Result<bool, ApiError> {
-    if req.has_permission("contest:manage") {
+    if req.has_permission(perm::CONTEST_MANAGE) {
         return Ok(true);
     }
     if !info.is_active {
@@ -143,7 +145,7 @@ pub fn check_problem_access(
 ) -> Result<(), ApiError> {
     let info = load_info(host, contest_id)?;
 
-    if !req.has_permission("contest:manage")
+    if !req.has_permission(perm::CONTEST_MANAGE)
         && (!info.is_active || !is_participant(host, contest_id, user_id)?)
     {
         return Err(PluginHttpResponse::error(404, "Contest not found").into());

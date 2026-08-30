@@ -1,6 +1,7 @@
 //! HTTP handler logic, kept off wasm so it unit-tests on the host. The
 //! `#[plugin_fn]` wrappers in `lib.rs` adapt these to the WASM ABI.
 
+use broccoli_server_sdk::permissions as perm;
 use broccoli_server_sdk::prelude::*;
 use serde::de::DeserializeOwned;
 
@@ -111,7 +112,7 @@ pub fn handle_print_submission(
         .ok_or_else(|| PluginHttpResponse::error(404, "Submission not found"))?;
 
     let is_staff =
-        req.has_permission("contest:manage") || req.has_permission("submission:view_all");
+        req.has_permission(perm::CONTEST_MANAGE) || req.has_permission(perm::SUBMISSION_VIEW_ALL);
     if sub.user_id != user_id && !is_staff {
         return Err(
             PluginHttpResponse::error(403, "You can only print your own submissions").into(),

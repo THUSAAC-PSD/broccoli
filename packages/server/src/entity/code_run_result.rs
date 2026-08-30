@@ -10,6 +10,8 @@ pub struct Model {
     pub id: i32,
 
     pub code_run_id: i32,
+    #[sea_orm(default_value = 0)]
+    pub judge_epoch: i32,
     pub run_index: i32,
 
     #[sea_orm(column_type = "Text")]

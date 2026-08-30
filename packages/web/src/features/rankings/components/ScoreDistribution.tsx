@@ -22,7 +22,7 @@ interface ScoreDistributionProps {
   data: DistributionEntry[];
 }
 
-/** Generate a color for each bar based on its position in the gradient (red → green) */
+/** Generate a color for each bar based on its position in the gradient (red -> green) */
 function generateBarColor(index: number, total: number): string {
   // Hue from 0 (red) to 140 (green), with 0-solved getting a neutral gray
   if (index === 0) return '#94a3b8';

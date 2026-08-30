@@ -741,6 +741,7 @@ BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD=$(env_quote "$admin_pass")
 BROCCOLI_HTTP_BIND=$(env_quote "${BROCCOLI_HTTP_BIND:-0.0.0.0:3000}")
 BROCCOLI__SERVER__ID=$(env_quote "${BROCCOLI__SERVER__ID:-server-1}")
 BROCCOLI__WORKER__ID=$(env_quote "${BROCCOLI__WORKER__ID:-worker-1}")
+BROCCOLI__WORKER__DEDUP_TTL_SECS=$(env_quote "${BROCCOLI__WORKER__DEDUP_TTL_SECS:-600}")
 BROCCOLI__SERVER__TRUSTED_PROXIES=$(env_quote "${BROCCOLI__SERVER__TRUSTED_PROXIES:-[]}")
 BROCCOLI__SERVER__RATE_LIMIT_AUTH=$(env_quote "${BROCCOLI__SERVER__RATE_LIMIT_AUTH:-true}")
 BROCCOLI__SUBMISSION__RATE_LIMIT_PER_MINUTE=$(env_quote "${BROCCOLI__SUBMISSION__RATE_LIMIT_PER_MINUTE:-10000}")
@@ -811,6 +812,7 @@ BROCCOLI_ROLE='worker'
 BROCCOLI_VERSION=$(env_quote "$version")
 BROCCOLI_WORKER_IMAGE=$(env_quote "$worker_image")
 BROCCOLI__WORKER__ID=$(env_quote "${BROCCOLI__WORKER__ID:-$(hostname -s 2>/dev/null || echo worker-1)}")
+BROCCOLI__WORKER__DEDUP_TTL_SECS=$(env_quote "${BROCCOLI__WORKER__DEDUP_TTL_SECS:-600}")
 BROCCOLI__WORKER_DATABASE_MAX_CONNECTIONS=$(env_quote "${BROCCOLI__WORKER_DATABASE_MAX_CONNECTIONS:-5}")
 BROCCOLI__DATABASE__URL=$(env_quote "$BROCCOLI__DATABASE__URL")
 BROCCOLI__MQ__URL=$(env_quote "$BROCCOLI__MQ__URL")
@@ -959,9 +961,14 @@ validate_role_env
 populate_connection_defaults
 
 SELECTED_TEMPLATE_FILE="$(selected_template_file)"
+[ -f "$SELECTED_TEMPLATE_FILE" ] || die "$SELECTED_TEMPLATE_FILE is missing"
 if [ ! -f "$COMPOSE_FILE" ]; then
-  [ -f "$SELECTED_TEMPLATE_FILE" ] || die "$SELECTED_TEMPLATE_FILE is missing"
   cp "$SELECTED_TEMPLATE_FILE" "$COMPOSE_FILE"
+elif ! cmp -s "$SELECTED_TEMPLATE_FILE" "$COMPOSE_FILE"; then
+  backup_file="${COMPOSE_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+  cp "$COMPOSE_FILE" "$backup_file"
+  cp "$SELECTED_TEMPLATE_FILE" "$COMPOSE_FILE"
+  echo "Updated $COMPOSE_FILE from template; previous file saved as $backup_file"
 fi
 
 if { [ "$ROLE" = "infra" ] || [ "$ROLE" = "single-host" ]; } && using_object_storage; then

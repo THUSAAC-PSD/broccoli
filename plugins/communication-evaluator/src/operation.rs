@@ -1,6 +1,6 @@
 use broccoli_server_sdk::types::{
-    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, JudgeFile, OperationTask,
-    OutputSpec, ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig,
+    BuildEvalOpsInput, Channel, Environment, IOConfig, IOTarget, OperationTask, OutputSpec,
+    ResolveLanguageOutput, RunOptions, SessionFile, Step, StepCacheConfig, StepKind,
 };
 
 use crate::config::{CommConfig, CommunicationMode, ManagerSourceEntry, SandboxConfig};
@@ -34,13 +34,27 @@ pub fn build_operation(
     let buffer_size = comm_config.fifo_buffer_size as usize;
     let mut channels = Vec::new();
     for i in 0..n {
+        // Declare each channel's producer/consumer STEP ids. The manager opens
+        // every channel FIFO via a raw argv path (see `manager_argv` below), and
+        // in `fifo_args` mode the contestant does too -- neither is an
+        // `IOTarget::Pipe` on stdio, so the worker's keep-alive scan cannot see
+        // them. Without these hints the argv-opened channels get no keep-alive and
+        // a peer that fails to open its end (an early exit, or an EAGAIN-failed
+        // exec under burst) strands the other side until its wall-time (the
+        // manager's is `manager_time_limit_s * exec_wall_time_multiplier`, 150s by
+        // default). The ids match the steps pushed below and hold in both modes;
+        // in `redirect` they simply agree with the stdio-pipe detection.
         channels.push(Channel {
             name: format!("c{i}_to_m"),
             buffer_size: Some(buffer_size),
+            producer_step: Some(format!("run_contestant_{i}")),
+            consumer_step: Some("run_manager".to_string()),
         });
         channels.push(Channel {
             name: format!("m_to_c{i}"),
             buffer_size: Some(buffer_size),
+            producer_step: Some("run_manager".to_string()),
+            consumer_step: Some(format!("run_contestant_{i}")),
         });
     }
 
@@ -57,10 +71,7 @@ pub fn build_operation(
             )
         })
         .collect();
-    manager_files_in.push((
-        "input.txt".to_string(),
-        session_file_from_judge_file(&req.test_input),
-    ));
+    manager_files_in.push(("input.txt".to_string(), req.test_input.to_session_file()));
 
     environments.push(Environment {
         id: "manager_env".to_string(),
@@ -119,6 +130,7 @@ pub fn build_operation(
 
         steps.push(Step {
             id: "compile_manager".to_string(),
+            kind: StepKind::Compile,
             env_ref: "manager_env".to_string(),
             argv: compile.command.clone(),
             conf: RunOptions {
@@ -139,6 +151,7 @@ pub fn build_operation(
             },
             collect,
             depends_on: vec![],
+            mounts: Vec::new(),
             cache: Some(StepCacheConfig {
                 key_inputs: compile.cache_inputs.clone(),
                 outputs: cache_outputs,
@@ -161,6 +174,7 @@ pub fn build_operation(
 
             steps.push(Step {
                 id: format!("compile_contestant_{i}"),
+                kind: StepKind::Compile,
                 env_ref: format!("contestant_{i}"),
                 argv: compile.command.clone(),
                 conf: RunOptions {
@@ -181,6 +195,7 @@ pub fn build_operation(
                 },
                 collect,
                 depends_on: vec![],
+                mounts: Vec::new(),
                 cache: Some(StepCacheConfig {
                     key_inputs: compile.cache_inputs.clone(),
                     outputs: cache_outputs,
@@ -211,12 +226,14 @@ pub fn build_operation(
 
     steps.push(Step {
         id: "run_manager".to_string(),
+        kind: StepKind::Testcase,
         env_ref: "manager_env".to_string(),
         argv: manager_argv,
         conf: RunOptions {
             resource_limits: sandbox_config.manager_limits(
                 comm_config.manager_time_limit_s,
                 comm_config.manager_memory_limit_kb,
+                comm_config.num_processes,
             ),
             wait: true,
             env_rules: vec![],
@@ -231,6 +248,7 @@ pub fn build_operation(
         },
         collect: vec![],
         depends_on: all_compile_deps.clone(),
+        mounts: Vec::new(),
         cache: None,
     });
 
@@ -266,6 +284,7 @@ pub fn build_operation(
 
         steps.push(Step {
             id: format!("run_contestant_{i}"),
+            kind: StepKind::Testcase,
             env_ref: format!("contestant_{i}"),
             argv,
             conf: RunOptions {
@@ -277,6 +296,7 @@ pub fn build_operation(
             io,
             collect: vec![],
             depends_on: all_compile_deps.clone(),
+            mounts: Vec::new(),
             cache: None,
         });
     }
@@ -287,27 +307,19 @@ pub fn build_operation(
         channels,
         priority: None,
         target_worker_id: req.target_worker_id.clone(),
+        // Tag the op so the host's `record_ops` registers the op->batch mapping;
+        // without both ids the result wait can't extend and judging reports
+        // EVALUATION_TIMEOUT. `evaluate_batch_id` is stamped by the host in
+        // resolve_inputs; `test_case_id` comes from the per-case request.
+        evaluate_batch_id: req.evaluate_batch_id.clone(),
+        test_case_id: Some(req.test_case_id),
     }])
-}
-
-fn session_file_from_judge_file(file: &JudgeFile) -> SessionFile {
-    match file {
-        JudgeFile::Blob { file } => SessionFile::Blob {
-            hash: file.blob_hash.clone(),
-        },
-        JudgeFile::Inline { text } => SessionFile::Content {
-            content: text.clone(),
-        },
-        JudgeFile::Missing => SessionFile::Content {
-            content: String::new(),
-        },
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use broccoli_server_sdk::types::{CompileSpec, RunSpec, SourceFile};
+    use broccoli_server_sdk::types::{CompileSpec, JudgeFile, RunSpec, SourceFile};
 
     fn make_req() -> BuildEvalOpsInput {
         BuildEvalOpsInput {
@@ -321,11 +333,11 @@ mod tests {
             time_limit_ms: 2000,
             memory_limit_kb: 262144,
             contest_id: None,
+            evaluate_batch_id: Some("test-batch".to_string()),
             test_input: JudgeFile::inline("5\n1 2 3 4 5\n"),
             expected_output: JudgeFile::Missing,
             checker_format: None,
             checker_config: None,
-            checker_source: None,
             additional_file_refs: vec![],
             target_worker_id: None,
         }
@@ -348,6 +360,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["./solution".to_string()],
                 extra_files: vec![],
+                min_process_limit: None,
             },
         }
     }
@@ -369,6 +382,7 @@ mod tests {
             run: RunSpec {
                 command: vec!["./manager".to_string()],
                 extra_files: vec![],
+                min_process_limit: None,
             },
         }
     }
@@ -398,6 +412,27 @@ mod tests {
             &default_sandbox(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn operation_steps_mark_compile_and_runtime_kinds() {
+        let ops = build(&make_req(), &default_comm());
+        let tasks = &ops[0].tasks;
+
+        let compile_manager = tasks.iter().find(|s| s.id == "compile_manager").unwrap();
+        assert_eq!(compile_manager.kind, StepKind::Compile);
+
+        let compile_contestant = tasks
+            .iter()
+            .find(|s| s.id == "compile_contestant_0")
+            .unwrap();
+        assert_eq!(compile_contestant.kind, StepKind::Compile);
+
+        let run_manager = tasks.iter().find(|s| s.id == "run_manager").unwrap();
+        assert_eq!(run_manager.kind, StepKind::Testcase);
+
+        let run_contestant = tasks.iter().find(|s| s.id == "run_contestant_0").unwrap();
+        assert_eq!(run_contestant.kind, StepKind::Testcase);
     }
 
     #[test]

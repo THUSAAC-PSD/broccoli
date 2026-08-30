@@ -1,20 +1,14 @@
-use std::time::Duration;
-
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use common::SubmissionStatus;
-use common::submission_dispatch::{
-    OnCodeRunInput, OnCodeRunOutput, SourceFile, TestCaseBodyRef, TestCaseRow,
-};
 use sea_orm::*;
-use tracing::{error, info, instrument, warn};
+use tracing::instrument;
 
-const CODE_RUN_DISPATCH_TIMEOUT: Duration = Duration::from_secs(180);
-
-use crate::consumers::mark_code_run_system_error;
+use crate::dispatcher::queue_depth::enforce_queue_depth_admission;
 use crate::entity::{code_run, code_run_result, problem, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
@@ -24,220 +18,12 @@ use crate::models::code_run::*;
 use crate::state::AppState;
 use crate::utils::contest::{
     find_contest, is_problem_in_contest, require_contest_participant, require_contest_running,
+    require_problem_read_access,
 };
 use crate::utils::judging::{files_from_json, files_to_json, validate_run_language};
 use crate::utils::problem::find_problem;
 use crate::utils::rate_limit::check_rate_limit;
 use crate::utils::text::sanitize_db_json;
-
-#[instrument(skip(state), fields(code_run_id = code_run.id))]
-pub(crate) async fn dispatch_to_plugin(state: AppState, code_run: code_run::Model) {
-    let handler = {
-        let registry = state.registries.contest_type_registry.read().await;
-        registry.get(&code_run.contest_type).cloned()
-    };
-
-    let handler = match handler {
-        Some(h) => h,
-        None => {
-            warn!(
-                code_run_id = code_run.id,
-                contest_type = %code_run.contest_type,
-                "No plugin registered for contest type"
-            );
-            let _ = mark_code_run_system_error(
-                &state.db,
-                code_run.id,
-                "NO_HANDLER_REGISTERED",
-                &format!(
-                    "No plugin registered for contest type {:?}",
-                    code_run.contest_type
-                ),
-            )
-            .await;
-            return;
-        }
-    };
-
-    let problem = match problem::Entity::find_by_id(code_run.problem_id)
-        .one(&state.db)
-        .await
-    {
-        Ok(Some(p)) => p,
-        Ok(None) => {
-            error!(problem_id = code_run.problem_id, "Problem not found");
-            let _ = mark_code_run_system_error(
-                &state.db,
-                code_run.id,
-                "PROBLEM_NOT_FOUND",
-                &format!("Problem {} not found", code_run.problem_id),
-            )
-            .await;
-            return;
-        }
-        Err(e) => {
-            error!(error = %e, "DB error fetching problem");
-            let _ = mark_code_run_system_error(
-                &state.db,
-                code_run.id,
-                "DATABASE_ERROR",
-                &format!("Failed to fetch problem: {}", e),
-            )
-            .await;
-            return;
-        }
-    };
-
-    let files: Vec<SourceFile> = match serde_json::from_value(code_run.files.clone()) {
-        Ok(f) => f,
-        Err(e) => {
-            error!(error = %e, "Failed to parse code run files");
-            let _ = mark_code_run_system_error(
-                &state.db,
-                code_run.id,
-                "INVALID_FILES",
-                &format!("Failed to parse code run files: {}", e),
-            )
-            .await;
-            return;
-        }
-    };
-
-    let custom_tcs: Vec<CustomTestCaseInput> =
-        serde_json::from_value(code_run.custom_test_cases.clone()).unwrap_or_default();
-    let resolved_test_cases: Vec<TestCaseRow> = custom_tcs
-        .iter()
-        .enumerate()
-        .map(|(i, tc)| TestCaseRow {
-            id: i as i32,
-            score: 0.0,
-            is_sample: false,
-            position: i as i32,
-            description: None,
-            label: None,
-            input: TestCaseBodyRef::inline(tc.input.clone()),
-            expected_output: tc
-                .expected_output
-                .clone()
-                .map(TestCaseBodyRef::inline)
-                .unwrap_or_default(),
-            is_custom: true,
-        })
-        .collect();
-
-    let input = OnCodeRunInput {
-        id: code_run.id,
-        user_id: code_run.user_id,
-        problem_id: code_run.problem_id,
-        contest_id: code_run.contest_id,
-        files,
-        language: code_run.language.clone(),
-        time_limit_ms: problem.time_limit,
-        memory_limit_kb: problem.memory_limit,
-        problem_type: problem.problem_type.clone(),
-        test_cases: resolved_test_cases,
-    };
-
-    let input_bytes = match serde_json::to_vec(&input) {
-        Ok(b) => b,
-        Err(e) => {
-            error!(error = %e, "Failed to serialize code run input");
-            let _ = mark_code_run_system_error(
-                &state.db,
-                code_run.id,
-                "SERIALIZATION_ERROR",
-                &format!("Failed to serialize input: {}", e),
-            )
-            .await;
-            return;
-        }
-    };
-
-    let plugin_id = handler.plugin_id.clone();
-    let function_name = handler.code_run_fn.clone();
-    let plugins = state.plugins.clone();
-    let db = state.db.clone();
-    let code_run_id = code_run.id;
-
-    info!(
-        code_run_id,
-        plugin_id = %plugin_id,
-        function_name = %function_name,
-        "Dispatching code run to plugin"
-    );
-
-    tokio::spawn(async move {
-        let call_fut = plugins.call_raw(&plugin_id, &function_name, input_bytes);
-        let result = match tokio::time::timeout(CODE_RUN_DISPATCH_TIMEOUT, call_fut).await {
-            Ok(r) => r,
-            Err(_) => {
-                error!(
-                    code_run_id,
-                    plugin_id = %plugin_id,
-                    function_name = %function_name,
-                    timeout_secs = CODE_RUN_DISPATCH_TIMEOUT.as_secs(),
-                    "Code run dispatch timed out"
-                );
-                let _ = mark_code_run_system_error(
-                    &db,
-                    code_run_id,
-                    "DISPATCH_TIMEOUT",
-                    &format!(
-                        "Code run dispatch exceeded {}s timeout",
-                        CODE_RUN_DISPATCH_TIMEOUT.as_secs()
-                    ),
-                )
-                .await;
-                return;
-            }
-        };
-
-        match result {
-            Ok(output_bytes) => match serde_json::from_slice::<OnCodeRunOutput>(&output_bytes) {
-                Ok(output) => {
-                    if !output.success {
-                        error!(
-                            code_run_id,
-                            error = ?output.error_message,
-                            "Plugin reported failure"
-                        );
-                        let _ = mark_code_run_system_error(
-                            &db,
-                            code_run_id,
-                            "PLUGIN_ERROR",
-                            &output
-                                .error_message
-                                .unwrap_or_else(|| "Unknown plugin error".to_string()),
-                        )
-                        .await;
-                    } else {
-                        info!(code_run_id, "Plugin completed code run successfully");
-                    }
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to parse plugin output");
-                    let _ = mark_code_run_system_error(
-                        &db,
-                        code_run_id,
-                        "PLUGIN_INVALID_OUTPUT",
-                        &format!("Plugin returned invalid output: {}", e),
-                    )
-                    .await;
-                }
-            },
-            Err(e) => {
-                error!(error = %e, "Plugin execution failed");
-                let _ = mark_code_run_system_error(
-                    &db,
-                    code_run_id,
-                    "PLUGIN_EXECUTION_ERROR",
-                    &e.to_string(),
-                )
-                .await;
-            }
-        }
-    });
-}
 
 async fn build_code_run_response(
     db: &DatabaseConnection,
@@ -347,7 +133,8 @@ async fn build_code_run_response(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limited (RATE_LIMITED)", body = ErrorBody),
+        (status = 429, description = "Per-user rate limited (RATE_LIMITED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -358,7 +145,7 @@ pub async fn run_code(
     AppPath(problem_id): AppPath<i32>,
     AppJson(payload): AppJson<RunCodeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("submission:submit")?;
+    auth_user.require_permission(perm::SUBMISSION_SUBMIT)?;
     validate_run_code(&payload, state.config.submission.max_size)?;
     check_rate_limit(
         &state.db,
@@ -366,9 +153,18 @@ pub async fn run_code(
         state.config.submission.rate_limit_per_minute,
     )
     .await?;
+    // UP#39 backpressure-on-post: code-run rows ride the same
+    // durable-accept lifecycle as submissions (see
+    // `submission::create_submission`) and are counted toward the
+    // same cap.
+    enforce_queue_depth_admission(&state).await?;
 
     let txn = state.db.begin().await?;
     let problem = find_problem(&txn, problem_id).await?;
+    // Prevent probing hidden/unreleased problems: a code run must be gated by
+    // the same read-access rule as viewing the problem (contest membership or
+    // problem-edit permission), not merely the `submission:submit` capability.
+    require_problem_read_access(&txn, &auth_user, problem_id).await?;
 
     let known_languages: std::collections::HashSet<String> = state
         .registries
@@ -390,7 +186,11 @@ pub async fn run_code(
     let new_code_run = code_run::ActiveModel {
         files: Set(files_to_json(&payload.files)),
         language: Set(language),
-        status: Set(SubmissionStatus::Pending),
+        // UP#37: code-run rows ride the same durable-accept lifecycle
+        // as submissions - see `handlers/submission.rs::create_submission`
+        // for the gap being closed and `dispatcher/claim.rs` for the
+        // claim fiber that picks `Queued` rows off this table too.
+        status: Set(SubmissionStatus::Queued),
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
         contest_id: Set(None),
@@ -402,12 +202,6 @@ pub async fn run_code(
 
     let model = new_code_run.insert(&txn).await?;
     txn.commit().await?;
-
-    let state_clone = state.clone();
-    let model_clone = model.clone();
-    tokio::spawn(async move {
-        dispatch_to_plugin(state_clone, model_clone).await;
-    });
 
     let response = build_code_run_response(&state.db, model).await?;
 
@@ -432,7 +226,8 @@ pub async fn run_code(
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Contest or problem not found (NOT_FOUND)", body = ErrorBody),
-        (status = 429, description = "Rate limited (RATE_LIMITED)", body = ErrorBody),
+        (status = 429, description = "Per-user rate limited (RATE_LIMITED)", body = ErrorBody),
+        (status = 503, description = "Durable queue depth exceeded (QUEUE_OVERLOADED)", body = ErrorBody),
     ),
     security(("jwt" = [])),
 )]
@@ -443,7 +238,7 @@ pub async fn run_contest_code(
     AppPath((id, problem_id)): AppPath<(i32, i32)>,
     AppJson(payload): AppJson<RunCodeRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("submission:submit")?;
+    auth_user.require_permission(perm::SUBMISSION_SUBMIT)?;
     validate_run_code(&payload, state.config.submission.max_size)?;
     check_rate_limit(
         &state.db,
@@ -451,13 +246,18 @@ pub async fn run_contest_code(
         state.config.submission.rate_limit_per_minute,
     )
     .await?;
+    // UP#39 backpressure-on-post: same rationale as `run_code`.
+    enforce_queue_depth_admission(&state).await?;
 
     let contest_id = id;
-    let txn = state.db.begin().await?;
-
-    let contest_model = find_contest(&txn, contest_id).await?;
-    let _problem = find_problem(&txn, problem_id).await?;
-    if !is_problem_in_contest(&txn, contest_id, problem_id).await? {
+    // No wrapping transaction: independent read validations + a single-row
+    // INSERT. Holding a pooled txn connection open across the later
+    // `require_contest_participant(&state.db)` acquisition deadlocked the core
+    // pool under sustained load — see `submission::create_contest_submission`
+    // for the full analysis. Each step runs on the pool directly.
+    let contest_model = find_contest(&state.db, contest_id).await?;
+    let _problem = find_problem(&state.db, problem_id).await?;
+    if !is_problem_in_contest(&state.db, contest_id, problem_id).await? {
         return Err(AppError::NotFound(
             "Problem not found in this contest".into(),
         ));
@@ -492,7 +292,8 @@ pub async fn run_contest_code(
     let new_code_run = code_run::ActiveModel {
         files: Set(files_to_json(&payload.files)),
         language: Set(language),
-        status: Set(SubmissionStatus::Pending),
+        // UP#37: durable-accept - see `run_code` above for the rationale.
+        status: Set(SubmissionStatus::Queued),
         user_id: Set(auth_user.user_id),
         problem_id: Set(problem_id),
         contest_id: Set(Some(contest_id)),
@@ -502,14 +303,7 @@ pub async fn run_contest_code(
         ..Default::default()
     };
 
-    let model = new_code_run.insert(&txn).await?;
-    txn.commit().await?;
-
-    let state_clone = state.clone();
-    let model_clone = model.clone();
-    tokio::spawn(async move {
-        dispatch_to_plugin(state_clone, model_clone).await;
-    });
+    let model = new_code_run.insert(&state.db).await?;
 
     let response = build_code_run_response(&state.db, model).await?;
 
@@ -543,7 +337,7 @@ pub async fn get_code_run(
         .ok_or_else(|| AppError::NotFound("Code run not found".into()))?;
 
     let can_view =
-        cr.user_id == auth_user.user_id || auth_user.has_permission("submission:view_all");
+        cr.user_id == auth_user.user_id || auth_user.has_permission(perm::SUBMISSION_VIEW_ALL);
 
     if !can_view {
         return Err(AppError::NotFound("Code run not found".into()));

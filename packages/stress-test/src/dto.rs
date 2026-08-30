@@ -87,6 +87,23 @@ pub struct TestCaseListItem {
     pub problem_id: i32,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AttachmentListResponse {
+    pub attachments: Vec<AttachmentResponse>,
+    pub total: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AttachmentResponse {
+    pub id: String,
+    pub path: String,
+    pub filename: String,
+    pub content_type: Option<String>,
+    pub size: i64,
+    pub content_hash: String,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RegistriesResponse {
     pub problem_types: Vec<String>,
@@ -115,8 +132,12 @@ pub struct ContestResponse {
 pub struct CreateContestRequest {
     pub title: String,
     pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activate_time: Option<DateTime<Utc>>,
     pub start_time: DateTime<Utc>,
     pub end_time: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deactivate_time: Option<DateTime<Utc>>,
     pub is_public: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contest_type: Option<String>,
@@ -128,6 +149,41 @@ pub struct AddContestProblemRequest {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<i32>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct BulkAddParticipantsRequest {
+    #[serde(default)]
+    pub usernames: Vec<String>,
+    #[serde(default)]
+    pub create_users: Vec<CreateUserEntry>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct CreateUserEntry {
+    pub username: String,
+    pub password: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BulkAddParticipantsResponse {
+    pub added: Vec<BulkParticipantAdded>,
+    pub created: Vec<BulkParticipantCreated>,
+    pub already_enrolled: Vec<BulkParticipantAdded>,
+    pub not_found: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BulkParticipantAdded {
+    pub user_id: i32,
+    pub username: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BulkParticipantCreated {
+    pub user_id: i32,
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -142,6 +198,36 @@ pub struct CreateSubmissionRequest {
     pub language: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contest_type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CustomTestCaseInput {
+    pub input: String,
+    pub expected_output: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RunCodeRequest {
+    pub files: Vec<SubmissionFileDto>,
+    pub language: String,
+    pub custom_test_cases: Vec<CustomTestCaseInput>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CodeRunResponse {
+    pub id: i32,
+    pub files: Vec<SubmissionFileDto>,
+    pub language: String,
+    pub status: SubmissionStatus,
+    pub user_id: i32,
+    pub username: String,
+    pub problem_id: i32,
+    pub problem_title: String,
+    pub contest_id: Option<i32>,
+    pub contest_type: String,
+    pub custom_test_cases: Vec<CustomTestCaseInput>,
+    pub created_at: DateTime<Utc>,
+    pub result: Option<JudgeResultResponse>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -182,14 +268,43 @@ pub struct TestCaseResultResponse {
     pub test_case_id: Option<i32>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// Verdict used to be a hand-rolled byte-for-byte copy of the canonical enum
+// in `common` (including the custom wire-string serde). Re-export the real
+// one instead so it can never drift behind the server contract.
+pub use common::submission_status::Verdict;
+
+/// Submission lifecycle status as returned by the server.
+///
+/// This mirrors [`common::SubmissionStatus`] instead of re-exporting it
+/// because harness hot paths pass statuses around by value and rely on
+/// `Copy`, which the canonical enum does not derive. The previous local copy
+/// silently drifted behind the wire contract: it was missing the `Queued`
+/// durable-accept status the server persists and returns on
+/// `POST /submissions`, so every create/poll that observed `Queued` failed
+/// serde with an unknown-variant error. Drift is now guarded three ways:
+///
+/// - deserialization delegates to the canonical [`std::str::FromStr`] impl
+///   in `common`, so the accepted wire strings are exactly the server's;
+/// - [`From<common::SubmissionStatus>`] matches exhaustively, so adding a
+///   status server-side fails this crate's build instead of breaking the
+///   harness at runtime;
+/// - wire strings this build does not know map to [`Self::Unknown`] instead
+///   of aborting the poll loop with a serde error.
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SubmissionStatus {
+    /// Durable accept state: persisted by the API but not yet claimed for
+    /// dispatch. Returned by `POST /submissions` before `Pending`.
+    Queued,
     Pending,
     Compiling,
     Running,
     Judged,
     CompilationError,
     SystemError,
+    /// Catch-all for wire statuses this build does not know about. Treated
+    /// as non-terminal so pollers keep waiting (and eventually time out
+    /// visibly) rather than crashing on an unrecognised status.
+    Unknown,
 }
 
 impl SubmissionStatus {
@@ -201,62 +316,32 @@ impl SubmissionStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Verdict {
-    Accepted,
-    WrongAnswer,
-    TimeLimitExceeded,
-    MemoryLimitExceeded,
-    RuntimeError,
-    SystemError,
-    Skipped,
-    Other(String),
-}
-
-impl Verdict {
-    fn as_wire_str(&self) -> &str {
-        match self {
-            Self::Accepted => "Accepted",
-            Self::WrongAnswer => "WrongAnswer",
-            Self::TimeLimitExceeded => "TimeLimitExceeded",
-            Self::MemoryLimitExceeded => "MemoryLimitExceeded",
-            Self::RuntimeError => "RuntimeError",
-            Self::SystemError => "SystemError",
-            Self::Skipped => "Skipped",
-            Self::Other(s) => s.as_str(),
-        }
-    }
-
-    fn from_wire_str(s: &str) -> Self {
-        match s {
-            "Accepted" => Self::Accepted,
-            "WrongAnswer" => Self::WrongAnswer,
-            "TimeLimitExceeded" => Self::TimeLimitExceeded,
-            "MemoryLimitExceeded" => Self::MemoryLimitExceeded,
-            "RuntimeError" => Self::RuntimeError,
-            "SystemError" => Self::SystemError,
-            "Skipped" => Self::Skipped,
-            other => Self::Other(other.to_string()),
+impl From<common::SubmissionStatus> for SubmissionStatus {
+    fn from(status: common::SubmissionStatus) -> Self {
+        // Exhaustive on purpose: a new variant in `common` must break this
+        // build so the mirror cannot silently fall behind again.
+        match status {
+            common::SubmissionStatus::Queued => Self::Queued,
+            common::SubmissionStatus::Pending => Self::Pending,
+            common::SubmissionStatus::Compiling => Self::Compiling,
+            common::SubmissionStatus::Running => Self::Running,
+            common::SubmissionStatus::Judged => Self::Judged,
+            common::SubmissionStatus::CompilationError => Self::CompilationError,
+            common::SubmissionStatus::SystemError => Self::SystemError,
         }
     }
 }
 
-impl Serialize for Verdict {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.as_wire_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for Verdict {
+impl<'de> Deserialize<'de> for SubmissionStatus {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let raw = String::deserialize(deserializer)?;
-        Ok(Self::from_wire_str(&raw))
+        Ok(raw
+            .parse::<common::SubmissionStatus>()
+            .map(Self::from)
+            .unwrap_or(Self::Unknown))
     }
 }
 
@@ -275,6 +360,7 @@ mod tests {
     #[test]
     fn submission_status_round_trip() {
         let cases = [
+            (SubmissionStatus::Queued, "\"Queued\""),
             (SubmissionStatus::Pending, "\"Pending\""),
             (SubmissionStatus::Compiling, "\"Compiling\""),
             (SubmissionStatus::Running, "\"Running\""),
@@ -292,12 +378,67 @@ mod tests {
 
     #[test]
     fn submission_status_is_terminal_matches_server_definition() {
+        assert!(!SubmissionStatus::Queued.is_terminal());
         assert!(!SubmissionStatus::Pending.is_terminal());
         assert!(!SubmissionStatus::Compiling.is_terminal());
         assert!(!SubmissionStatus::Running.is_terminal());
         assert!(SubmissionStatus::Judged.is_terminal());
         assert!(SubmissionStatus::CompilationError.is_terminal());
         assert!(SubmissionStatus::SystemError.is_terminal());
+        assert!(!SubmissionStatus::Unknown.is_terminal());
+    }
+
+    #[test]
+    fn submission_status_mirrors_common_wire_contract() {
+        // Drift guard: every status the server can emit must round-trip
+        // through the local mirror with identical wire strings and identical
+        // terminality.
+        for canonical in common::SubmissionStatus::ALL {
+            let wire = serde_json::to_string(canonical).unwrap();
+            let local: SubmissionStatus = serde_json::from_str(&wire).unwrap();
+            assert_eq!(local, SubmissionStatus::from(canonical.clone()));
+            assert_ne!(
+                local,
+                SubmissionStatus::Unknown,
+                "known status {wire} must not fall back"
+            );
+            assert_eq!(serde_json::to_string(&local).unwrap(), wire);
+            assert_eq!(
+                local.is_terminal(),
+                canonical.is_terminal(),
+                "terminality of {wire}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_submission_status_falls_back_instead_of_failing() {
+        let parsed: SubmissionStatus = serde_json::from_str("\"BrandNewStatus\"").unwrap();
+        assert_eq!(parsed, SubmissionStatus::Unknown);
+        assert!(!parsed.is_terminal());
+    }
+
+    #[test]
+    fn parses_queued_submission_from_post_response() {
+        // The server persists Queued and returns 201 immediately; the
+        // previous local enum copy failed serde on exactly this response.
+        let raw = r#"{
+            "id": 2,
+            "language": "cpp",
+            "status": "Queued",
+            "user_id": 7,
+            "username": "stress-bot",
+            "problem_id": 3,
+            "problem_title": "Two Sum",
+            "contest_id": null,
+            "contest_type": "ioi",
+            "judge_epoch": 0,
+            "created_at": "2026-05-01T12:00:00Z",
+            "result": null
+        }"#;
+        let parsed: SubmissionResponse = serde_json::from_str(raw).unwrap();
+        assert_eq!(parsed.status, SubmissionStatus::Queued);
+        assert!(!parsed.status.is_terminal());
     }
 
     #[test]
@@ -310,6 +451,7 @@ mod tests {
             (Verdict::RuntimeError, "\"RuntimeError\""),
             (Verdict::SystemError, "\"SystemError\""),
             (Verdict::Skipped, "\"Skipped\""),
+            (Verdict::Cancelled, "\"Cancelled\""),
         ];
         for (variant, expected) in cases {
             let serialised = serde_json::to_string(&variant).unwrap();
@@ -395,7 +537,6 @@ mod tests {
             "time_limit": 1000,
             "memory_limit": 262144,
             "problem_type": "batch",
-            "checker_source": null,
             "checker_format": "exact",
             "default_contest_type": "ioi",
             "show_test_details": false,

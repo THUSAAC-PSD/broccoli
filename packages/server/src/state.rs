@@ -8,9 +8,10 @@ use plugin_core::traits::PluginManager;
 use sea_orm::DatabaseConnection;
 
 use crate::config::AppConfig;
+use crate::dispatcher::permits::DispatcherSemaphore;
 use crate::hooks::SharedHookRegistry;
 use crate::registry::{
-    CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
+    CheckerStageRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 
@@ -28,7 +29,7 @@ pub type DeviceCodeStore = Arc<DashMap<String, PendingDeviceAuth>>;
 pub struct RegistryState {
     pub contest_type_registry: ContestTypeRegistry,
     pub evaluator_registry: EvaluatorRegistry,
-    pub checker_format_registry: CheckerFormatRegistry,
+    pub checker_stage_registry: CheckerStageRegistry,
     pub language_resolver_registry: LanguageResolverRegistry,
     pub operation_batches: OperationBatches,
     pub operation_waiters: OperationWaiters,
@@ -48,4 +49,7 @@ pub struct AppState {
     pub device_codes: DeviceCodeStore,
     pub metrics: common::metrics::Metrics,
     pub prometheus_registry: prometheus::Registry,
+    pub dispatcher_permits: DispatcherSemaphore,
+    /// In-memory, per-process brute-force throttle for the login endpoint.
+    pub login_throttle: Arc<crate::utils::login_throttle::LoginThrottle>,
 }

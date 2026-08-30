@@ -1,0 +1,17 @@
+[package]
+name = "broccoli-compare"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "broccoli-compare"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+
+[dev-dependencies]
+# `tempfile` is not declared in the root [workspace.dependencies], so pin a
+# direct version. "3" resolves to the 3.27.x already in Cargo.lock.
+tempfile = "3"

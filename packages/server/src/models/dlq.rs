@@ -128,6 +128,10 @@ pub struct MessageTypeCounts {
     pub operation_task: u64,
     #[schema(example = 3)]
     pub stuck_submission: u64,
+    #[schema(example = 1)]
+    pub stuck_code_run: u64,
+    #[schema(example = 1)]
+    pub stuck_submission_judgement: u64,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -148,6 +152,8 @@ impl From<DlqStats> for DlqStatsResponse {
             unresolved_by_message_type: MessageTypeCounts {
                 operation_task: s.operation_task_count,
                 stuck_submission: s.stuck_submission_count,
+                stuck_code_run: s.stuck_code_run_count,
+                stuck_submission_judgement: s.stuck_submission_judgement_count,
             },
             unresolved_by_error_code: s.unresolved_by_error_code,
         }

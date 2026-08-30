@@ -603,7 +603,7 @@ async fn setup_contest_with_attachment(
     let token = app
         .create_user_with_role(admin_name, "pass1234", "admin")
         .await;
-    let problem_id = app.create_problem(&token, "Contest problem").await;
+    let problem_id = app.create_hidden_problem(&token, "Contest problem").await;
     let contest_id = app
         .create_contest(&token, "Test contest", is_public, true)
         .await;
@@ -701,7 +701,9 @@ mod contest_based_access {
         let admin = app
             .create_user_with_role("cadm4", "pass1234", "admin")
             .await;
-        let problem_id = app.create_problem(&admin, "Standalone problem").await;
+        let problem_id = app
+            .create_hidden_problem(&admin, "Standalone problem")
+            .await;
 
         let upload = app
             .upload_attachment(problem_id, "file.txt", b"data".to_vec(), None, &admin)
@@ -803,7 +805,7 @@ mod contest_based_access {
         let admin = app
             .create_user_with_role("cladm2", "pass1234", "admin")
             .await;
-        let problem_id = app.create_problem(&admin, "Private problem").await;
+        let problem_id = app.create_hidden_problem(&admin, "Private problem").await;
         let contest_id = app
             .create_contest(&admin, "Private contest", false, true)
             .await;

@@ -6,22 +6,18 @@ use anyhow::{Context, Result, bail};
 use clap::Args;
 use console::style;
 
-use broccoli_cli_core::client::Client;
-use broccoli_cli_core::config::{Credentials, save_credentials, save_credentials_full};
+use broccoli_cli_core::client::{Client, persist_session};
+use broccoli_cli_core::config::{Credentials, load_user_config};
 
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(120);
 const SPIN_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Args)]
 pub struct LoginArgs {
-    /// Broccoli contest server URL.
-    #[arg(
-        short,
-        long,
-        default_value = "http://localhost:3000",
-        env = "BROCCOLI_URL"
-    )]
-    pub server: String,
+    /// Broccoli contest server URL. Falls back to $BROCCOLI_URL, then the saved
+    /// config (`broccoli config set server`), then http://localhost:3000.
+    #[arg(short, long, env = "BROCCOLI_URL")]
+    pub server: Option<String>,
 
     /// Username for direct login.
     #[arg(short, long)]
@@ -37,14 +33,22 @@ pub struct LoginArgs {
 }
 
 pub fn run(args: LoginArgs) -> Result<()> {
+    // Precedence: --server flag or $BROCCOLI_URL (both via clap), then the saved
+    // user config, then the local default. Without the config step, `broccoli
+    // config set server X` was silently ignored and login always hit localhost.
+    let server = args
+        .server
+        .or_else(|| load_user_config().server)
+        .unwrap_or_else(|| "http://localhost:3000".to_string());
+
     if let (Some(username), Some(password)) = (&args.username, &args.password) {
-        return login_direct(&args.server, username, password);
+        return login_direct(&server, username, password);
     }
 
     let no_browser = args.no_browser || is_headless();
 
     if !no_browser {
-        match login_via_callback(&args.server) {
+        match login_via_callback(&server) {
             Ok(msg) => return Ok(msg),
             Err(e) => {
                 eprintln!("{}", style(format!("Browser login failed: {}", e)).yellow());
@@ -53,7 +57,7 @@ pub fn run(args: LoginArgs) -> Result<()> {
         }
     }
 
-    login_via_paste(&args.server)
+    login_via_paste(&server)
 }
 
 fn login_direct(server: &str, username: &str, password: &str) -> Result<()> {
@@ -69,21 +73,6 @@ fn login_direct(server: &str, username: &str, password: &str) -> Result<()> {
 
     persist_session(server, &resp.token)?;
     print_logged_in(&resp.username, server);
-    Ok(())
-}
-
-/// Swap access token for a refresh token and store both; older servers fall back to access-token-only.
-fn persist_session(server: &str, access_token: &str) -> Result<()> {
-    let client = Client::new(Credentials {
-        server: server.to_string(),
-        token: access_token.to_string(),
-        refresh_token: None,
-    });
-    match client.issue_cli_token() {
-        Ok(cli) => save_credentials_full(server, &cli.token, Some(&cli.refresh_token))
-            .context("Failed to save credentials")?,
-        Err(_) => save_credentials(server, access_token).context("Failed to save credentials")?,
-    }
     Ok(())
 }
 

@@ -10,7 +10,8 @@ export const SlotPermissionsContext =
 
 /**
  * Hook to access the current user's permissions for slot filtering.
- * Returns null if no SlotPermissionsProvider is present (all slots render).
+ * Returns null if no SlotPermissionsProvider is present; `Slot` then treats the
+ * user as having no permissions, so only permission-less slots render.
  */
 export function useSlotPermissions(): SlotPermissionsContextValue | null {
   return use(SlotPermissionsContext);
