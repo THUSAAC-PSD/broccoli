@@ -12,8 +12,8 @@ mod submission;
 mod verdict;
 
 pub use checker::{
-    CheckerParseInput, CheckerSmallResult, CheckerStage, CheckerVerdict, InterpretCheckerInput,
-    OutputMode, ResolveCheckerInput,
+    CheckerSmallResult, CheckerStage, CheckerVerdict, InterpretCheckerInput, OutputMode,
+    ResolveCheckerInput,
 };
 pub use code_run::{OnCodeRunInput, OnCodeRunOutput};
 pub use config::{CascadeLevel, CascadeLevels, ConfigResult, ConfigSource, EffectiveConfig};
