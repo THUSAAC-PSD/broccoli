@@ -12,6 +12,19 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Running contests',
+      collapsed: false,
+      items: [
+        {
+          type: 'category',
+          label: 'Contest formats',
+          collapsed: false,
+          items: ['running-contests/contest-formats/icpc'],
+        },
+      ],
+    },
+    {
+      type: 'category',
       label: 'Building plugins',
       collapsed: false,
       items: ['building-plugins/getting-started'],
