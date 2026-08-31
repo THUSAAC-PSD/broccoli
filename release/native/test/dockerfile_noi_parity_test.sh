@@ -31,10 +31,21 @@ check 'old-releases\.ubuntu\.com'                   # EOL-mirror fallback
 
 # --- gcc 9.3.0 parity ---
 check 'ARG GCC_VERSION=9\.3\.0'
-check 'ARG GCC_APT_VERSION=9\.3\.0-17ubuntu1~20\.04'
+# The installable 9.3.0 is the focal/main GA revision (frozen pocket); the former
+# -updates pin 9.3.0-17ubuntu1~20.04 was a phantom (focal-updates floated to
+# 9.4.0 and dropped it), which wedged the build. Pin the GA revision instead.
+check 'ARG GCC_APT_VERSION=9\.3\.0-10ubuntu2'
 check 'g\+\+-9=\$\{?GCC_APT_VERSION\}?'
+# gcc-9-base (exact-depended) and libasan5 (hard-depended by libgcc-9-dev) must be
+# pinned to the same rev, else apt resolves them to the 9.4.0 candidate and aborts
+# with "held broken packages".
+check 'gcc-9-base=\$\{?GCC_APT_VERSION\}?'
+check 'libasan5=\$\{?GCC_APT_VERSION\}?'
 check 'update-alternatives --install /usr/bin/g\+\+ g\+\+ /usr/bin/g\+\+-9'
 check 'gcc --version.*\$\{?GCC_VERSION\}?'          # baked version assert
+
+# --- non-interactive apt (tzdata postinst prompt would wedge BuildKit) ---
+check 'ENV DEBIAN_FRONTEND=noninteractive'
 
 # --- kotlin from tarball, not focal apt (which lacks it) ---
 check 'ARG KOTLIN_VERSION='
