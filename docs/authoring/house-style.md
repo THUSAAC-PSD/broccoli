@@ -1,6 +1,6 @@
 # Broccoli docs house style
 
-Shared rules for every documentation page, in all three audiences.
+Shared rules for every documentation page, in all five audiences.
 
 ## Pick the audience first
 
@@ -11,6 +11,10 @@ and structure.
 - Plugin developer facing. People building plugins on the SDKs. Section:
   Building plugins.
 - Maintainer facing. People working on the host platform. Section: Internals.
+- Organizer facing. People running a contest and setting problems. Section:
+  Running contests. Takes user punctuation: no colons and no hyphens in prose.
+- Operator facing. People deploying and running a server. Section: Operating
+  Broccoli. Colons and hyphens are fine in prose.
 
 A subject is not an audience. One subject often becomes several pages in several
 sections.
@@ -31,13 +35,14 @@ sections.
 
 ## Punctuation
 
-- Em dashes are banned in all three audiences.
-- No colons and no hyphens in prose applies to user facing docs only. Plugin
-  developer and maintainer prose may use colons and hyphens.
+- Em dashes are banned in all five audiences.
+- No colons and no hyphens in prose applies to user facing and organizer
+  facing docs. Plugin developer, maintainer, and operator facing prose may
+  use colons and hyphens.
 
 ## Bilingual
 
-All three audiences ship English and Simplified Chinese. The Chinese page
+All five audiences ship English and Simplified Chinese. The Chinese page
 translates the prose, keeps every command and code block identical, uses formal
 technical Chinese, and relies on the CJK auto anchor for headings with no
 explicit id.
