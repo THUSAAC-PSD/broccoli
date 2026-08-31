@@ -7,6 +7,14 @@
 //! than paper over the verdict, the worker refuses to start in configurations
 //! that produce it.
 
+/// The isolate sandbox is used for every backend that is not case-insensitively
+/// "mock" — unknown/typo/wrong-case values fall back to isolate at runtime
+/// (see OperationTaskExecutor::sandbox_manager_from_config), so the safety
+/// gates must treat them as isolate too.
+pub fn uses_isolate(backend: &str) -> bool {
+    !backend.eq_ignore_ascii_case("mock")
+}
+
 /// Reject the isolate backend when cgroups are off, unless the operator has
 /// explicitly opted into the insecure mode (development only).
 pub fn validate_sandbox_config(
@@ -14,18 +22,32 @@ pub fn validate_sandbox_config(
     enable_cgroups: bool,
     allow_insecure: bool,
 ) -> Result<(), String> {
-    // Mirror OperationTaskExecutor::sandbox_manager_from_config: any backend
-    // that isn't case-insensitively "mock" resolves to the isolate sandbox
-    // (unknown values fall back to isolate with only a warning). The gate
-    // must refuse cgroups-off for every backend that will actually boot
-    // isolate, not just the literal string "isolate".
-    let uses_isolate = !backend.eq_ignore_ascii_case("mock");
-    if uses_isolate && !enable_cgroups && !allow_insecure {
+    // isolate iff not "mock" — see uses_isolate.
+    if uses_isolate(backend) && !enable_cgroups && !allow_insecure {
         return Err("isolate sandbox requires cgroups; refusing to start with \
              worker.enable_cgroups=false (over-limit runs would be misreported \
              as RuntimeError instead of MemoryLimitExceeded). Set \
              worker.allow_insecure_no_cgroups=true to override for development."
             .to_string());
+    }
+    Ok(())
+}
+
+/// Ensure the unified cgroup v2 hierarchy exposes the controllers isolate
+/// needs. `contents` is the text of `/sys/fs/cgroup/cgroup.controllers`.
+pub fn controllers_present(contents: &str) -> Result<(), String> {
+    if contents.trim().is_empty() {
+        return Err("cgroup v2 controllers are empty".to_string());
+    }
+    let have: std::collections::HashSet<&str> = contents.split_whitespace().collect();
+    for required in ["cpu", "memory", "pids"] {
+        if !have.contains(required) {
+            return Err(format!(
+                "cgroup v2 controller '{required}' is not delegated \
+                 (found: {})",
+                contents.trim()
+            ));
+        }
     }
     Ok(())
 }
@@ -84,5 +106,33 @@ mod tests {
     #[test]
     fn case_insensitive_mock_backend_is_never_gated() {
         assert!(validate_sandbox_config("MOCK", false, false).is_ok());
+    }
+
+    #[test]
+    fn controllers_ok_when_required_present() {
+        assert!(controllers_present("cpuset cpu io memory pids").is_ok());
+    }
+
+    #[test]
+    fn controllers_empty_is_rejected() {
+        assert!(controllers_present("   ").is_err());
+    }
+
+    #[test]
+    fn controllers_missing_memory_is_rejected() {
+        let err = controllers_present("cpu pids").unwrap_err();
+        assert!(
+            err.contains("memory"),
+            "should name the missing controller: {err}"
+        );
+    }
+
+    #[test]
+    fn uses_isolate_true_for_isolate_and_unknown_but_false_for_mock() {
+        assert!(uses_isolate("isolate"));
+        assert!(uses_isolate("docker"));
+        assert!(uses_isolate("Isolate"));
+        assert!(!uses_isolate("mock"));
+        assert!(!uses_isolate("MOCK"));
     }
 }

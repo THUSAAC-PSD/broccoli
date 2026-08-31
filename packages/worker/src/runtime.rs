@@ -42,6 +42,19 @@ impl WorkerRuntime {
         )
         .map_err(|e| anyhow::anyhow!("sandbox startup refused: {e}"))?;
 
+        if crate::sandbox_preflight::uses_isolate(&config.worker.sandbox_backend)
+            && config.worker.enable_cgroups
+        {
+            let controllers = std::fs::read_to_string("/sys/fs/cgroup/cgroup.controllers")
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "sandbox startup refused: cgroup v2 controllers are not visible: {e}"
+                    )
+                })?;
+            crate::sandbox_preflight::controllers_present(&controllers)
+                .map_err(|e| anyhow::anyhow!("sandbox startup refused: {e}"))?;
+        }
+
         let system_info = SystemInfo::detect();
         let capacity = effective_worker_capacity(
             config.worker.max_concurrency,
