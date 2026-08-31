@@ -52,9 +52,134 @@ pub fn controllers_present(contents: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Result of the live isolate self-test.
+#[derive(Debug)]
+pub enum ProbeOutcome {
+    /// isolate ran an over-limit allocation and reported cg-oom-killed.
+    Ok,
+    /// isolate ran but did NOT report cg-oom-killed — MLE would be misjudged.
+    OomNotReported,
+    /// The probe could not be executed (isolate error, spawn failure, ...).
+    Failed(String),
+}
+
+/// Turn a probe outcome into a fail-closed startup decision.
+pub fn gate_on_probe(outcome: ProbeOutcome) -> Result<(), String> {
+    match outcome {
+        ProbeOutcome::Ok => Ok(()),
+        ProbeOutcome::OomNotReported => Err(
+            "sandbox self-test: isolate did not report cg-oom-killed for an \
+             over-limit allocation; MemoryLimitExceeded would be misclassified \
+             as RuntimeError"
+                .to_string(),
+        ),
+        ProbeOutcome::Failed(e) => Err(format!("sandbox self-test failed: {e}")),
+    }
+}
+
+/// Run a real over-limit allocation in isolate and confirm the cg-oom-killed
+/// signal reaches us. Any error is reported as `Failed` so the caller fails
+/// closed rather than guessing.
+///
+/// The probe must be given an `IsolateSandboxManager` built with cgroups
+/// ENABLED: isolate only emits the `cg-oom-killed` meta key under `--cg`, and
+/// `--cg-mem` (not `--mem`) is what actually OOM-kills the box, so a
+/// cgroups-off manager would always report `Ok(false)` regardless of the host.
+pub async fn probe_isolate_oom(
+    mgr: &crate::models::operation::sandbox::isolate::IsolateSandboxManager,
+) -> ProbeOutcome {
+    // Python that grabs far more than the cgroup memory cap, in 10 MiB chunks,
+    // so it blows past the 64 MiB `--cg-mem` cap within a handful of iterations.
+    const OOM_SRC: &str = "b=bytearray()\nwhile True:\n b.extend(bytearray(10*1024*1024))\n";
+    match run_oom_probe(mgr, OOM_SRC).await {
+        Ok(true) => ProbeOutcome::Ok,
+        Ok(false) => ProbeOutcome::OomNotReported,
+        Err(e) => ProbeOutcome::Failed(e),
+    }
+}
+
+/// Returns `Ok(true)` if the run reported `cg_oom_killed`, `Ok(false)` if it
+/// ran but did not, `Err(msg)` if the box could not be initialised or run.
+///
+/// Self-contained: it touches only the sandbox manager (no queue/db/executor).
+/// A dedicated box id (`990`) is used so the probe never collides with the
+/// operation boxes (`0`..). The box is torn down on EVERY path — success,
+/// `Ok(false)`, and the error paths — via an explicit cleanup before each
+/// return (no scopeguard / new crates).
+async fn run_oom_probe(
+    mgr: &crate::models::operation::sandbox::isolate::IsolateSandboxManager,
+    src: &str,
+) -> Result<bool, String> {
+    use crate::models::operation::sandbox::{ResourceLimits, RunOptions, SandboxManager};
+
+    const PROBE_BOX_ID: &str = "990";
+
+    // Best-effort: clear any stale box left by a crashed prior probe. A missing
+    // box makes `--cleanup` a no-op / harmless error, so ignore the result.
+    let _ = mgr.remove_sandbox(PROBE_BOX_ID).await;
+
+    if let Err(e) = mgr.create_sandbox(Some(PROBE_BOX_ID)).await {
+        // If init failed because a stale box `990` still exists (best-effort
+        // pre-cleanup silently failed), reclaim it here so the NEXT boot's init
+        // can succeed — otherwise every subsequent boot hits the same stale box
+        // and the probe can never self-heal. Keeps the doc-comment invariant:
+        // every return path attempts cleanup.
+        let _ = mgr.remove_sandbox(PROBE_BOX_ID).await;
+        return Err(format!("failed to init probe sandbox: {e}"));
+    }
+
+    // 64 MiB cgroup cap (KiB) with tight CPU/wall bounds — the allocator trips
+    // the cap long before either clock elapses.
+    let run_options = RunOptions {
+        resource_limits: ResourceLimits {
+            memory_limit: Some(65536),
+            time_limit: Some(5.0),
+            wall_time_limit: Some(10.0),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let argv = vec![
+        "/usr/bin/python3".to_string(),
+        "-c".to_string(),
+        src.to_string(),
+    ];
+
+    let exec_result = mgr.execute(PROBE_BOX_ID, argv, &run_options).await;
+
+    // Always tear the probe box down, whether the run succeeded or errored, so a
+    // refused boot never leaks an isolate box. Cleanup failure is non-fatal to
+    // the probe verdict itself.
+    let _ = mgr.remove_sandbox(PROBE_BOX_ID).await;
+
+    match exec_result {
+        Ok(result) => Ok(result.cg_oom_killed),
+        Err(e) => Err(format!("failed to run probe allocation: {e}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_ok_passes_the_gate() {
+        assert!(gate_on_probe(ProbeOutcome::Ok).is_ok());
+    }
+
+    #[test]
+    fn probe_without_oom_report_fails_closed() {
+        let err = gate_on_probe(ProbeOutcome::OomNotReported).unwrap_err();
+        assert!(
+            err.contains("cg-oom-killed") || err.contains("MemoryLimitExceeded"),
+            "gate should explain the misclassification risk: {err}"
+        );
+    }
+
+    #[test]
+    fn probe_failure_fails_closed() {
+        assert!(gate_on_probe(ProbeOutcome::Failed("boom".into())).is_err());
+    }
 
     #[test]
     fn isolate_without_cgroups_is_refused() {

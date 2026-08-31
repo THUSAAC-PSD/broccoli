@@ -53,6 +53,23 @@ impl WorkerRuntime {
                 })?;
             crate::sandbox_preflight::controllers_present(&controllers)
                 .map_err(|e| anyhow::anyhow!("sandbox startup refused: {e}"))?;
+
+            // Live self-test: run a real over-limit allocation inside isolate and
+            // confirm the `cg-oom-killed` signal reaches us. If it does not, the
+            // batch evaluator would silently misclassify MemoryLimitExceeded as
+            // RuntimeError (it derives MLE solely from `cg_oom_killed`), so we
+            // refuse to consume jobs rather than mis-judge every over-limit run.
+            // The probe needs nothing from the built `Worker`, so it runs here
+            // (fail fast, before executors are constructed) against a dedicated
+            // manager built from config with cgroups ENABLED — `cg-oom-killed` is
+            // only emitted under `--cg`.
+            let probe_mgr = crate::models::operation::sandbox::isolate::IsolateSandboxManager::new(
+                config.worker.isolate_bin.clone(),
+                config.worker.enable_cgroups,
+            );
+            let outcome = crate::sandbox_preflight::probe_isolate_oom(&probe_mgr).await;
+            crate::sandbox_preflight::gate_on_probe(outcome)
+                .map_err(|e| anyhow::anyhow!("sandbox startup refused: {e}"))?;
         }
 
         let system_info = SystemInfo::detect();
