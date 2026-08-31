@@ -22,3 +22,15 @@ if grep -Eq "SELECT[^;]*\\bpassword\\b[^;]*FROM \"?user\"?" <<<"$out" \
 fi
 
 [ "$fail" -eq 0 ] && echo "PASS: contest export dry-run" || { echo "FAIL"; exit 1; }
+
+# --with-secrets: the complement of the leak-guard above -- the user
+# projection must select the RAW password column, never the blanked literal.
+out2="$(bash "$export" --contest 7 --with-secrets --dry-run 2>&1)"
+if ! grep -Eq "SELECT[^;]*\\bpassword\\b[^;]*FROM \"?user\"?" <<<"$out2"; then
+  echo "MISSING: raw password column selected with --with-secrets"; fail=1
+fi
+if grep -Fq "'' AS password" <<<"$out2"; then
+  echo "LEAK: password blanked even with --with-secrets"; fail=1
+fi
+
+[ "$fail" -eq 0 ] && echo "PASS: contest export --with-secrets dry-run" || { echo "FAIL"; exit 1; }
