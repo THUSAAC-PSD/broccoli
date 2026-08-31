@@ -103,6 +103,17 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default)]
     pub cors: CorsConfig,
+    /// Externally reachable base URL of this server (scheme + host + optional
+    /// port, no trailing slash), used to build links the server hands back to
+    /// clients such as the device-flow `verification_url`. The bind address is
+    /// not a public origin: under the shipped Docker default
+    /// `server.host = 0.0.0.0` it would otherwise yield an unreachable
+    /// `http://0.0.0.0:3000`. Set this when the browser-facing origin differs
+    /// from what the request reports, for example behind a proxy that does not
+    /// forward `X-Forwarded-Host`. When unset the server derives the origin
+    /// from the request, so most single-origin deployments need not set it.
+    #[serde(default)]
+    pub public_base_url: Option<String>,
     /// Directory containing the baked frontend `dist/` output served by the
     /// server in production.
     #[serde(default = "default_frontend_dist")]
@@ -323,6 +334,7 @@ impl Default for ServerConfig {
             host: default_host(),
             port: default_port(),
             cors: CorsConfig::default(),
+            public_base_url: None,
             frontend_dist: default_frontend_dist(),
             trusted_proxies: Vec::new(),
             rate_limit_auth: false,
