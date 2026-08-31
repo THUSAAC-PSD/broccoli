@@ -6,13 +6,13 @@ sidebar_position: 2
 
 # IOI format
 
-This format scores each problem out of a total built from subtasks, gives
-partial credit, and can offer tokens and graded feedback.
+This format builds each problem's score from subtasks and awards partial
+credit. It can also hand out tokens and graded feedback.
 
-The settings below split into two scopes, contest level under
-`[config.contest]`, set once per contest, and task level under
-`[config.task]`, set per contest problem so the same problem can carry
-different subtasks in different contests.
+The settings below live at two scopes. Contest level settings sit under
+`[config.contest]` and are set once per contest. Task level settings sit
+under `[config.task]` and are set per contest problem, so one problem can
+carry different subtasks in different contests.
 
 ## Subtasks
 
@@ -29,10 +29,10 @@ name, a scoring method, a max score, and the test labels it covers.
 A test case's label is the one set on the test case, or its numeric ID when
 it has none.
 
-The three scoring methods behave differently.
-
 - `group_min`, the subtask scores its full max score only when every test in
-  it passes, otherwise it scores zero.
+  it passes, otherwise it scores zero. This is stricter than CMS GroupMin,
+  which scales the subtask by its lowest test outcome, so a subtask with a
+  half scoring test lands on zero here and on half under CMS.
 - `sum`, the subtask gives partial credit in proportion to the tests that
   pass, weighted by each test's own point value.
 - `group_mul`, the subtask multiplies the per test fractions together, so one
@@ -43,18 +43,22 @@ subtask config gets one `sum` subtask named All Tests, covering every test
 case that is not a sample and is worth more than zero points, with a max
 score equal to the sum of those points.
 
+Partial credit inside a subtask only appears when the checker scores a test
+as a fraction, for example a testlib points checker. The built in
+comparators are all or nothing.
+
 ## Scoring across submissions
 
 `scoring_mode` is a contest setting that picks how a contestant's score for a
 problem is chosen across all of their submissions, and it defaults to
 `max_submission`.
 
-- `max_submission`, the best whole submission, the highest total score seen
-  across every submission.
+- `max_submission`, the highest total score across all of a contestant's
+  submissions.
 - `sum_best_subtask`, the best score seen for each subtask across all
   submissions, then summed.
 - `best_tokened_or_last`, the classic token rule, the higher of the best
-  tokened submission's score and the last submission's score.
+  tokened submission and the last submission.
 
 ## Feedback
 
@@ -122,17 +126,3 @@ per problem times, and it defaults to `max_score_time`.
 | `equal_rank`       | tied contestants share the same rank                                 |
 | `sum_score_time`   | ties are broken by the sum of each problem's score time, faster total first |
 | `max_score_time`   | ties are broken by the largest single problem's score time, faster first |
-
-## Where this differs from CMS and a classic IOI contest
-
-- `sum` matches CMS Sum and `group_mul` matches CMS GroupMul. `group_min`
-  follows CMS GroupMin only when every test scores full or zero. On a
-  fractional test outcome it drops the whole subtask to zero, where CMS
-  GroupMin would scale the subtask by the lowest test outcome.
-- There is no GroupThreshold method.
-- The default tiebreak is time based, not the classic equal rank.
-- The token model is a subset of the CMS one.
-- Partial credit only reaches the score from a checker that returns a
-  fraction, for example a testlib checker that reports points. The built in
-  comparators are all or nothing. Problem authoring, including how to choose
-  a checker, is its own page.

@@ -8,18 +8,18 @@ sidebar_position: 1
 
 一次提交会依据题目的 `problem_type`，通过评测器注册表解析出对应的评测器
 （`dispatch.rs:15-20`），运行准备好的操作，并为每个测试点产出一个判定
-（verdict）和一个分数（score）。赛制插件（ICPC、IOI）把这些逐测试点的结
-果聚合成提交的判定和比赛得分。
+（verdict）和一个分数（score）。赛制插件（ICPC、IOI）随后把这些逐测试点的结
+果汇聚成一个提交判定和一个比赛得分。
 
 ## 判定与得分是分开的
 
 `TestCaseVerdict` 同时带有 `verdict` 字段和 `score` 字段
-（`evaluate.rs:516-527`），二者互不替代。对批处理评测器（batch evaluator）
-而言，得分由解析出的检查器（checker）通过 `interpret_fused_result` 产出：
-检查器的 `interpret` 调用返回一个分数，这个分数会原样落在判定上
+（`evaluate.rs:516-527`），二者互不替代。在批处理评测器（batch evaluator）
+下，得分由解析出的检查器（checker）通过 `interpret_fused_result` 产出：
+`interpret` 调用返回一个分数，这个分数会原样落在判定上
 （`interpret.rs:22-143`）。没有检查器的路径（`checker_format == "none"`，
-即自定义"运行代码"场景）给出固定的 `1.0` 通过分，不做任何比对。对批处理
-评测器而言，检查器给出的分数是部分得分能到达聚合层的唯一路径。
+即自定义"运行代码"场景）给出固定的 `1.0` 通过分，不做比对。因此在批处理
+下，检查器给出的分数是部分得分到达聚合层的唯一途径。
 
 交互题使用的通信评测器（communication evaluator）则完全不同：它直接从交
 互器（interactor）的标准输出里算出自己的小数分数，不经过
@@ -33,10 +33,10 @@ sidebar_position: 1
 
 评测器由 `problem_type` 通过注册表选定（`dispatch.rs:15-20`），这个选择
 与赛制无关。赛制插件只负责把它收到的逐测试点判定和得分，折算成比赛得分：
-ICPC 把它们折算成全部通过或不通过，IOI 把它们折算成子任务总分。交互题走
+ICPC 把它们压成全部通过或不通过，IOI 把它们汇总为子任务总分。交互题走
 自己专属的评测器（`communication`）；纯输出题则复用批处理评测器
-（`batch`），并没有专属于自己的评测器。无论用的是哪个评测器，产出的都是
-同样形态的 `TestCaseVerdict`，ICPC 或 IOI 都用同一套方式聚合。
+（`batch`），并没有专属于自己的评测器。无论哪种情况，产出的都是
+同样形态的 `TestCaseVerdict`，ICPC 或 IOI 都以相同方式聚合。
 
 ## 赛制的真实程度
 
@@ -48,14 +48,3 @@ ICPC 把它们折算成全部通过或不通过，IOI 把它们折算成子任�
 | 跨提交评分 | 最早通过的提交胜出，而不是最后一次 | `max_submission`、`sum_best_subtask`（对应 CMS IOI 2017 plus）、`best_tokened_or_last` |
 | 平局判定 | 依据队伍名称顺序，而不是最后一次通过提交的时间 | 默认 `max_score_time`，依据用时，不是经典的并列名次 |
 | 内置检查器的得分能力 | 二元 | 二元，只有通过 testlib 的分数检查器才能拿到部分得分 |
-
-## 容易让人意外的地方
-
-- 不满一分钟的 ICPC 解题按零罚时分钟数计算。
-- ICPC 比赛级别的 `show_test_details` 只是一个提示性的展示字段，插件本身
-  不会据此做任何强制限制。它和核心侧题目级别的 `show_test_details` 是两个
-  不同的字段：后者会在提交相关接口上真正控制每个测试点结果是否返回。
-- IOI 的 `group_min` 只有在每个测试点都通过时才会给子任务满分，否则记零分。
-  当某个测试点得到小数分数时，它会把整个子任务判为零分，而不像 CMS 的
-  GroupMin 那样按最低得分进行缩放。
-- IOI 的令牌模型只是 CMS 令牌机制的一个子集。

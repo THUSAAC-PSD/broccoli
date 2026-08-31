@@ -6,8 +6,8 @@ sidebar_position: 1
 
 # ICPC format
 
-This format ranks teams by problems solved, breaking ties by time penalty, and
-it judges every test as all or nothing.
+This format ranks teams by problems solved and breaks ties by time penalty.
+Every test is judged all or nothing.
 
 ## Settings
 
@@ -27,16 +27,18 @@ A submission is Accepted only when every test passes. Judging stops at the
 first failing test, so a submission that fails an early test never runs the
 tests after it.
 
-A problem with no tests is a System Error, not a free solve. A misconfigured
-problem can never be credited as solved for every team by accident.
+A problem with no tests is a System Error, not a free solve, so a
+misconfigured problem cannot hand every team an accidental solve.
 
 ## How the standings rank
 
 A problem counts as solved once a submission earns an Accepted verdict. Its
 penalty in minutes is `floor(solve_time_ms / 60000) + attempts_before_solve * penalty_minutes`, and it is zero for an unsolved problem.
 
-Teams rank by problems solved, high to low, then by penalty, low to high. The
-team that solves a problem first is highlighted on the board.
+Teams rank by problems solved, high to low, then by penalty, low to high. A
+tie that survives both breaks by team name, not by the time of the last
+accepted submission. The team that solves a problem first is highlighted on
+the board.
 
 ## Freezing the standings
 
@@ -55,11 +57,3 @@ standings page. Revealing plays every frozen submission back to its real
 verdict and cannot be undone.
 
 :::
-
-## Where this differs from a classic ICPC contest
-
-- The final tiebreak is team name order, not the time of the last accepted
-  submission.
-- `show_test_details` is advisory and the plugin does not enforce it.
-- A solve under one minute counts as zero penalty minutes for time.
-- There are no balloons, and there are no subtasks or partial credit.
