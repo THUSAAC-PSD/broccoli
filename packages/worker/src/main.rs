@@ -12,6 +12,7 @@ mod heartbeat;
 mod metrics;
 mod models;
 mod runtime;
+mod sandbox_preflight;
 mod system_info;
 mod task_runner;
 mod toolchain_fingerprint;

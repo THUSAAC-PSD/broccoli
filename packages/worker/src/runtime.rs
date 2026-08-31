@@ -35,6 +35,13 @@ impl WorkerRuntime {
     pub async fn build(config: WorkerAppConfig) -> anyhow::Result<Self> {
         info!("Worker starting: {}", config.worker.id);
 
+        crate::sandbox_preflight::validate_sandbox_config(
+            &config.worker.sandbox_backend,
+            config.worker.enable_cgroups,
+            config.worker.allow_insecure_no_cgroups,
+        )
+        .map_err(|e| anyhow::anyhow!("sandbox startup refused: {e}"))?;
+
         let system_info = SystemInfo::detect();
         let capacity = effective_worker_capacity(
             config.worker.max_concurrency,
