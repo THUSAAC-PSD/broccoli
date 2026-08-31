@@ -113,6 +113,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM ${RUNTIME_IMAGE} AS isolate-builder
 
+# The ubuntu:20.04 base ships nothing preconfigured, so apt can pull packages
+# whose postinst prompts via debconf (tzdata is the classic: it asks for a
+# geographic area). BuildKit RUN steps have no interactive stdin, so such a
+# prompt wedges the build forever. Force the non-interactive frontend (defaults
+# to Etc/UTC for tzdata) for every apt invocation in this stage.
+ENV DEBIAN_FRONTEND=noninteractive
+
 ARG ISOLATE_VERSION=v2.0
 ARG ISOLATE_REPO=https://github.com/ioi/isolate.git
 ARG ISOLATE_REPO_CN_MIRROR=
@@ -152,6 +159,12 @@ RUN isolate_repo="$ISOLATE_REPO" && \
     install -m 0644 default.cf /out/isolate/usr/local/share/isolate/default.cf
 
 FROM ${RUNTIME_IMAGE} AS runtime-base
+
+# Non-interactive apt for this stage AND its children (runtime-icpc, runtime-full
+# inherit this ENV). Without it, tzdata — pulled transitively by the language
+# toolchains in runtime-full — prompts for a timezone and wedges the build, since
+# BuildKit RUN has no interactive stdin. See the matching note in isolate-builder.
+ENV DEBIAN_FRONTEND=noninteractive
 
 ARG USE_CN_MIRRORS=false
 ARG CREATED=unknown
@@ -221,21 +234,38 @@ CMD ["/usr/local/bin/broccoli-worker"]
 FROM runtime-base AS runtime-icpc
 
 ARG GCC_VERSION=9.3.0
-ARG GCC_APT_VERSION=9.3.0-17ubuntu1~20.04
+# Pin the exact gcc-9 revision that ships gcc 9.3.0 (NOI Linux 2.0 parity). This
+# is the focal/main GA revision, which lives in the FROZEN release pocket and so
+# stays installable for the life of the release. Do NOT chase a focal-updates
+# revision: focal-updates floated gcc-9 to 9.4.0-1ubuntu1~20.04.2 and dropped its
+# older 9.3.0 -updates revisions, so any `-updates` pin (e.g. the former
+# 9.3.0-17ubuntu1~20.04) becomes a phantom and breaks the build. The GA revision
+# is the durable anchor for 9.3.0; the `gcc --version == 9.3.0` assert below is
+# the tripwire if it ever moves.
+ARG GCC_APT_VERSION=9.3.0-10ubuntu2
 
 # sources.list mirror rewrite is inherited from runtime-base (persists down the
 # layer chain), so no per-stage sed here.
+# gcc-9-base and libasan5 are pinned to the SAME revision on purpose: the gcc-9
+# toolchain packages carry `Depends: gcc-9-base (= <rev>)` (exact) and libgcc-9-dev
+# carries `Depends: libasan5 (>= <rev>)`, and both of those default to the
+# focal-updates 9.4.0 candidate unless held to 9.3.0 too — an unpinned base/libasan5
+# breaks the resolve with "held broken packages". The shared C++ runtime
+# (libstdc++6, libgcc-s1) is gcc-10-sourced (10.5.0) on focal for EVERY compiler,
+# so it is intentionally left unpinned — that is focal's one system C++ runtime.
 # hadolint ignore=DL3008
 RUN ( apt-get update || ( \
       sed -i 's|archive.ubuntu.com|old-releases.ubuntu.com|g; s|security.ubuntu.com|old-releases.ubuntu.com|g' /etc/apt/sources.list && \
       apt-get update ) ) && \
     apt-get install -y --no-install-recommends \
       default-jdk-headless \
+      gcc-9-base=${GCC_APT_VERSION} \
       cpp-9=${GCC_APT_VERSION} \
       gcc-9=${GCC_APT_VERSION} \
       g++-9=${GCC_APT_VERSION} \
       libgcc-9-dev=${GCC_APT_VERSION} \
       libstdc++-9-dev=${GCC_APT_VERSION} \
+      libasan5=${GCC_APT_VERSION} \
       python3 && \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 100 && \
     update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 100 && \
