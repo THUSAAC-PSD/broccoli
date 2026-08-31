@@ -12,12 +12,12 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn musl_binary(target: &str) -> PathBuf {
+fn musl_binary(target: &str, profile: &str, name: &str) -> PathBuf {
     workspace_root()
         .join("target")
         .join(target)
-        .join("release")
-        .join("broccoli-stress-test")
+        .join(profile)
+        .join(name)
 }
 
 fn assert_file_static(binary: &Path) {
@@ -78,7 +78,7 @@ fn alpine_help_smoke(binary: &Path, platform: &str) {
 #[test]
 #[ignore = "requires prebuilt musl binary and Docker; opt in with --ignored"]
 fn musl_x86_64_binary_is_static() {
-    let binary = musl_binary("x86_64-unknown-linux-musl");
+    let binary = musl_binary("x86_64-unknown-linux-musl", "release", "broccoli-stress-test");
     assert!(
         binary.exists(),
         "missing {}; run `just stress-test-linux-x86_64` first",
@@ -92,7 +92,7 @@ fn musl_x86_64_binary_is_static() {
 #[test]
 #[ignore = "requires prebuilt musl binary and Docker; opt in with --ignored"]
 fn musl_aarch64_binary_is_static() {
-    let binary = musl_binary("aarch64-unknown-linux-musl");
+    let binary = musl_binary("aarch64-unknown-linux-musl", "release", "broccoli-stress-test");
     assert!(
         binary.exists(),
         "missing {}; run `just stress-test-linux-aarch64` first",
@@ -101,4 +101,18 @@ fn musl_aarch64_binary_is_static() {
     assert_file_static(&binary);
     assert_ldd_static(&binary);
     alpine_help_smoke(&binary, "linux/arm64");
+}
+
+#[test]
+#[ignore = "requires prebuilt musl CLI (release-cli); opt in with --ignored"]
+fn musl_x86_64_contestant_cli_is_static() {
+    // The bundled `broccoli` CLI must be static so it runs on any distro / glibc 2.31.
+    let binary = musl_binary("x86_64-unknown-linux-musl", "release-cli", "broccoli");
+    assert!(
+        binary.exists(),
+        "missing {}; run `cargo build -p broccoli-contestant-cli --profile release-cli --target x86_64-unknown-linux-musl` first",
+        binary.display()
+    );
+    assert_file_static(&binary);
+    assert_ldd_static(&binary);
 }

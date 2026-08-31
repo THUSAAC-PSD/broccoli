@@ -15,6 +15,7 @@ VERSION="${1:-$(date -u +%Y%m%d)}"
 OUT_DIR="${OUT_DIR:-$PWD}"
 NAME="broccoli-native-$VERSION"
 WORK="$(mktemp -d)/$NAME"
+MUSL_TARGET="x86_64-unknown-linux-musl"   # contestant CLI is musl-static: runs on any distro / glibc 2.31
 trap 'rm -rf "$(dirname "$WORK")"' EXIT
 
 die(){ echo "error: $*" >&2; exit 1; }
@@ -32,10 +33,15 @@ done
 need /usr/local/bin/weed;    install -m755 /usr/local/bin/weed "$WORK/bin/weed"
 need /usr/local/bin/isolate; install -m755 /usr/local/bin/isolate "$WORK/bin/isolate"  # setuid set at install time
 
-echo ">> collecting contestant CLI (broccoli) for distribution to contestant machines"
+echo ">> collecting contestant CLI (broccoli, musl-static) for distribution to contestant machines"
 # Client binary contestants run on their own LAN machines (not a server service).
 # install-native.sh does NOT install it; the contest admin copies cli/broccoli out.
-need "$ROOT/target/release/broccoli"; install -m755 "$ROOT/target/release/broccoli" "$WORK/cli/broccoli"
+# It ships MUSL-STATIC so it runs on any distro (incl. glibc 2.31 / bare boxes)
+# with no host-glibc dependency. Build it before bundling (matches CI):
+#   rustup target add "$MUSL_TARGET" && sudo apt-get install -y musl-tools
+#   cargo build -p broccoli-contestant-cli --profile release-cli --locked --target "$MUSL_TARGET"
+CLI_MUSL="$ROOT/target/$MUSL_TARGET/release-cli/broccoli"
+need "$CLI_MUSL"; install -m755 "$CLI_MUSL" "$WORK/cli/broccoli"
 
 echo ">> collecting print-station client (print-client) if built"
 # Separate crate (plugins/print/client). Deployed to machines with a printer;
