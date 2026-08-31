@@ -23,6 +23,15 @@ fi
 
 [ "$fail" -eq 0 ] && echo "PASS: contest export dry-run" || { echo "FAIL"; exit 1; }
 
+# contest_problem must be scoped to the exported problem set (AND problem_id
+# IN (...)), never unscoped to all rows for the contest -- otherwise the link
+# table could reference a problem that wasn't exported (soft-deleted, or
+# excluded via --problems) and the import would abort on a foreign-key
+# violation.
+check "AND problem_id IN"
+
+[ "$fail" -eq 0 ] && echo "PASS: contest_problem export scoped to exported problems" || { echo "FAIL"; exit 1; }
+
 # --with-secrets: the complement of the leak-guard above -- the user
 # projection must select the RAW password column, never the blanked literal.
 out2="$(bash "$export" --contest 7 --with-secrets --dry-run 2>&1)"

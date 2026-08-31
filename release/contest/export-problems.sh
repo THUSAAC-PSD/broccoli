@@ -125,7 +125,7 @@ copy_out plugin_config      "SELECT * FROM plugin_config WHERE scope='plugin' OR
 #     surrogate role_id), so the subqueries below join on that column.
 if [ -n "$cid" ]; then
   copy_out contest         "SELECT * FROM contest WHERE id = ${cid}"
-  copy_out contest_problem "SELECT * FROM contest_problem WHERE contest_id = ${cid}"
+  copy_out contest_problem "SELECT * FROM contest_problem WHERE contest_id = ${cid} AND $ACTIVE"
   copy_out contest_user    "SELECT * FROM contest_user WHERE contest_id = ${cid}"
 
   USERSEL="SELECT user_id FROM contest_user WHERE contest_id = ${cid}"
