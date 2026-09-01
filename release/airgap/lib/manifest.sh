@@ -18,6 +18,15 @@ manifest_generate() {
 manifest_verify() {
   local dir="$1"
   [ -f "$dir/manifest.sha256" ] || { echo "manifest.sha256 missing" >&2; return 1; }
-  ( cd "$dir" && sha256sum -c --strict --quiet manifest.sha256 ) \
-    && { echo OK; return 0; } || { echo "manifest verification failed" >&2; return 1; }
+  local tmp; tmp="$(mktemp)"
+  ( cd "$dir"
+    find . -type f ! -name manifest.sha256 -print0 \
+      | LC_ALL=C sort -z \
+      | xargs -0 sha256sum
+  ) > "$tmp" 2>/dev/null
+  if diff -q "$tmp" "$dir/manifest.sha256" >/dev/null 2>&1; then
+    rm -f "$tmp"; echo OK; return 0
+  else
+    rm -f "$tmp"; echo "manifest verification failed" >&2; return 1
+  fi
 }

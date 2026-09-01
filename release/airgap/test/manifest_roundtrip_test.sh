@@ -21,4 +21,12 @@ printf 'TAMPERED\n' > "$T/a.txt"
 if manifest_verify "$T" >/dev/null 2>&1; then
   echo "FAIL: tampered tree passed verify"; exit 1
 fi
+
+manifest_generate "$T"
+manifest_verify "$T" >/dev/null || { echo "FAIL: regenerated clean tree failed verify"; exit 1; }
+printf 'sneaky\n' > "$T/added.txt"
+if manifest_verify "$T" >/dev/null 2>&1; then
+  echo "FAIL: added file passed verify"; exit 1
+fi
+
 echo "PASS: manifest generate/verify round-trips and rejects tamper"
