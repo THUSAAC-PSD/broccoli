@@ -16,6 +16,6 @@ grep -qi 'Root'                          "$d/windows.ps1"|| { echo "FAIL: window
 
 # offline: helpers must not fetch anything
 for f in linux.sh macos.sh; do
-  grep -Ewq '(curl|wget|apt|apt-get|pip)' "$d/$f" && { echo "FAIL: $f fetches network"; exit 1; }
+  grep -Eq '\b(curl|wget|apt|apt-get|pip[0-9]*)\b' "$d/$f" && { echo "FAIL: $f fetches network"; exit 1; }
 done
 echo "PASS: trust-ca helpers present, parse, target the OS root store, offline"
