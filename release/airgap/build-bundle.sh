@@ -33,10 +33,16 @@ B="$OUTPUT/broccoli-airgap-$VERSION"
 rm -rf "$B"
 mkdir -p "$B"/{images,compose,cli,ca,caddy,trust-ca,lib,native}
 
-# 1. CA (bundle-time mint; root.key stays 0600, server-only)
-bash "$here/ca/mint-ca.sh" --out "$B/ca"
+# 1. CA — private keys NEVER enter the client-distributed (manifested) tree.
+#    Only the public root.crt ships to clients. root.key (and the leaf's
+#    server.key) live in a SEPARATE, unmanifested server-only sidecar that the
+#    operator delivers to the server host ALONE. See docs/airgap-deployment.md §7.
+SRV="$OUTPUT/broccoli-airgap-$VERSION.server-secret"
+rm -rf "$SRV"; mkdir -p "$SRV"; chmod 700 "$SRV"
+bash "$here/ca/mint-ca.sh" --out "$SRV"
+cp "$SRV/root.crt" "$B/ca/root.crt"
 if [ -n "$LAN_HOST" ]; then
-  bash "$here/ca/issue-leaf.sh" --ca-dir "$B/ca" --host "$LAN_HOST" --out "$B/ca"
+  bash "$here/ca/issue-leaf.sh" --ca-dir "$SRV" --host "$LAN_HOST" --out "$SRV"
 fi
 
 # 2. Target-side scripts + Caddyfile + trust helpers + manifest lib
@@ -50,7 +56,8 @@ chmod +x "$B/native/live-boot-preflight.sh"
 
 # 3. Compose templates + env examples (reuse release/, do not fork)
 cp "$repo/release/docker-compose.server.yaml.template" \
-   "$repo/release/docker-compose.infra.yaml.template" "$B/compose/"
+   "$repo/release/docker-compose.infra.yaml.template" \
+   "$repo/release/docker-compose.gateway-airgap.yaml.template" "$B/compose/"
 cp "$repo/release/.env.server.example" "$repo/release/.env.infra.example" "$B/compose/"
 
 # 4. Images + CLI (heavy; skipped for CI structural tests)
@@ -79,6 +86,8 @@ cat > "$B/bundle.json" <<JSON
 JSON
 manifest_generate "$B"
 echo "assembled bundle: $B"
+echo "SERVER-ONLY SECRETS: $SRV"
+echo "  contains CA/leaf private keys (root.key$([ -n "$LAN_HOST" ] && echo ', server.key')) — deliver ONLY to the server host; never to workers/contestants"
 
 if [ "$TAR" = "1" ]; then
   ( cd "$OUTPUT" && tar -caf "broccoli-airgap-$VERSION.tar.zst" "broccoli-airgap-$VERSION" )

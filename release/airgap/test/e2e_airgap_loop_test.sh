@@ -41,6 +41,19 @@ out="$(docker exec "$cid" sh -lc \
   'command -v curl >/dev/null 2>&1 && curl -sS --cacert /w/root.crt https://localhost/ || wget -qO- --ca-certificate=/w/root.crt https://localhost/' \
   2>/dev/null || true)"
 
+# Guard C2 end-to-end: the REAL airgap Caddyfile must load un-rendered, with
+# Caddy expanding {$LAN_HOST}/{$TLS_CERT}/{$TLS_KEY}/{$BROCCOLI_UPSTREAMS} from
+# the container env. A FAILURE here is a real regression, not a skip.
+if docker run --rm --network none \
+     -v "$here/../caddy/Caddyfile.airgap:/etc/caddy/Caddyfile:ro" -v "$W:/w:ro" \
+     -e LAN_HOST=localhost -e TLS_CERT=/w/server.crt -e TLS_KEY=/w/server.key \
+     -e BROCCOLI_UPSTREAMS=server:3000 \
+     caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+  echo "PASS: real Caddyfile.airgap validates un-rendered via Caddy-native env expansion"
+else
+  echo "FAIL: real Caddyfile.airgap did not validate un-rendered (envsubst/placeholder regression?)"; exit 1
+fi
+
 case "$out" in
   *airgap-ok*) echo "PASS: explicit-TLS served over HTTPS trusting bundle root CA, offline" ;;
   *) echo "SKIP: caddy image lacks an HTTPS client to self-verify (served config is valid)"; exit 0 ;;

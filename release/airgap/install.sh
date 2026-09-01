@@ -5,15 +5,16 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
 usage() {
-  echo "Usage: install.sh --role {server|worker|contestant} --bundle DIR [--lan-host H] [--burn-ca-key]"
+  echo "Usage: install.sh --role {server|worker|contestant} --bundle DIR [--lan-host H] [--server-secret DIR] [--burn-ca-key]"
 }
 
-ROLE="" BUNDLE="" LAN_HOST="" BURN=0
+ROLE="" BUNDLE="" LAN_HOST="" BURN=0 SECRET=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --role) ROLE="$2"; shift 2 ;;
     --bundle) BUNDLE="$2"; shift 2 ;;
     --lan-host) LAN_HOST="$2"; shift 2 ;;
+    --server-secret) SECRET="$2"; shift 2 ;;
     --burn-ca-key) BURN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
@@ -34,26 +35,38 @@ case "$ROLE" in
     # Validate the host BEFORE any heavy work (bundle load, leaf issuance).
     [ -n "$LAN_HOST" ] || { echo "server role requires --lan-host" >&2; exit 2; }
     # Secrets are operator-supplied: the bundle ships .env.*.example only.
-    # compose substitutes ${VARS} from its shell env, so the real env files
-    # must exist and be passed via --env-file or every var expands empty.
     infra_env="$BUNDLE/compose/.env.infra"
     server_env="$BUNDLE/compose/.env.server"
     for f in "$infra_env" "$server_env"; do
       [ -f "$f" ] || { echo "missing ${f} — copy ${f}.example to ${f} and fill in secrets (see release/docs/airgap-deployment.md)" >&2; exit 2; }
     done
+    # Server-only secrets (CA + leaf private keys) live OUTSIDE the manifested
+    # bundle tree. Default to the sidecar build-bundle.sh writes as a SIBLING of
+    # the bundle dir ("<bundle>.server-secret"); override with --server-secret.
+    abs_bundle="$(cd "$BUNDLE" && pwd)"
+    SECRET="${SECRET:-${abs_bundle}.server-secret}"
+    [ -d "$SECRET" ] || { echo "server-secret dir not found: $SECRET — deliver the '<bundle>.server-secret' dir to this host, or pass --server-secret DIR" >&2; exit 2; }
     bash "$here/load-bundle.sh" --bundle "$BUNDLE"
-    if [ ! -f "$BUNDLE/ca/server.crt" ]; then
-      bash "$here/ca/issue-leaf.sh" --ca-dir "$BUNDLE/ca" --host "$LAN_HOST" --out "$BUNDLE/ca"
+    # Ensure a TLS leaf exists in the secret dir: pre-issued at assembly, or
+    # issue it now from the CA key that lives only here.
+    if [ ! -f "$SECRET/server.crt" ] || [ ! -f "$SECRET/server.key" ]; then
+      [ -f "$SECRET/root.key" ] || { echo "no leaf and no $SECRET/root.key to issue one — re-run build-bundle.sh --lan-host, or place root.key in the server-secret dir (server host only)" >&2; exit 2; }
+      [ -f "$SECRET/root.crt" ] || cp "$BUNDLE/ca/root.crt" "$SECRET/root.crt"
+      bash "$here/ca/issue-leaf.sh" --ca-dir "$SECRET" --host "$LAN_HOST" --out "$SECRET"
     fi
-    export LAN_HOST TLS_CERT="$BUNDLE/ca/server.crt" TLS_KEY="$BUNDLE/ca/server.key"
+    if [ "$BURN" = "1" ]; then rm -f "$SECRET/root.key"; echo "burned $SECRET/root.key"; fi
+    # The gateway mounts caddy/Caddyfile.airgap UN-rendered; Caddy expands the
+    # {$VAR}s from its container env. Never shell-render this file first — that
+    # would corrupt Caddy's {$VAR} placeholder syntax.
+    export LAN_HOST
     export BROCCOLI_UPSTREAMS="${BROCCOLI_UPSTREAMS:-server:3000}"
-    envsubst < "$here/caddy/Caddyfile.airgap" > "$BUNDLE/caddy/Caddyfile"
-    echo "rendered $BUNDLE/caddy/Caddyfile for $LAN_HOST"
-    if [ "$BURN" = "1" ]; then rm -f "$BUNDLE/ca/root.key"; echo "burned ca/root.key"; fi
+    BROCCOLI_TLS_DIR="$(cd "$SECRET" && pwd)"; export BROCCOLI_TLS_DIR
+    echo "TLS gateway will serve https://$LAN_HOST using leaf in $BROCCOLI_TLS_DIR"
     ( cd "$BUNDLE/compose" && docker compose \
         --env-file .env.infra --env-file .env.server \
         -f docker-compose.infra.yaml.template \
-        -f docker-compose.server.yaml.template up -d --pull never )
+        -f docker-compose.server.yaml.template \
+        -f docker-compose.gateway-airgap.yaml.template up -d --pull never )
     ;;
   worker)
     bash "$here/load-bundle.sh" --bundle "$BUNDLE"

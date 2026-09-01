@@ -50,9 +50,14 @@ release/airgap/build-bundle.sh --version <V> [--lan-host <host-or-ip>] --tar
 - `--tar` additionally produces `broccoli-airgap-<V>.tar.zst` next to the tree,
   convenient for copying to a single file on USB.
 
-`build-bundle.sh` runs `ca/mint-ca.sh` to mint a fresh internal root CA for this
-bundle (`ca/root.crt` + `ca/root.key`, the latter `chmod 0600`), then stages
-everything an install needs:
+`build-bundle.sh` produces **two** outputs side by side under `--output`
+(default `./dist/`): the client bundle tree `broccoli-airgap-<V>/`, which is
+carried to **all** roles (server, workers, contestants), and a server-only
+sidecar `broccoli-airgap-<V>.server-secret/` (mode `0700`) that holds the CA and
+leaf **private keys** and is delivered **only** to the server host — never to
+workers or contestants. It runs `ca/mint-ca.sh` to mint a fresh internal root CA
+into the sidecar (`root.key` lives there, `chmod 0600`), copies only the public
+`ca/root.crt` into the bundle tree, then stages everything an install needs:
 
 - `images/` — `docker save` tarballs for the server, worker, Postgres, Redis,
   and SeaweedFS images (skipped when assembling structurally with
@@ -61,14 +66,17 @@ everything an install needs:
   assembled with `--skip-images`, or assembled before image build/save is wired
   up, will not have them, and `load-bundle.sh` will fail with
   `no images/*.tar in bundle` on the target when it tries to `docker load` them.
-- `compose/` — the server and infra compose templates, plus
+- `compose/` — the server, infra, and Caddy TLS gateway
+  (`docker-compose.gateway-airgap.yaml.template`) compose templates, plus
   `compose/.env.server.example` and `compose/.env.infra.example` (real env files
   are _not_ shipped — see the server install section below).
 - `cli/` — the musl-static `broccoli` contestant CLI binary.
-- `ca/` — `root.crt` (public, ships everywhere) and `root.key` (private,
-  server-only, 0600).
-- `caddy/Caddyfile.airgap` — the explicit-TLS Caddy site rendered at install
-  time.
+- `ca/` — `root.crt` (public, ships everywhere) and `issue-leaf.sh`; NO private
+  key lives here. The CA/leaf private keys live only in the
+  `broccoli-airgap-<V>.server-secret/` sidecar.
+- `caddy/Caddyfile.airgap` — the explicit-TLS Caddy site, mounted un-rendered
+  into the gateway container (Caddy expands its variables from the container
+  environment at load time).
 - `trust-ca/` — the per-OS root-CA trust helpers (`linux.sh`, `macos.sh`,
   `windows.ps1`).
 - `install.sh`, `load-bundle.sh` — the target-side scripts.
@@ -136,11 +144,16 @@ Then edit both files and fill in real values, at minimum:
 - `BROCCOLI_SERVER_IMAGE`, pointed at the image tag that was baked and loaded
   into this bundle.
 
+The server also needs the server-only sidecar delivered to it: place
+`broccoli-airgap-<V>.server-secret/` (the CA + leaf private keys minted at
+assembly) next to the bundle directory as its sibling, or point at it explicitly
+with `--server-secret DIR`.
+
 `install.sh --role server` checks for `compose/.env.infra` and
 `compose/.env.server` **before** doing any other work (loading images, issuing
-the TLS leaf) and fails fast with a clear message if either is missing — it will
-not silently bring up containers with empty or placeholder config. Once the env
-files are in place, from the same bundle directory:
+the TLS leaf), and also fails fast if the server-secret directory is missing —
+it will not silently bring up containers with empty or placeholder config. Once
+the env files and the sidecar are in place, from the same bundle directory:
 
 ```bash
 ./install.sh --role server --bundle . --lan-host <host-or-ip>
@@ -150,18 +163,17 @@ This:
 
 1. Runs `load-bundle.sh --bundle .` to re-verify `manifest.sha256` and
    `docker load` every tarball in `images/`.
-2. Issues the server's TLS leaf via `ca/issue-leaf.sh` if one wasn't already
-   pre-issued at assembly time (see step 7) — the leaf's SAN covers
-   `<host-or-ip>`.
-3. Renders `caddy/Caddyfile.airgap` to `caddy/Caddyfile` (inside the bundle
-   directory) with the LAN host, leaf cert/key paths, and upstream substituted
-   in.
-4. If `--burn-ca-key` was passed, deletes `ca/root.key` right after the leaf is
-   issued (see step 7).
-5. Brings up infra and server with
-   `docker compose --env-file .env.infra --env-file .env.server -f docker-compose.infra.yaml.template -f docker-compose.server.yaml.template up -d --pull never`
-   — `--pull never` guarantees Compose only uses the images already loaded from
-   `images/*.tar`, never reaching for a registry.
+2. Ensures the TLS leaf exists in the server-secret dir (pre-issued at assembly,
+   or issued now via `ca/issue-leaf.sh` from the CA key that lives only in the
+   sidecar) — the leaf's SAN covers `<host-or-ip>`.
+3. If `--burn-ca-key` was passed, deletes `root.key` from the server-secret
+   sidecar right after the leaf is issued (see §7).
+4. Brings up infra, server, AND the Caddy TLS gateway (443, serving the
+   internal-CA leaf, reverse-proxying to the server) with
+   `docker compose --env-file .env.infra --env-file .env.server -f docker-compose.infra.yaml.template -f docker-compose.server.yaml.template -f docker-compose.gateway-airgap.yaml.template up -d --pull never`
+   — the Caddyfile is mounted un-rendered and Caddy expands its variables from
+   the container environment; `--pull never` guarantees Compose only uses the
+   images already loaded from `images/*.tar`, never reaching for a registry.
 
 ## 5. Worker install
 
@@ -244,27 +256,34 @@ Security → Certificates → View Certificates → Authorities → Import).
 
 ## 7. root.key security
 
-The bundle always ships `ca/root.key` — the private key that can mint new TLS
-leaves for the LAN's root CA — mode `0600`, intended to be used only on the
-server. Because that key is powerful (anyone holding it can issue a leaf that
+The client-distributed bundle tree **never** contains any private key. The CA
+signing key `root.key` — which can mint new TLS leaves for the LAN's root CA —
+and the leaf's `server.key` live **only** in the
+`broccoli-airgap-<V>.server-secret/` sidecar (mode `0700`), delivered to the
+server host alone. This is enforced structurally: `manifest.sha256` lists every
+file in the bundle tree and `load-bundle.sh` re-verifies it, so a private key
+cannot even be present-but-unlisted in what reaches a worker or contestant.
+
+Because the CA key is powerful (anyone holding it can issue a leaf that
 impersonates the server to any client that trusts `root.crt`), you have two ways
-to keep it from ever reaching worker or contestant machines:
+to keep it off the venue entirely:
 
 1. **Burn after issue** — pass `--burn-ca-key` to `install.sh --role server`.
-   The installer issues the server leaf as usual, then deletes `ca/root.key`
-   from the bundle directory immediately afterward. Use this when you don't know
-   the venue's LAN host/IP until you arrive on-site.
+   The installer issues the server leaf as usual, then deletes `root.key` from
+   the server-secret sidecar immediately afterward. Use this when you didn't
+   pre-issue because you didn't know the venue's LAN host/IP until you arrived
+   on-site.
 2. **Pre-issue at assembly** — pass `--lan-host <host-or-ip>` to
    `build-bundle.sh` on the staging box (step 2) when you already know the
-   venue's address ahead of time. The leaf is issued during assembly, so
-   `install.sh --role server` finds `ca/server.crt` already present and skips
-   leaf issuance entirely — `root.key` was only ever needed momentarily during
-   the staging build and does not need to travel to the venue at all if you drop
-   it from the tree before copying to media.
+   venue's address ahead of time. The leaf is issued into the sidecar during
+   assembly, so `install.sh --role server` finds `server.crt`/`server.key`
+   already present and skips leaf issuance entirely — you may then withhold
+   `root.key` from the venue completely (deliver only `server.crt`/`server.key`
+   in the sidecar, or drop `root.key` from it before copying to media).
 
 Either way, only `ca/root.crt` (the public certificate, safe to distribute) is
-ever installed on worker or contestant machines by `trust-ca`. `ca/root.key` and
-`ca/server.key` should never leave the server.
+ever installed on worker or contestant machines by `trust-ca` — now structurally
+guaranteed, since no private key is ever part of the bundle tree they receive.
 
 ## 8. Troubleshooting
 
@@ -280,11 +299,12 @@ regenerate the bundle.
 server's leaf certificate's SAN only covers the host/IP it was issued for. If
 contestants reach the server via a different hostname or IP than the one passed
 to `--lan-host` (at either `build-bundle.sh` or `install.sh --role server`
-time), the leaf won't match. From inside the bundle directory on the server,
-re-issue the leaf for the correct host with
-`./ca/issue-leaf.sh --ca-dir ca --host <correct-host> --out ca` (requires
-`root.key`, so do this before burning it) and re-render the Caddyfile by
-re-running `./install.sh --role server --bundle . --lan-host <correct-host>`.
+time), the leaf won't match. On the server, re-issue the leaf for the correct
+host into the server-secret sidecar with
+`./ca/issue-leaf.sh --ca-dir <server-secret-dir> --host <correct-host> --out <server-secret-dir>`
+(requires `root.key` in the sidecar, so do this before burning it), then re-run
+`./install.sh --role server --bundle . --lan-host <correct-host>` to bring the
+gateway back up with the corrected leaf.
 
 **Browser trust warnings persist after running the trust helper** — most
 browsers read the OS certificate store and pick up `trust-ca/`'s changes
