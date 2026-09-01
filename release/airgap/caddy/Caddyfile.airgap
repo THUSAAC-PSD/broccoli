@@ -1,0 +1,9 @@
+# Air-gapped LAN Caddyfile: explicit internal-CA leaf, no automatic renewal.
+# Rendered by release/airgap/install.sh with LAN_HOST, TLS_CERT, TLS_KEY,
+# BROCCOLI_UPSTREAMS. There is no internet on-site, so certificate automation
+# cannot be reached; the server serves the leaf minted from the bundle CA.
+{$LAN_HOST} {
+	encode zstd gzip
+	tls {$TLS_CERT} {$TLS_KEY}
+	reverse_proxy {$BROCCOLI_UPSTREAMS}
+}
