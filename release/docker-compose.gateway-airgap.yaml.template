@@ -22,6 +22,25 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  # Harden the server for life behind the TLS gateway (airgap topology ONLY).
+  # Compose merges env per-key onto docker-compose.server.yaml.template, so this
+  # overrides just two keys without restating the base block. The plaintext :3000
+  # publish is loopback-bound by install.sh (BROCCOLI_HTTP_BIND), so the 443
+  # gateway is the only LAN ingress.
+  server:
+    environment:
+      # Gateway terminates TLS: mark session cookies Secure so they never travel
+      # over the plaintext gateway->server hop or a host-local :3000.
+      BROCCOLI__AUTH__SECURE_COOKIES: "true"
+      # Trust the gateway's docker network (private ranges) so Caddy's default
+      # X-Forwarded-For yields the real contestant IP for auth rate limiting /
+      # login throttling instead of collapsing everyone onto the gateway's IP.
+      # Loopback (127.0.0.0/8) is intentionally NOT trusted: no legitimate proxy
+      # reaches the server from 127.x — the gateway, and typically even a
+      # host-published :3000 hit, present as the docker bridge IP — so trusting
+      # loopback would only widen the XFF-spoof surface for no gain.
+      BROCCOLI__SERVER__TRUSTED_PROXIES: '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]'
+
 volumes:
   caddy_data:
   caddy_config:

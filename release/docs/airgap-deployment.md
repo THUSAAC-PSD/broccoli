@@ -174,6 +174,22 @@ This:
    — the Caddyfile is mounted un-rendered and Caddy expands its variables from
    the container environment; `--pull never` guarantees Compose only uses the
    images already loaded from `images/*.tar`, never reaching for a registry.
+5. Makes the gateway the **only LAN ingress**: the server's plaintext `:3000` is
+   bound to host loopback (`BROCCOLI_HTTP_BIND=127.0.0.1:3000`), so no
+   contestant on the LAN can reach it and bypass TLS — HTTPS on 443 is the sole
+   entrypoint. Host-local `curl http://127.0.0.1:3000/...` still works for
+   operator troubleshooting. The gateway also runs the server with
+   `SECURE_COOKIES=true` and trusts the gateway's private network as a proxy, so
+   session cookies are marked `Secure` and auth rate limiting sees each
+   contestant's real IP (via `X-Forwarded-For`) rather than the gateway's. To
+   publish the server on the LAN anyway (e.g. a multi-node air-gap fronted by a
+   separate gateway host), export `BROCCOLI_HTTP_BIND=0.0.0.0:3000` before
+   running `install.sh`. **Only do this behind a separate fronting gateway:** it
+   re-exposes plaintext `:3000` on the LAN, and because the server still trusts
+   the private ranges as proxies, a client reaching `:3000` directly from a
+   trusted subnet could forge `X-Forwarded-For` to poison auth rate limiting.
+   When you take this path, narrow `BROCCOLI__SERVER__TRUSTED_PROXIES` to the
+   fronting gateway's address only.
 
 ## 5. Worker install
 

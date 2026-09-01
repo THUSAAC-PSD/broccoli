@@ -15,4 +15,57 @@ grep -q ':443' "$gw" || { echo "FAIL: gateway does not publish 443"; exit 1; }
 grep -q 'Caddyfile.airgap:/etc/caddy/Caddyfile' "$gw" || { echo "FAIL: gateway does not mount the un-rendered Caddyfile"; exit 1; }
 # Caddyfile keeps Caddy-native placeholders (never pre-rendered).
 grep -qF 'tls {$TLS_CERT} {$TLS_KEY}' "$cf" || { echo "FAIL: Caddyfile lost its Caddy {\$VAR} tls placeholders"; exit 1; }
-echo "PASS: TLS gateway wired; no envsubst; Caddy-native placeholders intact"
+# --- M-A: gateway-bypass hardening -------------------------------------------
+# server override marks cookies Secure behind the gateway.
+grep -Eq 'BROCCOLI__AUTH__SECURE_COOKIES:[[:space:]]*"true"' "$gw" \
+  || { echo "FAIL: gateway override does not force SECURE_COOKIES=true"; exit 1; }
+# trusted proxies set (non-empty) so XFF yields real client IPs, not the gateway.
+grep -q 'BROCCOLI__SERVER__TRUSTED_PROXIES' "$gw" \
+  || { echo "FAIL: gateway override does not set TRUSTED_PROXIES"; exit 1; }
+# loopback (127.0.0.0/8) must NOT be trusted (anti XFF-spoof from a host-local hit).
+grep -E 'BROCCOLI__SERVER__TRUSTED_PROXIES' "$gw" | grep -q '127\.' \
+  && { echo "FAIL: TRUSTED_PROXIES must exclude loopback"; exit 1; } || true
+# install.sh binds plaintext :3000 to host loopback (no LAN bypass around 443).
+grep -Eq 'BROCCOLI_HTTP_BIND="\$\{BROCCOLI_HTTP_BIND:-127\.0\.0\.1:3000\}"' "$inst" \
+  || { echo "FAIL: install.sh does not loopback-bind BROCCOLI_HTTP_BIND"; exit 1; }
+
+# --- docker-gated: prove the MERGED server binds :3000 to loopback ONLY -------
+# Faithfully reproduce the deploy's precedence: install.sh EXPORTS
+# BROCCOLI_HTTP_BIND=127.0.0.1:3000 while `docker compose --env-file` carries
+# 0.0.0.0:3000 (as .env.server does) — the shell export must win. `compose
+# config` renders host_ip on the line ABOVE `target:`, so anchor on the
+# server's `target: 3000` and read host_ip back one line; the gateway's
+# 443/0.0.0.0 publish is a different target and correctly ignored.
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  rel="$here/../.."
+  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+  printf 'BROCCOLI_HTTP_BIND=0.0.0.0:3000\n' > "$tmp/envfile"
+  if BROCCOLI_HTTP_BIND=127.0.0.1:3000 \
+     BROCCOLI_SERVER_IMAGE=example/broccoli-server:test \
+     BROCCOLI__SERVER__ID=1 BROCCOLI__DATABASE__URL=x BROCCOLI__MQ__URL=x \
+     BROCCOLI__AUTH__JWT_SECRET=x BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD=x \
+     BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=x \
+     BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=x \
+     BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=x \
+     LAN_HOST=contest.lan BROCCOLI_TLS_DIR="$tmp" \
+       docker compose --env-file "$tmp/envfile" \
+                      -f "$rel/docker-compose.server.yaml.template" \
+                      -f "$rel/docker-compose.gateway-airgap.yaml.template" \
+                      config > "$tmp/merged.yaml" 2>/dev/null; then
+    # server's published :3000 must bind 127.0.0.1 (export beats --env-file).
+    sip="$(grep -B2 'target: 3000' "$tmp/merged.yaml" | grep 'host_ip:' | tr -d '[:space:]' | tail -1)"
+    [ "$sip" = "host_ip:127.0.0.1" ] \
+      || { echo "FAIL: server :3000 not loopback-bound; shell export must beat --env-file (got '${sip:-none}')"; exit 1; }
+    grep -Eq 'SECURE_COOKIES: .true.' "$tmp/merged.yaml" \
+      || { echo "FAIL: merged server missing SECURE_COOKIES=true"; exit 1; }
+    echo "PASS: merged server publishes :3000 on 127.0.0.1 (export beats --env-file), cookies Secure"
+  else
+    # docker is present and every interpolation var is supplied, so a config
+    # failure means OUR override is broken — fail loudly, never mask it as SKIP.
+    echo "FAIL: docker present but 'compose config' failed on the airgap override"; exit 1
+  fi
+else
+  echo "SKIP: docker unavailable — merge proof skipped (deterministic checks ran)"
+fi
+
+echo "PASS: TLS gateway wired; no envsubst; Caddy-native placeholders intact; gateway is sole LAN ingress"
