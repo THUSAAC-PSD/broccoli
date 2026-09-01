@@ -69,6 +69,9 @@ if [ "$SKIP_IMAGES" = "0" ]; then
   #   docker save broccoli-server:$VERSION postgres:... redis:... > images/*.tar
   #   docker build -f Dockerfile.worker --target runtime-full -t broccoli-worker:$VERSION .
   #   docker save broccoli-worker:$VERSION > images/worker.tar
+  # TLS gateway image (docker-compose.gateway-airgap.yaml.template) — the tag
+  # MUST match that file's CADDY_IMAGE default so `--pull never` resolves offline:
+  #   docker save caddy:2-alpine > images/caddy.tar
   # CLI (musl-static, per noi-parity-worker-image):
   #   cargo build -p broccoli-contestant-cli --profile release-cli \
   #     --target x86_64-unknown-linux-musl && cp target/.../broccoli cli/broccoli
