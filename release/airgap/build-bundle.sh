@@ -25,6 +25,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$VERSION" ] || { echo "--version is required" >&2; usage; exit 2; }
+case "$VERSION" in
+  *[!A-Za-z0-9._-]*) echo "--version must match [A-Za-z0-9._-] (got: $VERSION)" >&2; exit 2 ;;
+esac
 
 B="$OUTPUT/broccoli-airgap-$VERSION"
 rm -rf "$B"
@@ -44,7 +47,6 @@ cp "$here"/ca/issue-leaf.sh "$B/ca/issue-leaf.sh"
 cp "$here"/trust-ca/* "$B/trust-ca/"
 cp "$repo/release/native/live-boot-preflight.sh" "$B/native/live-boot-preflight.sh"
 chmod +x "$B/native/live-boot-preflight.sh"
-mkdir -p "$B/ca"
 
 # 3. Compose templates + env examples (reuse release/, do not fork)
 cp "$repo/release/docker-compose.server.yaml.template" \

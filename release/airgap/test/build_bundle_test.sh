@@ -19,6 +19,7 @@ for p in bundle.json manifest.sha256 ca/root.crt caddy/Caddyfile.airgap \
          native/live-boot-preflight.sh; do
   [ -e "$b/$p" ] || { echo "FAIL: bundle missing $p"; exit 1; }
 done
+[ -x "$b/native/live-boot-preflight.sh" ] || { echo "FAIL: staged preflight not executable"; exit 1; }
 # manifest actually verifies
 # shellcheck source=/dev/null
 source "$here/../lib/manifest.sh"; manifest_verify "$b" >/dev/null \
