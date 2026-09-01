@@ -56,7 +56,11 @@ everything an install needs:
 
 - `images/` — `docker save` tarballs for the server, worker, Postgres, Redis,
   and SeaweedFS images (skipped when assembling structurally with
-  `--skip-images`, which the bundle's own CI test uses).
+  `--skip-images`, which the bundle's own CI test uses). **Before transferring a
+  bundle, confirm `images/` actually contains all five tarballs** — a bundle
+  assembled with `--skip-images`, or assembled before image build/save is wired
+  up, will not have them, and `load-bundle.sh` will fail with
+  `no images/*.tar in bundle` on the target when it tries to `docker load` them.
 - `compose/` — the server and infra compose templates, plus
   `compose/.env.server.example` and `compose/.env.infra.example` (real env files
   are _not_ shipped — see the server install section below).
@@ -81,16 +85,28 @@ a stale bundle can look correct on disk while serving old assets.
 ## 3. Transfer
 
 Copy the bundle tree (or the `.tar.zst`, then extract it) onto the USB drive or
-other media you'll carry to the air-gapped venue. Transfers to removable media
-can silently truncate or corrupt files, so **before trusting the media**, verify
-it against the manifest that was generated at assembly time:
+other media you'll carry to the air-gapped venue, then onto each
+server/worker/contestant machine. Run these from inside the transferred bundle
+directory — they are the bundle's own copies; there is no repo checkout on the
+target. Every target-side command in this runbook is written as
+`cd <bundle-dir>` followed by `./script.sh ... --bundle .`; do not substitute a
+`release/airgap/...` repo path here. `install.sh` resolves sibling files (like
+the worker's `native/live-boot-preflight.sh` preflight, step 5) relative to its
+own location, so running a repo copy of `install.sh` instead of the bundle's own
+copy makes that lookup fail and the check silently skip instead of actually
+running.
+
+Transfers to removable media can silently truncate or corrupt files, so **before
+trusting the media**, verify it against the manifest that was generated at
+assembly time:
 
 ```bash
-release/airgap/load-bundle.sh --bundle <dir> --verify-only
+cd <bundle-dir>
+./load-bundle.sh --bundle . --verify-only
 ```
 
-This re-hashes every file in `<dir>` (except `manifest.sha256` itself) and diffs
-the result against `manifest.sha256`. It exits non-zero and prints
+This re-hashes every file in the bundle (except `manifest.sha256` itself) and
+diffs the result against `manifest.sha256`. It exits non-zero and prints
 `ABORT: bundle integrity check failed` on any mismatch — do not proceed with an
 install until this passes. The same verification runs again, unconditionally, as
 part of the contestant install (step 6) as a second trust-boundary check after
@@ -100,9 +116,10 @@ the media has changed hands.
 
 Before running the installer, the operator must supply real environment files —
 the bundle only ships `.example` templates so no secrets ever sit in a
-distributable tarball. On the server machine:
+distributable tarball. On the server machine, from inside the bundle directory:
 
 ```bash
+cd <bundle-dir>
 cp compose/.env.infra.example compose/.env.infra
 cp compose/.env.server.example compose/.env.server
 ```
@@ -115,8 +132,7 @@ Then edit both files and fill in real values, at minimum:
 - `BROCCOLI__AUTH__JWT_SECRET` (at least 32 characters).
 - SeaweedFS/S3 credentials (`BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY` /
   `..._SECRET_KEY`, and the endpoint if it differs from the compose default).
-- `BROCCOLI__BOOTSTRAP__ADMIN_PASSWORD` (`BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD` in
-  the env file) for the initial admin account.
+- `BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD` for the initial admin account.
 - `BROCCOLI_SERVER_IMAGE`, pointed at the image tag that was baked and loaded
   into this bundle.
 
@@ -124,21 +140,22 @@ Then edit both files and fill in real values, at minimum:
 `compose/.env.server` **before** doing any other work (loading images, issuing
 the TLS leaf) and fails fast with a clear message if either is missing — it will
 not silently bring up containers with empty or placeholder config. Once the env
-files are in place:
+files are in place, from the same bundle directory:
 
 ```bash
-release/airgap/install.sh --role server --bundle <dir> --lan-host <host-or-ip>
+./install.sh --role server --bundle . --lan-host <host-or-ip>
 ```
 
 This:
 
-1. Runs `load-bundle.sh --bundle <dir>` to re-verify `manifest.sha256` and
+1. Runs `load-bundle.sh --bundle .` to re-verify `manifest.sha256` and
    `docker load` every tarball in `images/`.
 2. Issues the server's TLS leaf via `ca/issue-leaf.sh` if one wasn't already
    pre-issued at assembly time (see step 7) — the leaf's SAN covers
    `<host-or-ip>`.
-3. Renders `caddy/Caddyfile.airgap` to `<dir>/caddy/Caddyfile` with the LAN
-   host, leaf cert/key paths, and upstream substituted in.
+3. Renders `caddy/Caddyfile.airgap` to `caddy/Caddyfile` (inside the bundle
+   directory) with the LAN host, leaf cert/key paths, and upstream substituted
+   in.
 4. If `--burn-ca-key` was passed, deletes `ca/root.key` right after the leaf is
    issued (see step 7).
 5. Brings up infra and server with
@@ -148,16 +165,22 @@ This:
 
 ## 5. Worker install
 
-On each judging box:
+On each judging box, from inside the transferred bundle directory:
 
 ```bash
-release/airgap/install.sh --role worker --bundle <dir>
+cd <bundle-dir>
+./install.sh --role worker --bundle .
 ```
 
 This loads the worker image via `load-bundle.sh`, then runs the sandbox go/no-go
 check staged inside the bundle at `native/live-boot-preflight.sh` (arch/OS,
 cgroup-v2 controllers, isolate setuid + cgroup delegation, live MLE/TLE probes,
-and a real C/C++/Python compile). A failed preflight only warns
+and a real C/C++/Python compile). `install.sh` locates that preflight script
+relative to its own path, so this step only fires when you run the bundle's own
+`install.sh` as shown above — running a repo checkout's `install.sh` against the
+same bundle directory makes `native/live-boot-preflight.sh` resolve to a
+nonexistent path relative to the repo, and the check silently skips instead of
+running. A failed preflight only warns
 (`WARN: worker sandbox preflight reported issues`) — inspect its `[FAIL]` lines
 and fix them before trusting the box for judging, but it does not by itself
 abort the install.
@@ -173,28 +196,51 @@ unsupported OS (neither Linux nor macOS) is only a warning; in that case trust
 
 ## 6. Contestant machines
 
-On each contestant machine:
+### Linux / macOS
+
+On each contestant machine, from inside the transferred bundle directory:
 
 ```bash
-release/airgap/install.sh --role contestant --bundle <dir>
+cd <bundle-dir>
+./install.sh --role contestant --bundle .
 ```
 
-This re-runs `load-bundle.sh --bundle <dir> --verify-only` first — a second,
+This re-runs `load-bundle.sh --bundle . --verify-only` first — a second,
 independent `manifest.sha256` check at the point the media reaches the
 contestant machine, since the trust boundary crosses again here. It then trusts
 `ca/root.crt` via the appropriate per-OS `trust-ca/` helper (`linux.sh` installs
 into `/usr/local/share/ca-certificates` and runs `update-ca-certificates`;
-`macos.sh` adds it to the System keychain via `security add-trusted-cert`;
-`windows.ps1` runs `certutil -addstore -f Root` in an elevated PowerShell — this
-one must be run manually on Windows, since `install.sh` only auto-detects Linux
-and macOS). Finally, if `cli/broccoli` is present in the bundle, it installs the
-musl-static CLI to `/usr/local/bin/broccoli`.
+`macos.sh` adds it to the System keychain via `security add-trusted-cert`).
+Finally, if `cli/broccoli` is present in the bundle, it installs the musl-static
+CLI to `/usr/local/bin/broccoli`.
+
+### Windows
+
+`install.sh` is a bash script and does not run on a native Windows box — its
+contestant case also hard-exits with
+`unsupported OS for contestant trust helper` on any `uname -s` other than
+`Linux` or `Darwin`, so there's no path through `install.sh` for Windows at all.
+Instead, run the trust helper directly in an **elevated (Administrator)
+PowerShell**:
+
+```powershell
+cd <bundle-dir>
+.\trust-ca\windows.ps1 ca\root.crt
+```
+
+This imports `ca/root.crt` into the Windows Local Machine Root store via
+`certutil -addstore -f Root`. There is no CLI install step on Windows: the
+bundled `cli/broccoli` binary is a Linux x86_64-musl static build and will not
+run there. Windows contestants can still reach the server over HTTPS from a
+trust-updated browser; they just need a different (or no) `broccoli` CLI.
+
+### Firefox (all platforms)
 
 **Firefox keeps its own certificate store**, separate from the OS trust store
-that `trust-ca/` populates. Every trust helper prints a reminder of this; if
-contestants will use Firefox against the LAN server, import `ca/root.crt` into
-Firefox separately (Settings → Privacy & Security → Certificates → View
-Certificates → Authorities → Import).
+that `trust-ca/` (or, on Windows, `windows.ps1` directly) populates. Every trust
+helper prints a reminder of this; if contestants will use Firefox against the
+LAN server, import `ca/root.crt` into Firefox separately (Settings → Privacy &
+Security → Certificates → View Certificates → Authorities → Import).
 
 ## 7. root.key security
 
@@ -225,19 +271,20 @@ ever installed on worker or contestant machines by `trust-ca`. `ca/root.key` and
 **`ABORT: bundle integrity check failed` / `manifest verification failed`** —
 the copy onto removable media was corrupted or incomplete (or the tree was
 edited after `manifest.sha256` was generated). Re-copy the bundle from the
-staging box (or re-extract the `.tar.zst`) and re-run
-`load-bundle.sh --bundle <dir> --verify-only` before doing anything else. Do not
-attempt to "fix" a mismatched manifest by hand — regenerate the bundle.
+staging box (or re-extract the `.tar.zst`) and, from inside the bundle
+directory, re-run `./load-bundle.sh --bundle . --verify-only` before doing
+anything else. Do not attempt to "fix" a mismatched manifest by hand —
+regenerate the bundle.
 
 **Browser/client shows a TLS warning even though the CA was trusted** — the
 server's leaf certificate's SAN only covers the host/IP it was issued for. If
 contestants reach the server via a different hostname or IP than the one passed
 to `--lan-host` (at either `build-bundle.sh` or `install.sh --role server`
-time), the leaf won't match. Re-issue the leaf for the correct host with
-`ca/issue-leaf.sh --ca-dir <dir>/ca --host <correct-host> --out <dir>/ca`
-(requires `root.key`, so do this before burning it) and re-render the Caddyfile
-by re-running
-`install.sh --role server --bundle <dir> --lan-host <correct-host>`.
+time), the leaf won't match. From inside the bundle directory on the server,
+re-issue the leaf for the correct host with
+`./ca/issue-leaf.sh --ca-dir ca --host <correct-host> --out ca` (requires
+`root.key`, so do this before burning it) and re-render the Caddyfile by
+re-running `./install.sh --role server --bundle . --lan-host <correct-host>`.
 
 **Browser trust warnings persist after running the trust helper** — most
 browsers read the OS certificate store and pick up `trust-ca/`'s changes
