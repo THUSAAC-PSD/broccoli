@@ -11,6 +11,9 @@ bash "$issue" --ca-dir "$CA" --host judge.contest.lan --host 10.0.0.5 --out "$LE
 [ -f "$LEAF/server.crt" ] || { echo "FAIL: server.crt missing"; exit 1; }
 [ -f "$LEAF/server.key" ] || { echo "FAIL: server.key missing"; exit 1; }
 
+perms="$(stat -c '%a' "$LEAF/server.key")"
+[ "$perms" = "600" ] || { echo "FAIL: server.key perms $perms != 600"; exit 1; }
+
 # chains to the CA
 openssl verify -CAfile "$CA/root.crt" "$LEAF/server.crt" >/dev/null \
   || { echo "FAIL: leaf does not chain to CA"; exit 1; }

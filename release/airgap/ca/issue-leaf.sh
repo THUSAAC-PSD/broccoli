@@ -28,10 +28,9 @@ mkdir -p "$OUT"
 is_ip() { printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$|:'; }
 
 # Build SAN list
-san=""; i=0
+san=""
 for h in "${HOSTS[@]}"; do
   if is_ip "$h"; then san="${san}${san:+,}IP:${h}"; else san="${san}${san:+,}DNS:${h}"; fi
-  i=$((i+1))
 done
 
 umask 077
@@ -41,7 +40,7 @@ chmod 0600 "$OUT/server.key"
 # CN = first host for legacy display; SANs are authoritative.
 openssl req -new -key "$OUT/server.key" -subj "/CN=${HOSTS[0]}" -out "$OUT/server.csr"
 
-ext="$(mktemp)"; trap 'rm -f "$ext"' EXIT
+ext="$(mktemp)"; trap 'rm -f "$ext" "$OUT/server.csr"' EXIT
 cat > "$ext" <<EXT
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
@@ -52,6 +51,5 @@ EXT
 openssl x509 -req -in "$OUT/server.csr" \
   -CA "$CA_DIR/root.crt" -CAkey "$CA_DIR/root.key" -CAcreateserial \
   -sha256 -days "$DAYS" -extfile "$ext" -out "$OUT/server.crt"
-rm -f "$OUT/server.csr"
 
 echo "issued leaf: $OUT/server.crt (SAN: ${san})"
