@@ -36,12 +36,14 @@ mkdir -p "$gen/compose"
 echo "img" > "$gen/images.txt"
 printf '.env.infra.example\n' > "$gen/compose/.env.infra.example"
 printf '.env.server.example\n' > "$gen/compose/.env.server.example"
+printf '.env.worker.example\n' > "$gen/compose/.env.worker.example"
 manifest_generate "$gen"
 # operator/generated env files land AFTER the bundle was manifested
 printf 'POSTGRES_PASSWORD=secret\n' > "$gen/compose/.env.infra"
 printf 'BROCCOLI__DATABASE__URL=x\n' > "$gen/compose/.env.server"
+printf 'BROCCOLI__DATABASE__URL=x\n' > "$gen/compose/.env.worker"
 [ "$(manifest_verify "$gen")" = OK ] \
-  || { echo "FAIL: generated .env.infra/.env.server must be excluded from manifest_verify"; exit 1; }
+  || { echo "FAIL: generated .env.infra/.env.server/.env.worker must be excluded from manifest_verify"; exit 1; }
 # .env.infra.example/.env.server.example templates must remain covered
 echo tampered >> "$gen/compose/.env.infra.example"
 manifest_verify "$gen" >/dev/null 2>&1 \
@@ -51,6 +53,11 @@ manifest_generate "$gen"
 echo tampered >> "$gen/compose/.env.server.example"
 manifest_verify "$gen" >/dev/null 2>&1 \
   && { echo "FAIL: manifest_verify must still catch tampering of .env.server.example"; exit 1; } || true
+# regenerate and tamper .env.worker.example
+manifest_generate "$gen"
+echo tampered >> "$gen/compose/.env.worker.example"
+manifest_verify "$gen" >/dev/null 2>&1 \
+  && { echo "FAIL: manifest_verify must still catch tampering of .env.worker.example"; exit 1; } || true
 # tampering with a real bundle file is still caught
 manifest_generate "$gen"
 echo tampered >> "$gen/images.txt"

@@ -5,13 +5,13 @@
 # the manifest is reproducible.
 set -euo pipefail
 
-# NOTE: .env.infra/.env.server are on-host runtime config generated on the
-# server (they never crossed the air gap and hold secrets), so they are
-# excluded from transport-integrity. *.example templates ARE covered.
+# NOTE: .env.infra/.env.server/.env.worker are on-host runtime config generated
+# on the server/worker (they never crossed the air gap and hold secrets), so
+# they are excluded from transport-integrity. *.example templates ARE covered.
 manifest_generate() {
   local dir="$1"
   ( cd "$dir"
-    find . -type f ! -name manifest.sha256 ! -name .env.infra ! -name .env.server -print0 \
+    find . -type f ! -name manifest.sha256 ! -name .env.infra ! -name .env.server ! -name .env.worker -print0 \
       | LC_ALL=C sort -z \
       | xargs -0 sha256sum \
       > manifest.sha256
@@ -23,7 +23,7 @@ manifest_verify() {
   [ -f "$dir/manifest.sha256" ] || { echo "manifest.sha256 missing" >&2; return 1; }
   local tmp; tmp="$(mktemp)"
   ( cd "$dir"
-    find . -type f ! -name manifest.sha256 ! -name .env.infra ! -name .env.server -print0 \
+    find . -type f ! -name manifest.sha256 ! -name .env.infra ! -name .env.server ! -name .env.worker -print0 \
       | LC_ALL=C sort -z \
       | xargs -0 sha256sum
   ) > "$tmp" 2>/dev/null
