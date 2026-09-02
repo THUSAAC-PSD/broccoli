@@ -45,9 +45,9 @@ if [ -n "$LAN_HOST" ]; then
   bash "$here/ca/issue-leaf.sh" --ca-dir "$SRV" --host "$LAN_HOST" --out "$SRV"
 fi
 
-# 2. Target-side scripts + Caddyfile + trust helpers + manifest lib
-cp "$here/load-bundle.sh" "$here/install.sh" "$B/"
-cp "$here/lib/manifest.sh" "$B/lib/manifest.sh"
+# 2. Target-side scripts + Caddyfile + trust helpers + installer libs
+cp "$here/load-bundle.sh" "$here/install.sh" "$here/setup.sh" "$B/"
+cp "$here"/lib/*.sh "$B/lib/"
 cp "$here/caddy/Caddyfile.airgap" "$B/caddy/Caddyfile.airgap"
 cp "$here"/ca/issue-leaf.sh "$B/ca/issue-leaf.sh"
 cp "$here"/trust-ca/* "$B/trust-ca/"

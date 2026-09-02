@@ -16,11 +16,13 @@ bash "$bb" --version testv --output "$T" --skip-images >/dev/null
 b="$T/broccoli-airgap-testv"
 for p in bundle.json manifest.sha256 ca/root.crt caddy/Caddyfile.airgap \
          compose/docker-compose.gateway-airgap.yaml.template \
-         load-bundle.sh install.sh trust-ca/linux.sh compose lib/manifest.sh \
-         native/live-boot-preflight.sh; do
+         load-bundle.sh install.sh setup.sh trust-ca/linux.sh compose \
+         lib/manifest.sh lib/runtime.sh lib/answers.sh lib/envgen.sh \
+         lib/preflight.sh native/live-boot-preflight.sh; do
   [ -e "$b/$p" ] || { echo "FAIL: bundle missing $p"; exit 1; }
 done
 [ -x "$b/native/live-boot-preflight.sh" ] || { echo "FAIL: staged preflight not executable"; exit 1; }
+[ -x "$b/setup.sh" ] || { echo "FAIL: staged setup.sh not executable"; exit 1; }
 # manifest actually verifies
 # shellcheck source=/dev/null
 source "$here/../lib/manifest.sh"; manifest_verify "$b" >/dev/null \
