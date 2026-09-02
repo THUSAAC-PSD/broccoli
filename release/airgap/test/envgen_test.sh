@@ -92,4 +92,33 @@ grep -qx 'POSTGRES_PASSWORD=pgpw' "$infra2" || { echo "FAIL: infra did not reuse
 grep -qx 'REDIS_PASSWORD=rdpw' "$infra2"    || { echo "FAIL: infra did not reuse sidecar redis pw"; exit 1; }
 grep -q  'postgres://postgres:pgpw@' "$server2" || { echo "FAIL: server DATABASE_URL did not use sidecar PG pw"; exit 1; }
 
+# --- workergen_write returns 2 when SIDECAR_ENV file does not exist ---
+set +e
+workergen_write "$tmp/.env.worker3" "$wex" "$tmp/nonexistent-cluster-secrets.env" "10.0.0.10" "worker-1"
+rc=$?
+set -e
+[ "$rc" = "2" ] || { echo "FAIL: workergen_write rc=$rc, expected 2 for missing sidecar file"; exit 1; }
+
+# --- workergen_write returns 2 when the sidecar is missing a required credential key ---
+cls_incomplete="$tmp/cluster-secrets-incomplete.env"
+cat > "$cls_incomplete" <<EOF
+POSTGRES_PASSWORD=pgpw
+EOF
+set +e
+workergen_write "$tmp/.env.worker4" "$wex" "$cls_incomplete" "10.0.0.10" "worker-1"
+rc=$?
+set -e
+[ "$rc" = "2" ] || { echo "FAIL: workergen_write rc=$rc, expected 2 for sidecar missing REDIS/S3 keys"; exit 1; }
+
+# --- cluster_seed_infra is a true no-op when the sidecar is absent ---
+infra3="$tmp/.env.infra3"
+cp "$iex" "$infra3"
+cp "$infra3" "$tmp/.env.infra3.before"
+set +e
+cluster_seed_infra "$infra3" "$tmp/nonexistent-cluster-secrets.env"
+rc=$?
+set -e
+[ "$rc" = "0" ] || { echo "FAIL: cluster_seed_infra rc=$rc, expected 0 (no-op) when sidecar absent"; exit 1; }
+cmp -s "$tmp/.env.infra3.before" "$infra3" || { echo "FAIL: cluster_seed_infra modified .env.infra when sidecar was absent"; exit 1; }
+
 echo "PASS: envgen secrets consistent, endpoints service-named, idempotent, cluster-seed + workergen_write"
