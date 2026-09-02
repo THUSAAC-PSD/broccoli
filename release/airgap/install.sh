@@ -24,6 +24,11 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$ROLE" ] && [ -n "$BUNDLE" ] || { echo "--role and --bundle are required" >&2; usage; exit 2; }
 
+# Resolve the compose provider once for deploy roles (server/worker). Reuse
+# setup.sh's export when present; else self-resolve (standalone use). Contestant
+# does not deploy, so an empty result here is only fatal inside server/worker.
+COMPOSE="${COMPOSE:-$(runtime_compose "${BROCCOLI_ENGINE:-$(runtime_engine)}")}"
+
 os_helper() {
   case "$(uname -s)" in
     Linux)  echo "$here/trust-ca/linux.sh" ;;
@@ -70,8 +75,6 @@ case "$ROLE" in
     export BROCCOLI_HTTP_BIND="${BROCCOLI_HTTP_BIND:-127.0.0.1:3000}"
     echo "TLS gateway will serve https://$LAN_HOST using leaf in $BROCCOLI_TLS_DIR"
     echo "server plaintext :3000 bound to host loopback ($BROCCOLI_HTTP_BIND); 443 is the only LAN entrypoint"
-    # Reuse setup.sh's export when present; else self-resolve (standalone use).
-    COMPOSE="${COMPOSE:-$(runtime_compose "${BROCCOLI_ENGINE:-$(runtime_engine)}")}"
     [ -n "$COMPOSE" ] || { echo "no working docker/podman compose provider found" >&2; exit 2; }
     ( cd "$BUNDLE/compose" && $COMPOSE \
         --env-file .env.infra --env-file .env.server \
@@ -81,7 +84,7 @@ case "$ROLE" in
     ;;
   worker)
     bash "$here/load-bundle.sh" --bundle "$BUNDLE"
-    # build-bundle.sh (Task 8) stages the preflight into the bundle at native/.
+    # build-bundle.sh stages the preflight into the bundle at native/.
     preflight="$here/native/live-boot-preflight.sh"
     if [ -x "$preflight" ]; then
       bash "$preflight" || echo "WARN: worker sandbox preflight reported issues"
@@ -95,7 +98,15 @@ case "$ROLE" in
     else
       echo "WARN: unsupported OS for CA trust helper; trust $BUNDLE/ca/root.crt manually" >&2
     fi
-    echo "worker installed"
+    # Bring the worker up against the server's LAN infra. .env.worker is
+    # rendered by setup.sh (secrets from the cluster-secret sidecar).
+    worker_env="$BUNDLE/compose/.env.worker"
+    [ -f "$worker_env" ] || { echo "missing $worker_env — run setup.sh --role worker (or copy compose/.env.worker.example and fill in secrets)" >&2; exit 2; }
+    [ -n "$COMPOSE" ] || { echo "no working docker/podman compose provider found" >&2; exit 2; }
+    mkdir -p "$BUNDLE/compose/plugins"   # bind source for ./plugins:/plugins:ro (empty is fine)
+    ( cd "$BUNDLE/compose" && $COMPOSE --env-file .env.worker \
+        -f docker-compose.worker.yaml.template up -d --pull never )
+    echo "worker started against server infra (compose up --pull never)"
     ;;
   contestant)
     # Re-verify bundle integrity before trusting a CA or installing a binary
