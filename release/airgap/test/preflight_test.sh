@@ -28,6 +28,12 @@ set +e; out="$(run server "$tmp/bundle" "$tmp/nope")"; rc=$?; set -e
 [ "$rc" = 1 ] || { echo "FAIL: missing secret should fail (rc=$rc)"; exit 1; }
 echo "$out" | grep -q '^FAIL:' || { echo "FAIL: no FAIL line for missing secret"; exit 1; }
 
+# nonexistent bundle but valid secret -> FAIL rc1, role check still runs
+set +e; out="$(run server "$tmp/no-such-bundle" "$sec")"; rc=$?; set -e
+[ "$rc" = 1 ] || { echo "FAIL: nonexistent bundle should fail (rc=$rc)"; exit 1; }
+echo "$out" | grep -q '^FAIL: bundle integrity' || { echo "FAIL: no bundle integrity FAIL line"; exit 1; }
+echo "$out" | grep -q '^PASS: server TLS material present' || { echo "FAIL: server role check did not run"; exit 1; }
+
 # no engine (empty PATH stubs failing) -> FAIL
 mkdir -p "$tmp/nobin"
 cat > "$tmp/nobin/docker" <<'E'
@@ -44,5 +50,6 @@ out="$(PATH="$tmp/nobin:$tmp/bin_missing:/usr/bin:/bin" bash -c '. '"$here"'/../
 rc=$?
 set -e
 [ "$rc" = 1 ] || { echo "FAIL: no-engine should fail (rc=$rc)"; exit 1; }
+echo "$out" | grep -q '^FAIL: no working docker' || { echo "FAIL: no docker/podman FAIL line"; exit 1; }
 
 echo "PASS: preflight go/no-go"

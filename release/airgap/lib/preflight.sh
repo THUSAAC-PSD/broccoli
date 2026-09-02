@@ -15,7 +15,7 @@ _pf_bad()  { echo "FAIL: $*"; _pf_fail=1; }
 
 _pf_disk() {
   local path="$1" kb
-  kb="$(df -Pk "$path" 2>/dev/null | awk 'NR==2{print $4}')"
+  kb="$(df -Pk "$path" 2>/dev/null | awk 'NR==2{print $4}')" || kb=""
   if [ -n "$kb" ] && [ "$kb" -ge 2097152 ]; then _pf_pass "disk: $((kb/1024)) MiB free"
   else _pf_warn "low disk (<2 GiB free) at $path"; fi
 }
