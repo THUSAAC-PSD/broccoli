@@ -111,6 +111,20 @@ grep -qx 'POSTGRES_PASSWORD=pgpw' "$infra2" || { echo "FAIL: infra did not reuse
 grep -qx 'REDIS_PASSWORD=rdpw' "$infra2"    || { echo "FAIL: infra did not reuse sidecar redis pw"; exit 1; }
 grep -q  'postgres://postgres:pgpw@' "$server2" || { echo "FAIL: server DATABASE_URL did not use sidecar PG pw"; exit 1; }
 
+# --- cluster_seed_infra must NOT clobber a real pre-existing infra credential.
+#     (A single-host deploy may already have minted POSTGRES_PASSWORD and had
+#     PG initialise its volume with it; a later cluster sidecar silently
+#     replacing it would lock the server out of its own database.) A change-me
+#     placeholder IS still adopted, so a genuine first cluster deploy works. ---
+infra_pre="$tmp/.env.infra.pre"
+cp "$iex" "$infra_pre"
+env_set "$infra_pre" POSTGRES_PASSWORD 'already-real-pw'   # a real, non-placeholder value
+cluster_seed_infra "$infra_pre" "$cls"                     # sidecar carries POSTGRES_PASSWORD=pgpw
+[ "$(env_get "$infra_pre" POSTGRES_PASSWORD)" = 'already-real-pw' ] \
+  || { echo "FAIL: cluster_seed_infra clobbered an existing real POSTGRES_PASSWORD"; exit 1; }
+[ "$(env_get "$infra_pre" REDIS_PASSWORD)" = 'rdpw' ] \
+  || { echo "FAIL: cluster_seed_infra did not adopt sidecar REDIS_PASSWORD over the change-me placeholder"; exit 1; }
+
 # --- workergen_write returns 2 when SIDECAR_ENV file does not exist ---
 set +e
 workergen_write "$tmp/.env.worker3" "$wex" "$tmp/nonexistent-cluster-secrets.env" "10.0.0.10" "worker-1"

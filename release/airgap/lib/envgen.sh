@@ -92,8 +92,13 @@ cluster_seed_infra() {
   for k in POSTGRES_PASSWORD REDIS_PASSWORD \
            BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
            BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY; do
+    # Adopt the sidecar value ONLY into a slot that is empty or still a
+    # change-me placeholder (env_get returns "" for both). A real value already
+    # present — e.g. a POSTGRES_PASSWORD a single-host deploy minted and PG then
+    # baked into its data volume — must survive: silently replacing it would lock
+    # the server out of its own database.
     v="$(env_get "$sidecar" "$k")"
-    [ -n "$v" ] && env_set "$infra" "$k" "$v"
+    [ -n "$v" ] && [ -z "$(env_get "$infra" "$k")" ] && env_set "$infra" "$k" "$v"
   done
 }
 
