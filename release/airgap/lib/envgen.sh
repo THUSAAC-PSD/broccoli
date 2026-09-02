@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Generate consistent, idempotent secrets + topology-correct endpoints for the
+# air-gap server role. Secrets from local `openssl rand` (no network). Shared
+# values are written identically into .env.infra and .env.server so the server
+# reaches its co-located infra by compose service name (db/redis/seaweedfs).
+set -euo pipefail
+
+# URL-safe alphanumeric secret (base64 stripped of +/=).
+envgen_secret() {
+  local bytes="${1:-24}"
+  openssl rand -base64 "$bytes" | tr -d '/+=\n'
+}
+
+# Echo KEY's value from FILE, or "" if absent or a change-me placeholder.
+env_get() {
+  local file="$1" key="$2" val
+  [ -f "$file" ] || { echo ""; return 0; }
+  val="$(grep -E "^${key}=" "$file" | head -1 | cut -d= -f2-)"
+  case "$val" in ""|*change-me*) echo "" ;; *) echo "$val" ;; esac
+}
+
+# Replace-or-append KEY=VALUE in FILE. VALUE written literally (awk -v, not sed,
+# so URL chars :/@ are safe; secrets are alphanumeric).
+env_set() {
+  local file="$1" key="$2" val="$3" tmp
+  tmp="$(mktemp)"
+  [ -f "$file" ] || : > "$file"
+  if grep -qE "^${key}=" "$file"; then
+    awk -v k="$key" -v v="$val" 'BEGIN{FS="="} $1==k{print k "=" v; next} {print}' "$file" > "$tmp"
+  else
+    cat "$file" > "$tmp"
+    printf '%s=%s\n' "$key" "$val" >> "$tmp"
+  fi
+  mv "$tmp" "$file"
+}
+
+# envgen_write INFRA SERVER INFRA_EXAMPLE SERVER_EXAMPLE ADMIN_USER ADMIN_PASS
+envgen_write() {
+  local infra="$1" server="$2" infra_ex="$3" server_ex="$4" admin_user="$5" admin_pass="$6"
+
+  # Seed from the shipped examples so no key is dropped.
+  [ -f "$infra" ]  || cp "$infra_ex"  "$infra"
+  [ -f "$server" ] || cp "$server_ex" "$server"
+
+  # Shared machine secrets: reuse an existing real value, else generate once.
+  local pg redis s3a s3s jwt
+  pg="$(env_get "$infra" POSTGRES_PASSWORD)";                                   [ -n "$pg" ]    || pg="$(envgen_secret 24)"
+  redis="$(env_get "$infra" REDIS_PASSWORD)";                                   [ -n "$redis" ] || redis="$(envgen_secret 24)"
+  s3a="$(env_get "$infra" BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY)";      [ -n "$s3a" ]   || s3a="$(envgen_secret 18)"
+  s3s="$(env_get "$infra" BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY)";      [ -n "$s3s" ]   || s3s="$(envgen_secret 24)"
+  jwt="$(env_get "$server" BROCCOLI__AUTH__JWT_SECRET)";                        [ -n "$jwt" ]   || jwt="$(envgen_secret 36)"
+
+  # --- infra: secrets + neutralize any change-me the infra file also carries ---
+  env_set "$infra" POSTGRES_PASSWORD "$pg"
+  env_set "$infra" REDIS_PASSWORD "$redis"
+  env_set "$infra" BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY "$s3a"
+  env_set "$infra" BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY "$s3s"
+  env_set "$infra" BROCCOLI__AUTH__JWT_SECRET "$jwt"
+  env_set "$infra" BROCCOLI_BOOTSTRAP_ADMIN_USERNAME "$admin_user"
+  env_set "$infra" BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD "$admin_pass"
+
+  # --- server: same secrets + service-name endpoints + admin creds ---
+  env_set "$server" BROCCOLI__AUTH__JWT_SECRET "$jwt"
+  env_set "$server" BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY "$s3a"
+  env_set "$server" BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY "$s3s"
+  env_set "$server" BROCCOLI__DATABASE__URL "postgres://postgres:${pg}@${BROCCOLI_DB_HOST:-db}:5432/broccoli"
+  env_set "$server" BROCCOLI__MQ__URL "redis://:${redis}@${BROCCOLI_MQ_HOST:-redis}:6379"
+  env_set "$server" BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT "http://${BROCCOLI_S3_HOST:-seaweedfs}:8333"
+  env_set "$server" BROCCOLI_BOOTSTRAP_ADMIN_USERNAME "$admin_user"
+  env_set "$server" BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD "$admin_pass"
+}
