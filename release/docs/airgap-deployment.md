@@ -26,12 +26,15 @@ The bundle covers three roles:
   trusted (so HTTPS to the server doesn't warn) and the `broccoli` CLI on its
   `PATH`.
 
-Every role installs from the same bundle tree via one dispatcher,
-`install.sh --role {server|worker|contestant}`. Nothing under `release/airgap/`
-ever shells out to `curl`, `wget`, `apt`, `pip`, or `docker pull` — that
-invariant is enforced by `release/airgap/test/offline_guard_test.sh` and
-`install_test.sh`, and it's what makes the target-side scripts safe to run with
-no network at all.
+Every role installs from the same bundle tree. The recommended path is the
+guided one-click installer, `setup.sh --role {server|worker|contestant}`, which
+wraps the underlying per-role engine `install.sh` with runtime detection, a
+go/no-go preflight, and auto-generated configuration (§4). `install.sh` remains
+available directly for operators who manage their own `.env` files. Nothing
+under `release/airgap/` ever shells out to `curl`, `wget`, `apt`, `pip`, or
+`docker pull` — that invariant is enforced by
+`release/airgap/test/offline_guard_test.sh` and `install_test.sh`, and it's what
+makes the target-side scripts safe to run with no network at all.
 
 ## 2. On the staging box (networked)
 
@@ -46,7 +49,7 @@ release/airgap/build-bundle.sh --version <V> [--lan-host <host-or-ip>] --tar
   `./dist/broccoli-airgap-<V>/` by default (override with `--output`).
 - `--lan-host <host-or-ip>` is optional at assembly time. If you already know
   the venue's LAN IP or hostname, pass it here and `build-bundle.sh` pre-issues
-  the server's TLS leaf during assembly (see step 7, `root.key` security).
+  the server's TLS leaf during assembly (see step 8, `root.key` security).
 - `--tar` additionally produces `broccoli-airgap-<V>.tar.zst` next to the tree,
   convenient for copying to a single file on USB.
 
@@ -79,7 +82,12 @@ into the sidecar (`root.key` lives there, `chmod 0600`), copies only the public
   environment at load time).
 - `trust-ca/` — the per-OS root-CA trust helpers (`linux.sh`, `macos.sh`,
   `windows.ps1`).
-- `install.sh`, `load-bundle.sh` — the target-side scripts.
+- `setup.sh`, `install.sh`, `load-bundle.sh` — the target-side scripts.
+  `setup.sh` is the recommended guided one-click installer (§4); `install.sh` is
+  the underlying per-role engine it wraps.
+- `lib/` — the installer's shared shell libraries (`runtime.sh`, `answers.sh`,
+  `envgen.sh`, `preflight.sh`, `manifest.sh`), sourced by `setup.sh` and
+  `install.sh`.
 - `bundle.json` — provenance (version, source git SHA, role list).
 - `manifest.sha256` — a `sha256sum` of every other file in the tree, sorted by
   relative path, used to detect transfer corruption or tampering.
@@ -99,7 +107,7 @@ directory — they are the bundle's own copies; there is no repo checkout on the
 target. Every target-side command in this runbook is written as
 `cd <bundle-dir>` followed by `./script.sh ... --bundle .`; do not substitute a
 `release/airgap/...` repo path here. `install.sh` resolves sibling files (like
-the worker's `native/live-boot-preflight.sh` preflight, step 5) relative to its
+the worker's `native/live-boot-preflight.sh` preflight, step 6) relative to its
 own location, so running a repo copy of `install.sh` instead of the bundle's own
 copy makes that lookup fail and the check silently skip instead of actually
 running.
@@ -117,10 +125,75 @@ This re-hashes every file in the bundle (except `manifest.sha256` itself) and
 diffs the result against `manifest.sha256`. It exits non-zero and prints
 `ABORT: bundle integrity check failed` on any mismatch — do not proceed with an
 install until this passes. The same verification runs again, unconditionally, as
-part of the contestant install (step 6) as a second trust-boundary check after
+part of the contestant install (step 7) as a second trust-boundary check after
 the media has changed hands.
 
-## 4. Server install
+## 4. Guided install (recommended)
+
+`setup.sh` is the recommended one-click install path: it wraps the per-role
+`install.sh` engine documented in §5–§7 with a runtime-aware preflight,
+auto-generated secrets kept consistent across `compose/.env.infra` and
+`compose/.env.server`, and compose service-name endpoints (so the server reaches
+its co-located infra by service name — `db`/`redis`/`seaweedfs` — instead of you
+wiring URLs by hand). It detects Docker **and** Podman, is interactive by
+default, and is fully scriptable via flags/environment variables for unattended
+installs. Like every target-side script in this runbook, it makes zero network
+calls.
+
+On the server, from inside the transferred bundle directory:
+
+```bash
+cd <bundle-dir>
+./setup.sh --role server --bundle . --lan-host <host-or-ip>
+```
+
+On each worker or contestant host, from inside the transferred bundle directory:
+
+```bash
+cd <bundle-dir>
+./setup.sh --role worker --bundle .
+./setup.sh --role contestant --bundle .
+```
+
+On the server you are prompted only for the bootstrap admin password (or pass it
+non-interactively with `--admin-pass` / `$BROCCOLI_SETUP_ADMIN_PASS`); the LAN
+hostname and admin username may also be supplied as flags (`--lan-host`,
+`--admin-user`, default `admin`) instead of answered at the prompt. Everything
+else — the Postgres/Redis passwords, the JWT secret, and the S3 credentials — is
+generated locally with `openssl rand` and written identically into both env
+files. Re-running `setup.sh` against an existing install reuses any real
+(non-`change-me`) values already present in those files instead of rotating
+them, so it is safe to re-run.
+
+Two flags make `setup.sh` fit non-interactive workflows: `--dry-run` prints the
+resolved plan (engine, compose provider, and the `install.sh` invocation it
+would run) without deploying anything — on the server role it also writes the
+generated env files first — and `--non-interactive` (paired with `--admin-pass`
+/ `$BROCCOLI_SETUP_ADMIN_PASS` and any other required flags/env vars) skips
+every prompt, for CI today and a future Ansible-driven install.
+
+Before handing off to `install.sh`, `setup.sh` runs a go/no-go preflight: it
+detects a working container engine (Docker or Podman) and, for the worker role,
+the sandbox/isolate readiness. The preflight only detects and reports — it never
+installs a runtime or touches the network — so a
+`FAIL: no working docker or podman` line means you provision Docker (or Podman
+on RHEL-family distros) out of band and re-run; `setup.sh` won't do it for you.
+
+For the server role, the server-only secret sidecar still has to be delivered to
+the server host exactly as in the manual path: place
+`broccoli-airgap-<V>.server-secret/` as the bundle directory's sibling, or point
+`setup.sh` at it explicitly with `--server-secret DIR` (see §8, `root.key`
+security).
+
+Once the preflight passes (and, on the server, the env files are generated),
+`setup.sh` hands off to `install.sh`, which loads the images and brings the
+stack up exactly as documented in §5–§7.
+
+## 5. Server install
+
+Directly running `install.sh --role server` is the underlying engine that
+`setup.sh` (§4) wraps — use it this way only if you are managing the `.env`
+files yourself.
 
 Before running the installer, the operator must supply real environment files —
 the bundle only ships `.example` templates so no secrets ever sit in a
@@ -167,7 +240,7 @@ This:
    or issued now via `ca/issue-leaf.sh` from the CA key that lives only in the
    sidecar) — the leaf's SAN covers `<host-or-ip>`.
 3. If `--burn-ca-key` was passed, deletes `root.key` from the server-secret
-   sidecar right after the leaf is issued (see §7).
+   sidecar right after the leaf is issued (see §8).
 4. Brings up infra, server, AND the Caddy TLS gateway (443, serving the
    internal-CA leaf, reverse-proxying to the server) with
    `docker compose --env-file .env.infra --env-file .env.server -f docker-compose.infra.yaml.template -f docker-compose.server.yaml.template -f docker-compose.gateway-airgap.yaml.template up -d --pull never`
@@ -191,9 +264,12 @@ This:
    When you take this path, narrow `BROCCOLI__SERVER__TRUSTED_PROXIES` to the
    fronting gateway's address only.
 
-## 5. Worker install
+## 6. Worker install
 
-On each judging box, from inside the transferred bundle directory:
+Directly running `install.sh --role worker` is the underlying engine that
+`setup.sh` (§4) wraps — use it this way only if you are managing the `.env`
+files yourself. On each judging box, from inside the transferred bundle
+directory:
 
 ```bash
 cd <bundle-dir>
@@ -222,7 +298,11 @@ the server's certificate can't reliably fetch submissions over HTTPS. An
 unsupported OS (neither Linux nor macOS) is only a warning; in that case trust
 `ca/root.crt` manually using your OS's certificate tooling.
 
-## 6. Contestant machines
+## 7. Contestant machines
+
+Directly running `install.sh --role contestant` is the underlying engine that
+`setup.sh` (§4) wraps — use it this way only if you are managing the `.env`
+files yourself.
 
 ### Linux / macOS
 
@@ -270,7 +350,7 @@ helper prints a reminder of this; if contestants will use Firefox against the
 LAN server, import `ca/root.crt` into Firefox separately (Settings → Privacy &
 Security → Certificates → View Certificates → Authorities → Import).
 
-## 7. root.key security
+## 8. root.key security
 
 The client-distributed bundle tree **never** contains any private key. The CA
 signing key `root.key` — which can mint new TLS leaves for the LAN's root CA —
@@ -301,7 +381,7 @@ Either way, only `ca/root.crt` (the public certificate, safe to distribute) is
 ever installed on worker or contestant machines by `trust-ca` — now structurally
 guaranteed, since no private key is ever part of the bundle tree they receive.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 **`ABORT: bundle integrity check failed` / `manifest verification failed`** —
 the copy onto removable media was corrupted or incomplete (or the tree was
@@ -324,7 +404,7 @@ gateway back up with the corrected leaf.
 
 **Browser trust warnings persist after running the trust helper** — most
 browsers read the OS certificate store and pick up `trust-ca/`'s changes
-immediately, but Firefox uses its own store (see step 6) and needs `root.crt`
+immediately, but Firefox uses its own store (see step 7) and needs `root.crt`
 imported separately. Confirm which store the browser is reading from before
 assuming the trust helper failed.
 
@@ -336,7 +416,7 @@ cgroup-v2, or toolchain checks will misjudge submissions. Fix the specific
 real submissions to that worker.
 
 **Server won't start / config looks empty** — check that `compose/.env.infra`
-and `compose/.env.server` exist and are filled in (step 4);
+and `compose/.env.server` exist and are filled in (step 5);
 `install.sh --role server` refuses to run without them, but if you brought up
 the compose files by hand without `install.sh` you can end up with variables
 expanding to empty strings.
