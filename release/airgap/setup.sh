@@ -40,6 +40,8 @@ export FLAG_NON_INTERACTIVE
 ROLE="$(answer ROLE 'Role (server/worker/contestant)' '' 1)"
 BUNDLE="$(answer BUNDLE 'Bundle dir' '' 1)"
 [ -d "$BUNDLE" ] || { echo "bundle dir not found: $BUNDLE" >&2; exit 2; }
+BUNDLE="$(cd "$BUNDLE" && pwd)"   # canonicalize so the default sidecar (and
+                                  # install.sh) agree on an absolute path
 # Default server-secret sidecar convention (documented in
 # release/docs/airgap-deployment.md, auto-resolved by install.sh): compute it
 # once here so preflight and install.sh agree on the same directory.

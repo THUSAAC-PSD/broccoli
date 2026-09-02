@@ -50,6 +50,19 @@ set -e
 [ "$rc2" = 0 ] || { echo "FAIL: default server-secret sidecar not honored by preflight (rc=$rc2)"; echo "$out2"; exit 1; }
 echo "$out2" | grep -q 'install.sh --role server' || { echo "FAIL: exec plan missing (default server-secret run)"; exit 1; }
 
+# the DOCUMENTED invocation is `cd <bundle-dir>; ./setup.sh --bundle .` — the
+# default sidecar must resolve to the SIBLING dir, not `..server-secret` inside
+# the bundle (canonicalization regression guard).
+set +e
+out3="$(cd "$tmp/bundle" && PATH="$tmp/bin:$PATH" BROCCOLI_SETUP_ADMIN_PASS=adminpw123 \
+  bash "$here/../setup.sh" --role server --bundle . \
+    --lan-host contest.lan --admin-user admin \
+    --non-interactive --dry-run)"
+rc3=$?
+set -e
+[ "$rc3" = 0 ] || { echo "FAIL: --bundle . default sidecar not resolved (rc=$rc3)"; echo "$out3"; exit 1; }
+echo "$out3" | grep -q 'install.sh --role server' || { echo "FAIL: --bundle . run did not reach exec plan"; echo "$out3"; exit 1; }
+
 # missing required non-interactive answer (no lan-host) -> exit 2
 set +e
 PATH="$tmp/bin:$PATH" BROCCOLI_SETUP_ADMIN_PASS=x \
