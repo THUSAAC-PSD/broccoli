@@ -18,7 +18,12 @@ services:
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     volumes:
       - ../caddy/Caddyfile.airgap:/etc/caddy/Caddyfile:ro
-      - "${BROCCOLI_TLS_DIR:?BROCCOLI_TLS_DIR must point at the server TLS cert dir}:/etc/broccoli-tls:ro"
+      # Mount ONLY the leaf cert+key as individual files. The CA signing key
+      # (root.key) shares the server-secret dir; binding the whole dir would
+      # expose it inside this contestant-facing container. Caddy reads exactly
+      # these two paths (TLS_CERT/TLS_KEY above).
+      - "${BROCCOLI_TLS_CERT:?BROCCOLI_TLS_CERT must point at the server TLS leaf cert}:/etc/broccoli-tls/server.crt:ro"
+      - "${BROCCOLI_TLS_KEY:?BROCCOLI_TLS_KEY must point at the server TLS leaf key}:/etc/broccoli-tls/server.key:ro"
       - caddy_data:/data
       - caddy_config:/config
 

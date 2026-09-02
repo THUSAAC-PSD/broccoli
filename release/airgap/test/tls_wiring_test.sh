@@ -13,6 +13,16 @@ grep -q 'docker-compose.gateway-airgap.yaml.template' "$inst" || { echo "FAIL: s
 [ -f "$gw" ] || { echo "FAIL: gateway-airgap compose template missing"; exit 1; }
 grep -q ':443' "$gw" || { echo "FAIL: gateway does not publish 443"; exit 1; }
 grep -q 'Caddyfile.airgap:/etc/caddy/Caddyfile' "$gw" || { echo "FAIL: gateway does not mount the un-rendered Caddyfile"; exit 1; }
+# The CA signing key (root.key) lives in the server-secret dir. The gateway is
+# the contestant-facing container, so it must mount ONLY the leaf cert+key as
+# individual files — never the whole secret dir (which would expose root.key).
+grep -q 'BROCCOLI_TLS_DIR' "$gw" \
+  && { echo "FAIL: gateway bind-mounts the whole TLS dir — leaks CA root.key into the Caddy container"; exit 1; } || true
+grep -q '/etc/broccoli-tls/server.crt:ro' "$gw" || { echo "FAIL: gateway does not mount server.crt as an individual file"; exit 1; }
+grep -q '/etc/broccoli-tls/server.key:ro' "$gw" || { echo "FAIL: gateway does not mount server.key as an individual file"; exit 1; }
+# install.sh must export the leaf file paths, not the whole secret dir.
+grep -q 'BROCCOLI_TLS_CERT' "$inst" || { echo "FAIL: install.sh does not export BROCCOLI_TLS_CERT (leaf cert path)"; exit 1; }
+grep -q 'BROCCOLI_TLS_KEY'  "$inst" || { echo "FAIL: install.sh does not export BROCCOLI_TLS_KEY (leaf key path)"; exit 1; }
 # Caddyfile keeps Caddy-native placeholders (never pre-rendered).
 grep -qF 'tls {$TLS_CERT} {$TLS_KEY}' "$cf" || { echo "FAIL: Caddyfile lost its Caddy {\$VAR} tls placeholders"; exit 1; }
 # --- M-A: gateway-bypass hardening -------------------------------------------
@@ -47,7 +57,7 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
      BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=x \
      BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=x \
      BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=x \
-     LAN_HOST=contest.lan BROCCOLI_TLS_DIR="$tmp" \
+     LAN_HOST=contest.lan BROCCOLI_TLS_CERT="$tmp/server.crt" BROCCOLI_TLS_KEY="$tmp/server.key" \
        docker compose --env-file "$tmp/envfile" \
                       -f "$rel/docker-compose.server.yaml.template" \
                       -f "$rel/docker-compose.gateway-airgap.yaml.template" \

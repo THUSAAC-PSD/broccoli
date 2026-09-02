@@ -67,13 +67,18 @@ case "$ROLE" in
     # would corrupt Caddy's {$VAR} placeholder syntax.
     export LAN_HOST
     export BROCCOLI_UPSTREAMS="${BROCCOLI_UPSTREAMS:-server:3000}"
-    BROCCOLI_TLS_DIR="$(cd "$SECRET" && pwd)"; export BROCCOLI_TLS_DIR
+    # Pass the leaf cert+key as individual file paths — NOT the secret dir — so
+    # the contestant-facing gateway never bind-mounts root.key (the CA signing
+    # key that shares this dir). See docker-compose.gateway-airgap.yaml.template.
+    abs_secret="$(cd "$SECRET" && pwd)"
+    export BROCCOLI_TLS_CERT="$abs_secret/server.crt"
+    export BROCCOLI_TLS_KEY="$abs_secret/server.key"
     # The 443 gateway is the only LAN ingress: bind the server's plaintext :3000
     # to host loopback so no contestant on the LAN can bypass TLS. Host-local
     # operator ops still reach it. Universal across Compose versions (an override
     # `ports: !reset []` would hard-fail below Compose v2.24, no offline remedy).
     export BROCCOLI_HTTP_BIND="${BROCCOLI_HTTP_BIND:-127.0.0.1:3000}"
-    echo "TLS gateway will serve https://$LAN_HOST using leaf in $BROCCOLI_TLS_DIR"
+    echo "TLS gateway will serve https://$LAN_HOST using leaf in $abs_secret"
     echo "server plaintext :3000 bound to host loopback ($BROCCOLI_HTTP_BIND); 443 is the only LAN entrypoint"
     [ -n "$COMPOSE" ] || { echo "no working docker/podman compose provider found" >&2; exit 2; }
     ( cd "$BUNDLE/compose" && $COMPOSE \
