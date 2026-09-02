@@ -46,7 +46,15 @@ wrk_ref="$(env_get "$b/compose/.env.worker.example" BROCCOLI_WORKER_IMAGE)"
 "$ENGINE" image inspect "$wrk_ref" >/dev/null 2>&1 || { echo "FAIL: worker image $wrk_ref not loaded"; exit 1; }
 
 echo "== CLI is a static musl ELF =="
-file "$b/cli/broccoli" | grep -q 'statically linked' || { echo "FAIL: CLI not statically linked"; file "$b/cli/broccoli"; exit 1; }
+# A musl static build reports "static-pie linked" (PIE + no interpreter), while a
+# classic non-PIE static build reports "statically linked" — accept either. The
+# load-bearing property is that NO dynamic interpreter is required (offline hosts
+# have no matching loader/libc), so also assert it is not "dynamically linked".
+cli_file="$(file "$b/cli/broccoli")"
+echo "$cli_file" | grep -qE 'static-pie linked|statically linked' \
+  || { echo "FAIL: CLI is not statically linked (need static-pie or classic static): $cli_file"; exit 1; }
+echo "$cli_file" | grep -q 'dynamically linked' \
+  && { echo "FAIL: CLI is dynamically linked — will not run on an offline host: $cli_file"; exit 1; } || true
 
 echo "== compose smoke: server up + gateway responds =="
 bash "$here/../setup.sh" --role server --bundle "$b" --lan-host "$HOST" \
