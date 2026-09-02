@@ -74,6 +74,11 @@ if [ "$ROLE" = server ]; then
   ADMIN_USER="$(answer ADMIN_USER 'Bootstrap admin username' admin 0)"
   ADMIN_PASS="$(answer_secret ADMIN_PASS 'Bootstrap admin password')"
   infra="$BUNDLE/compose/.env.infra"; server="$BUNDLE/compose/.env.server"
+  # Seed the full example first: cluster_seed_infra would otherwise create an
+  # empty .env.infra, making envgen_write's own [ -f ] || cp seed a no-op and
+  # dropping POSTGRES_DB/POSTGRES_USER (the infra template has no ${POSTGRES_DB}
+  # default, so Postgres would create db 'postgres', not 'broccoli').
+  [ -f "$infra" ] || cp "$BUNDLE/compose/.env.infra.example" "$infra"
   cluster_seed_infra "$infra" "$cluster_dir/cluster-secrets.env"
   envgen_write "$infra" "$server" \
     "$BUNDLE/compose/.env.infra.example" "$BUNDLE/compose/.env.server.example" \

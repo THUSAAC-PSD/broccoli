@@ -94,4 +94,30 @@ grep -qx 'BROCCOLI__DATABASE__URL=postgres://postgres:pgpw@10.0.0.10:5432/brocco
 grep -qx 'BROCCOLI__MQ__URL=redis://:rdpw@10.0.0.10:6379' "$wenv" || { echo "FAIL: worker mq url wrong"; cat "$wenv"; exit 1; }
 grep -q 'change-me' "$wenv" && { echo "FAIL: worker placeholder remains"; exit 1; } || true
 
+# --- server role + cluster-secret sidecar: .env.infra must NOT be corrupted ---
+# Regression guard: cluster_seed_infra used to run before envgen_write ever
+# seeded the full example, so envgen_write's own [ -f ] || cp seed became a
+# no-op and .env.infra ended up missing POSTGRES_DB/POSTGRES_USER (the infra
+# template has no ${POSTGRES_DB} default, so Postgres would create db
+# 'postgres', not 'broccoli').
+rm -f "$tmp/bundle/compose/.env.infra" "$tmp/bundle/compose/.env.server"
+# create/overwrite explicitly so this scenario is order-independent from the
+# worker scenario above
+mkdir -p "$tmp/bundle.cluster-secret"
+cat > "$tmp/bundle.cluster-secret/cluster-secrets.env" <<EOF
+POSTGRES_PASSWORD=pgpw
+REDIS_PASSWORD=rdpw
+BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=s3acc
+BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=s3sec
+EOF
+PATH="$tmp/bin:$PATH" bash "$here/../setup.sh" --role server --bundle "$tmp/bundle" \
+  --lan-host 10.0.0.10 --admin-user admin --admin-pass pw123 \
+  --non-interactive --dry-run >/dev/null
+sinfra="$tmp/bundle/compose/.env.infra"
+grep -qx 'POSTGRES_DB=broccoli' "$sinfra" || { echo "FAIL: .env.infra missing POSTGRES_DB after server+cluster-secret run"; cat "$sinfra"; exit 1; }
+grep -qx 'POSTGRES_USER=postgres' "$sinfra" || { echo "FAIL: .env.infra missing POSTGRES_USER after server+cluster-secret run"; cat "$sinfra"; exit 1; }
+grep -qx 'POSTGRES_PASSWORD=pgpw' "$sinfra" || { echo "FAIL: .env.infra did not adopt cluster-secret POSTGRES_PASSWORD"; cat "$sinfra"; exit 1; }
+sserver="$tmp/bundle/compose/.env.server"
+grep -q 'postgres://postgres:pgpw@' "$sserver" || { echo "FAIL: .env.server did not reuse cluster-secret POSTGRES_PASSWORD in db url"; cat "$sserver"; exit 1; }
+
 echo "PASS: setup.sh dry-run wiring + config generation"
