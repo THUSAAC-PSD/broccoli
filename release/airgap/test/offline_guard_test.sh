@@ -12,6 +12,11 @@ targets=(
   "$root/trust-ca/linux.sh"
   "$root/trust-ca/macos.sh"
   "$root/lib/manifest.sh"
+  "$root/setup.sh"
+  "$root/lib/runtime.sh"
+  "$root/lib/answers.sh"
+  "$root/lib/envgen.sh"
+  "$root/lib/preflight.sh"
 )
 [ "${#targets[@]}" -gt 0 ] || { echo "FAIL: empty target list"; exit 1; }
 
@@ -21,9 +26,9 @@ for f in "${targets[@]}"; do
   if grep -Eq '\b(curl|wget|apt|apt-get|pip[0-9]*)\b' "$f"; then
     echo "FAIL: $f contains a network fetch"; rc=1
   fi
-  # docker pull is only allowed with --pull never
-  if grep -Eq 'docker[[:space:]]+(image[[:space:]]+)?pull' "$f"; then
-    echo "FAIL: $f uses 'docker pull'"; rc=1
+  # docker/podman pull is only allowed with --pull never
+  if grep -Eq '(docker|podman)[[:space:]]+(image[[:space:]]+)?pull' "$f"; then
+    echo "FAIL: $f uses 'docker/podman pull'"; rc=1
   fi
 done
 
