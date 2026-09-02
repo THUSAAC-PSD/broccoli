@@ -20,13 +20,16 @@ env_get() {
 }
 
 # Replace-or-append KEY=VALUE in FILE. VALUE written literally (awk -v, not sed,
-# so URL chars :/@ are safe; secrets are alphanumeric).
+# so URL chars :/@ are safe; secrets are alphanumeric). Escape backslashes to avoid
+# awk escape processing (e.g., \n becomes newline, corrupting the file).
 env_set() {
-  local file="$1" key="$2" val="$3" tmp
+  local file="$1" key="$2" val="$3" val_esc tmp
+  # Escape backslashes for awk: \ -> \\ so awk sees a literal backslash
+  val_esc="${val//\\/\\\\}"
   tmp="$(mktemp)"
   [ -f "$file" ] || : > "$file"
   if grep -qE "^${key}=" "$file"; then
-    awk -v k="$key" -v v="$val" 'BEGIN{FS="="} $1==k{print k "=" v; next} {print}' "$file" > "$tmp"
+    awk -v k="$key" -v v="$val_esc" 'BEGIN{FS="="} $1==k{print k "=" v; next} {print}' "$file" > "$tmp"
   else
     cat "$file" > "$tmp"
     printf '%s=%s\n' "$key" "$val" >> "$tmp"
@@ -50,12 +53,13 @@ envgen_write() {
   s3s="$(env_get "$infra" BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY)";      [ -n "$s3s" ]   || s3s="$(envgen_secret 24)"
   jwt="$(env_get "$server" BROCCOLI__AUTH__JWT_SECRET)";                        [ -n "$jwt" ]   || jwt="$(envgen_secret 36)"
 
-  # --- infra: secrets + neutralize any change-me the infra file also carries ---
+  # --- infra: secrets + service-name endpoints + neutralize any change-me ---
   env_set "$infra" POSTGRES_PASSWORD "$pg"
   env_set "$infra" REDIS_PASSWORD "$redis"
   env_set "$infra" BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY "$s3a"
   env_set "$infra" BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY "$s3s"
   env_set "$infra" BROCCOLI__AUTH__JWT_SECRET "$jwt"
+  env_set "$infra" BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT "http://${BROCCOLI_S3_HOST:-seaweedfs}:8333"
   env_set "$infra" BROCCOLI_BOOTSTRAP_ADMIN_USERNAME "$admin_user"
   env_set "$infra" BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD "$admin_pass"
 
