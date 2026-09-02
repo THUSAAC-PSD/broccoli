@@ -40,6 +40,10 @@ export FLAG_NON_INTERACTIVE
 ROLE="$(answer ROLE 'Role (server/worker/contestant)' '' 1)"
 BUNDLE="$(answer BUNDLE 'Bundle dir' '' 1)"
 [ -d "$BUNDLE" ] || { echo "bundle dir not found: $BUNDLE" >&2; exit 2; }
+# Default server-secret sidecar convention (documented in
+# release/docs/airgap-deployment.md, auto-resolved by install.sh): compute it
+# once here so preflight and install.sh agree on the same directory.
+secret_dir="${FLAG_SERVER_SECRET:-${BUNDLE%/}.server-secret}"
 
 [ -n "${FLAG_ENGINE:-}" ] && export BROCCOLI_ENGINE="$FLAG_ENGINE"
 ENGINE="$(runtime_engine)"
@@ -49,7 +53,7 @@ COMPOSE="$(runtime_compose "$ENGINE")"
 export BROCCOLI_ENGINE="$ENGINE" COMPOSE
 
 echo "== preflight ($ROLE) =="
-preflight_run "$ROLE" "$BUNDLE" "${FLAG_SERVER_SECRET:-}" \
+preflight_run "$ROLE" "$BUNDLE" "$secret_dir" \
   || { echo "preflight FAILED — resolve the FAIL lines above; nothing deployed." >&2; exit 2; }
 
 INST=( --role "$ROLE" --bundle "$BUNDLE" )
@@ -63,7 +67,6 @@ if [ "$ROLE" = server ]; then
     "$BUNDLE/compose/.env.infra.example" "$BUNDLE/compose/.env.server.example" \
     "$ADMIN_USER" "$ADMIN_PASS"
   # SELinux relabel for rootless podman bind mounts (TLS dir + Caddyfile).
-  secret_dir="${FLAG_SERVER_SECRET:-${BUNDLE%/}.server-secret}"
   runtime_relabel "$ENGINE" "$secret_dir" "$here/caddy/Caddyfile.airgap" 2>/dev/null || true
   INST+=( --lan-host "$LAN_HOST" )
   [ -n "${FLAG_SERVER_SECRET:-}" ] && INST+=( --server-secret "$FLAG_SERVER_SECRET" )

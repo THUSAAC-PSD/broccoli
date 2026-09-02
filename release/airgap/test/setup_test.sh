@@ -34,6 +34,21 @@ grep -qE '^BROCCOLI__DATABASE__URL=postgres://postgres:.+@db:5432/broccoli$' "$s
 grep -q '10.0.0.10' "$sv" && { echo "FAIL: phantom IP remains"; exit 1; } || true
 grep -q 'change-me' "$sv" && { echo "FAIL: placeholder remains"; exit 1; } || true
 # dry-run started nothing (no compose project dir side effects beyond env files) — implicit
+# dry-run must actually gate exec: install.sh's real runtime marker must NOT appear
+echo "$out" | grep -q 'TLS gateway will serve' && { echo "FAIL: dry-run reached install.sh"; exit 1; } || true
+
+# default server-secret sidecar convention (no --server-secret passed) must be
+# honored by preflight too, not just by install.sh — regression guard for the
+# "preflight FAILs on the default sidecar" bug
+set +e
+out2="$(PATH="$tmp/bin:$PATH" BROCCOLI_SETUP_ADMIN_PASS=adminpw123 \
+  bash "$here/../setup.sh" --role server --bundle "$tmp/bundle" \
+    --lan-host contest.lan --admin-user admin \
+    --non-interactive --dry-run)"
+rc2=$?
+set -e
+[ "$rc2" = 0 ] || { echo "FAIL: default server-secret sidecar not honored by preflight (rc=$rc2)"; echo "$out2"; exit 1; }
+echo "$out2" | grep -q 'install.sh --role server' || { echo "FAIL: exec plan missing (default server-secret run)"; exit 1; }
 
 # missing required non-interactive answer (no lan-host) -> exit 2
 set +e
