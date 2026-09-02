@@ -49,23 +49,34 @@ release/airgap/build-bundle.sh --version <V> [--lan-host <host-or-ip>] --tar
   `./dist/broccoli-airgap-<V>/` by default (override with `--output`).
 - `--lan-host <host-or-ip>` is optional at assembly time. If you already know
   the venue's LAN IP or hostname, pass it here and `build-bundle.sh` pre-issues
-  the server's TLS leaf during assembly (see step 8, `root.key` security).
+  the server's TLS leaf during assembly (see step 8, `root.key` security) and
+  bakes the address into the cluster-secret sidecar's `cluster-secrets.env` as
+  `BROCCOLI_SERVER_HOST`, so worker installs (see "Worker host (one-click)"
+  below) are fully one-click — `--lan-host` becomes omittable on the worker.
 - `--tar` additionally produces `broccoli-airgap-<V>.tar.zst` next to the tree,
   convenient for copying to a single file on USB.
 
-`build-bundle.sh` produces **two** outputs side by side under `--output`
+`build-bundle.sh` produces **three** outputs side by side under `--output`
 (default `./dist/`): the client bundle tree `broccoli-airgap-<V>/`, which is
-carried to **all** roles (server, workers, contestants), and a server-only
-sidecar `broccoli-airgap-<V>.server-secret/` (mode `0700`) that holds the CA and
-leaf **private keys** and is delivered **only** to the server host — never to
-workers or contestants. It runs `ca/mint-ca.sh` to mint a fresh internal root CA
-into the sidecar (`root.key` lives there, `chmod 0600`), copies only the public
-`ca/root.crt` into the bundle tree, then stages everything an install needs:
+carried to **all** roles (server, workers, contestants); a server-only sidecar
+`broccoli-airgap-<V>.server-secret/` (mode `0700`) that holds the CA and leaf
+**private keys** and is delivered **only** to the server host — never to workers
+or contestants; and a cluster-secret sidecar
+`broccoli-airgap-<V>.cluster-secret/` (mode `0700`) holding a single file,
+`cluster-secrets.env`, with the shared Postgres/Redis/S3 passwords the server
+and every worker must agree on, plus an optional `BROCCOLI_SERVER_HOST` — this
+one is delivered to the server host **and** every worker host, but **never** to
+contestants. Unlike the bundle tree, the cluster-secret sidecar is
+**unmanifested**: it is not listed in `manifest.sha256` and is not covered by
+the integrity check in step 3. It runs `ca/mint-ca.sh` to mint a fresh internal
+root CA into the server-secret sidecar (`root.key` lives there, `chmod 0600`),
+copies only the public `ca/root.crt` into the bundle tree, then stages
+everything an install needs:
 
 - `images/` — `docker save` tarballs for the server, worker, Postgres, Redis,
-  and SeaweedFS images (skipped when assembling structurally with
+  SeaweedFS, and Caddy images (skipped when assembling structurally with
   `--skip-images`, which the bundle's own CI test uses). **Before transferring a
-  bundle, confirm `images/` actually contains all five tarballs** — a bundle
+  bundle, confirm `images/` actually contains all six tarballs** — a bundle
   assembled with `--skip-images`, or assembled before image build/save is wired
   up, will not have them, and `load-bundle.sh` will fail with
   `no images/*.tar in bundle` on the target when it tries to `docker load` them.
@@ -151,9 +162,16 @@ On each worker or contestant host, from inside the transferred bundle directory:
 
 ```bash
 cd <bundle-dir>
-./setup.sh --role worker --bundle .
+./setup.sh --role worker --bundle . --cluster-secret <bundle>.cluster-secret
 ./setup.sh --role contestant --bundle .
 ```
+
+The worker role additionally requires the cluster-secret sidecar delivered
+alongside the bundle (see "Worker host (one-click)" below for the full flow);
+`--worker-id` and `--lan-host` are both optional there — `--worker-id` defaults
+to the host's short name, and `--lan-host` is only needed if the bundle wasn't
+assembled with it already baked in. Without `--cluster-secret`, the worker
+preflight fails.
 
 The LAN hostname and admin username are also prompted for unless passed as flags
 (`--lan-host`, `--admin-user`, default `admin`) — pass both, as in the example
@@ -304,6 +322,26 @@ CA-trust failure aborts the install** — the script prints
 the server's certificate can't reliably fetch submissions over HTTPS. An
 unsupported OS (neither Linux nor macOS) is only a warning; in that case trust
 `ca/root.crt` manually using your OS's certificate tooling.
+
+## Worker host (one-click)
+
+Deliver the main bundle AND the `<bundle>.cluster-secret` sidecar to the worker
+host (the sidecar carries the shared DB/redis/S3 credentials; it never goes to
+contestants). Then:
+
+    ./setup.sh --role worker --bundle broccoli-airgap-<version> \
+        --cluster-secret broccoli-airgap-<version>.cluster-secret \
+        --worker-id worker-a           # optional; defaults to this host's name
+
+If the bundle was built with `--lan-host`, the server address is baked into the
+sidecar and `--lan-host` may be omitted; otherwise pass
+`--lan-host <server-ip>`. Each worker MUST use a distinct `--worker-id` — two
+workers sharing an id corrupt heartbeat and dedup bookkeeping.
+
+The worker connects to the server's Postgres/Redis/SeaweedFS over the LAN
+(published on the server at ports 5432/6379/8333, password-gated). No image is
+pulled; the worker image is loaded from the bundle and Compose runs
+`--pull never`.
 
 ## 7. Contestant machines
 
