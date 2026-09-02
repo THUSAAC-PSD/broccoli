@@ -18,14 +18,18 @@ answer() {
   v="${!flagvar:-}"; [ -n "$v" ] || v="${!envvar:-}"
   if [ -n "$v" ]; then echo "$v"; return 0; fi
   if _answers_interactive; then
-    if [ -n "$default" ]; then
-      read -r -p "$prompt [$default]: " reply || true
-      echo "${reply:-$default}"
-    else
-      read -r -p "$prompt: " reply || true
-      echo "$reply"
-    fi
-    return 0
+    while :; do
+      if [ -n "$default" ]; then
+        read -r -p "$prompt [$default]: " reply || true
+        reply="${reply:-$default}"
+      else
+        read -r -p "$prompt: " reply || true
+      fi
+      if [ -z "$reply" ] && [ "$required" = "1" ]; then
+        echo "  (required)" >&2; continue
+      fi
+      echo "$reply"; return 0
+    done
   fi
   if [ -n "$default" ]; then echo "$default"; return 0; fi
   if [ "$required" = "1" ]; then
@@ -42,8 +46,11 @@ answer_secret() {
   v="${!flagvar:-}"; [ -n "$v" ] || v="${!envvar:-}"
   if [ -n "$v" ]; then echo "$v"; return 0; fi
   if _answers_interactive; then
-    read -rs -p "$prompt: " reply || true; echo >&2
-    echo "$reply"; return 0
+    while :; do
+      read -rs -p "$prompt: " reply || true; echo >&2
+      [ -n "$reply" ] && { echo "$reply"; return 0; }
+      echo "  (required)" >&2
+    done
   fi
   echo "ERROR: required secret '$key' unset; pass $(_answers_flagname "$key") or \$$envvar" >&2
   exit 2
