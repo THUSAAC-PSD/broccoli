@@ -73,3 +73,42 @@ envgen_write() {
   env_set "$server" BROCCOLI_BOOTSTRAP_ADMIN_USERNAME "$admin_user"
   env_set "$server" BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD "$admin_pass"
 }
+
+# cluster_seed_infra INFRA SIDECAR_ENV
+# Pre-seed .env.infra with the build-time cluster secrets so envgen_write's
+# reuse path (env_get -> non-empty) adopts them instead of generating fresh.
+# No-op when the sidecar is absent (single-host server keeps generating).
+cluster_seed_infra() {
+  local infra="$1" sidecar="$2" k v
+  [ -f "$sidecar" ] || return 0
+  [ -f "$infra" ] || : > "$infra"
+  for k in POSTGRES_PASSWORD REDIS_PASSWORD \
+           BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
+           BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY; do
+    v="$(env_get "$sidecar" "$k")"
+    [ -n "$v" ] && env_set "$infra" "$k" "$v"
+  done
+}
+
+# workergen_write WORKER WORKER_EXAMPLE SIDECAR_ENV SERVER_HOST WORKER_ID
+# Render a worker's .env from the shipped example + shared cluster secrets,
+# substituting the server LAN host into the DB/MQ/S3 endpoints.
+workergen_write() {
+  local worker="$1" worker_ex="$2" sidecar="$3" server_host="$4" worker_id="$5"
+  [ -n "$server_host" ] || { echo "workergen: server host required (--lan-host or sidecar BROCCOLI_SERVER_HOST)" >&2; return 2; }
+  [ -f "$sidecar" ] || { echo "workergen: cluster-secret file not found: $sidecar" >&2; return 2; }
+  [ -f "$worker" ] || cp "$worker_ex" "$worker"
+  local pg redis s3a s3s
+  pg="$(env_get "$sidecar" POSTGRES_PASSWORD)"
+  redis="$(env_get "$sidecar" REDIS_PASSWORD)"
+  s3a="$(env_get "$sidecar" BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY)"
+  s3s="$(env_get "$sidecar" BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY)"
+  [ -n "$pg" ] && [ -n "$redis" ] && [ -n "$s3a" ] && [ -n "$s3s" ] \
+    || { echo "workergen: cluster-secret missing a PG/REDIS/S3 key: $sidecar" >&2; return 2; }
+  env_set "$worker" BROCCOLI__DATABASE__URL "postgres://postgres:${pg}@${server_host}:5432/broccoli"
+  env_set "$worker" BROCCOLI__MQ__URL "redis://:${redis}@${server_host}:6379"
+  env_set "$worker" BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT "http://${server_host}:8333"
+  env_set "$worker" BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY "$s3a"
+  env_set "$worker" BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY "$s3s"
+  env_set "$worker" BROCCOLI__WORKER__ID "$worker_id"
+}

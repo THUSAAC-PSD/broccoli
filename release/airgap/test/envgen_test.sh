@@ -54,4 +54,42 @@ envgen_write "$infra" "$server" \
 diff -q "$tmp/i1" "$infra"  >/dev/null || { echo "FAIL: infra not idempotent"; exit 1; }
 diff -q "$tmp/s1" "$server" >/dev/null || { echo "FAIL: server not idempotent"; exit 1; }
 
-echo "PASS: envgen secrets consistent, endpoints service-named, idempotent"
+# --- fixture: a cluster-secret sidecar ---
+cls="$tmp/cluster-secrets.env"
+cat > "$cls" <<EOF
+POSTGRES_PASSWORD=pgpw
+REDIS_PASSWORD=rdpw
+BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=s3acc
+BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=s3sec
+BROCCOLI_SERVER_HOST=10.0.0.10
+EOF
+
+# --- workergen_write renders correct URLs/creds/host/id ---
+wex="$rel/.env.worker.example"
+w="$tmp/.env.worker"
+workergen_write "$w" "$wex" "$cls" "10.0.0.10" "worker-7"
+grep -qx 'BROCCOLI__DATABASE__URL=postgres://postgres:pgpw@10.0.0.10:5432/broccoli' "$w" \
+  || { echo "FAIL: worker DATABASE_URL wrong"; cat "$w"; exit 1; }
+grep -qx 'BROCCOLI__MQ__URL=redis://:rdpw@10.0.0.10:6379' "$w" \
+  || { echo "FAIL: worker MQ_URL wrong"; exit 1; }
+grep -qx 'BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=http://10.0.0.10:8333' "$w" \
+  || { echo "FAIL: worker S3 endpoint wrong"; exit 1; }
+grep -qx 'BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=s3acc' "$w" || { echo "FAIL: worker S3 access wrong"; exit 1; }
+grep -qx 'BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=s3sec' "$w" || { echo "FAIL: worker S3 secret wrong"; exit 1; }
+grep -qx 'BROCCOLI__WORKER__ID=worker-7' "$w" || { echo "FAIL: worker id wrong"; exit 1; }
+
+# --- workergen_write refuses a missing server host ---
+if workergen_write "$tmp/.env.worker2" "$wex" "$cls" "" "worker-1" 2>/dev/null; then
+  echo "FAIL: workergen accepted empty server host"; exit 1; fi
+
+# --- cluster_seed_infra makes envgen_write REUSE the sidecar secrets ---
+iex="$rel/.env.infra.example"; sex="$rel/.env.server.example"
+infra2="$tmp/.env.infra2"; server2="$tmp/.env.server2"
+cp "$iex" "$infra2"                       # start from example (has change-me placeholders)
+cluster_seed_infra "$infra2" "$cls"
+envgen_write "$infra2" "$server2" "$iex" "$sex" "admin" "adminpw"
+grep -qx 'POSTGRES_PASSWORD=pgpw' "$infra2" || { echo "FAIL: infra did not reuse sidecar PG pw"; exit 1; }
+grep -qx 'REDIS_PASSWORD=rdpw' "$infra2"    || { echo "FAIL: infra did not reuse sidecar redis pw"; exit 1; }
+grep -q  'postgres://postgres:pgpw@' "$server2" || { echo "FAIL: server DATABASE_URL did not use sidecar PG pw"; exit 1; }
+
+echo "PASS: envgen secrets consistent, endpoints service-named, idempotent, cluster-seed + workergen_write"
