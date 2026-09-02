@@ -3,6 +3,8 @@
 # no network. All images come from the bundle; compose runs --pull never.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
+. "$here/lib/runtime.sh"
 
 usage() {
   echo "Usage: install.sh --role {server|worker|contestant} --bundle DIR [--lan-host H] [--server-secret DIR] [--burn-ca-key]"
@@ -68,7 +70,10 @@ case "$ROLE" in
     export BROCCOLI_HTTP_BIND="${BROCCOLI_HTTP_BIND:-127.0.0.1:3000}"
     echo "TLS gateway will serve https://$LAN_HOST using leaf in $BROCCOLI_TLS_DIR"
     echo "server plaintext :3000 bound to host loopback ($BROCCOLI_HTTP_BIND); 443 is the only LAN entrypoint"
-    ( cd "$BUNDLE/compose" && docker compose \
+    # Reuse setup.sh's export when present; else self-resolve (standalone use).
+    COMPOSE="${COMPOSE:-$(runtime_compose "${BROCCOLI_ENGINE:-$(runtime_engine)}")}"
+    [ -n "$COMPOSE" ] || { echo "no working docker/podman compose provider found" >&2; exit 2; }
+    ( cd "$BUNDLE/compose" && $COMPOSE \
         --env-file .env.infra --env-file .env.server \
         -f docker-compose.infra.yaml.template \
         -f docker-compose.server.yaml.template \
