@@ -54,7 +54,7 @@ bash "$here/../setup.sh" --role server --bundle "$b" --lan-host "$HOST" \
 # give the gateway a moment; poll for a TLS response
 ok=0
 for _ in $(seq 1 30); do
-  if curl -ksS "https://$HOST/" -o /dev/null; then ok=1; break; fi
+  if curl -fksS "https://$HOST/" -o /dev/null; then ok=1; break; fi
   sleep 2
 done
 [ "$ok" = 1 ] || { echo "FAIL: TLS gateway did not respond at https://$HOST/"; exit 1; }
