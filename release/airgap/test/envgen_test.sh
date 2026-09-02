@@ -54,6 +54,25 @@ envgen_write "$infra" "$server" \
 diff -q "$tmp/i1" "$infra"  >/dev/null || { echo "FAIL: infra not idempotent"; exit 1; }
 diff -q "$tmp/s1" "$server" >/dev/null || { echo "FAIL: server not idempotent"; exit 1; }
 
+# --- $ in operator free-text (admin pass/user) must be compose-escaped ($ -> $$)
+#     so `docker compose --env-file` interpolation does not eat it: a password
+#     'Secret$var99' otherwise reaches the container as 'Secret' (admin lockout). ---
+dol_infra="$tmp/.env.infra.dol"; dol_server="$tmp/.env.server.dol"
+envgen_write "$dol_infra" "$dol_server" \
+  "$rel/.env.infra.example" "$rel/.env.server.example" \
+  'ad$min' 'Secret$var99'
+grep -qxF 'BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD=Secret$$var99' "$dol_server" \
+  || { echo "FAIL: admin password \$ not compose-escaped (compose would mangle it)"; grep ADMIN_PASSWORD "$dol_server"; exit 1; }
+grep -qxF 'BROCCOLI_BOOTSTRAP_ADMIN_USERNAME=ad$$min' "$dol_server" \
+  || { echo "FAIL: admin username \$ not compose-escaped"; exit 1; }
+# env_get returns the logical (un-escaped) value, so idempotent reuse is stable
+[ "$(env_get "$dol_server" BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD)" = 'Secret$var99' ] \
+  || { echo "FAIL: env_get did not un-escape \$\$ back to the logical \$"; exit 1; }
+cp "$dol_server" "$tmp/ds1"
+envgen_write "$dol_infra" "$dol_server" \
+  "$rel/.env.infra.example" "$rel/.env.server.example" 'ad$min' 'Secret$var99'
+diff -q "$tmp/ds1" "$dol_server" >/dev/null || { echo "FAIL: \$-escaped server not idempotent"; exit 1; }
+
 # --- fixture: a cluster-secret sidecar ---
 cls="$tmp/cluster-secrets.env"
 cat > "$cls" <<EOF

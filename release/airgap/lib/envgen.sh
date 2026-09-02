@@ -12,10 +12,12 @@ envgen_secret() {
 }
 
 # Echo KEY's value from FILE, or "" if absent or a change-me placeholder.
+# Reverses env_set's compose-escape ($$ -> $) so callers see the logical value.
 env_get() {
   local file="$1" key="$2" val
   [ -f "$file" ] || { echo ""; return 0; }
   val="$(grep -E "^${key}=" "$file" | head -1 | cut -d= -f2-)"
+  val="${val//'$$'/'$'}"
   case "$val" in ""|*change-me*) echo "" ;; *) echo "$val" ;; esac
 }
 
@@ -23,16 +25,21 @@ env_get() {
 # so URL chars :/@ are safe; secrets are alphanumeric). Escape backslashes to avoid
 # awk escape processing (e.g., \n becomes newline, corrupting the file).
 env_set() {
-  local file="$1" key="$2" val="$3" val_esc tmp
+  local file="$1" key="$2" val="$3" val_c val_esc tmp
+  # Compose-escape first: `docker compose --env-file` interpolates VALUES, so a
+  # literal '$' (e.g. in an admin password 'Secret$var') must be stored as '$$'
+  # or compose eats '$var' -> the container sees 'Secret'. env_get reverses this.
+  # Single-quote the replacement: an unquoted $$ would expand to the shell PID.
+  val_c="${val//'$'/'$$'}"
   # Escape backslashes for awk: \ -> \\ so awk sees a literal backslash
-  val_esc="${val//\\/\\\\}"
+  val_esc="${val_c//\\/\\\\}"
   tmp="$(mktemp)"
   [ -f "$file" ] || : > "$file"
   if grep -qE "^${key}=" "$file"; then
     awk -v k="$key" -v v="$val_esc" 'BEGIN{FS="="} $1==k{print k "=" v; next} {print}' "$file" > "$tmp"
   else
     cat "$file" > "$tmp"
-    printf '%s=%s\n' "$key" "$val" >> "$tmp"
+    printf '%s=%s\n' "$key" "$val_c" >> "$tmp"
   fi
   mv "$tmp" "$file"
 }
