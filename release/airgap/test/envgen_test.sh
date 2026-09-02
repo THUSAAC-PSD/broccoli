@@ -37,13 +37,15 @@ grep -qE '^BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD=adminpw123$' "$server" || { echo "F
 grep -q 'change-me' "$infra"  && { echo "FAIL: placeholder in infra"; exit 1; } || true
 grep -q 'change-me' "$server" && { echo "FAIL: placeholder in server"; exit 1; } || true
 
-# backslash escape: env_set must not corrupt values with backslash sequences (e.g., C:\temp\new has \t and \n)
+# backslash escape: env_set replace branch must not corrupt values with backslash sequences
+# (the bug lived in the awk -v replace path, not append). Test both paths on same file.
 esc_test="$tmp/.env.esc"
-env_set "$esc_test" TESTKEY 'C:\temp\new'
-esc_val="$(env_get "$esc_test" TESTKEY)"
-[ "$esc_val" = 'C:\temp\new' ] || { echo "FAIL: backslash escape mangled value"; exit 1; }
+env_set "$esc_test" TESTKEY 'C:\temp\new'    # append (creates the key)
+env_set "$esc_test" TESTKEY 'C:\temp\new2'   # replace — the path that was broken by awk -v
 esc_lines="$(grep -c '^TESTKEY=' "$esc_test")"
-[ "$esc_lines" -eq 1 ] || { echo "FAIL: backslash escape corrupted into multiple lines"; exit 1; }
+[ "$esc_lines" = "1" ] || { echo "FAIL: backslash replace split the line"; exit 1; }
+esc_val="$(env_get "$esc_test" TESTKEY)"
+[ "$esc_val" = 'C:\temp\new2' ] || { echo "FAIL: backslash value round-trip mismatch: $esc_val"; exit 1; }
 
 # idempotent: rerun with same args preserves every byte
 cp "$infra" "$tmp/i1"; cp "$server" "$tmp/s1"
