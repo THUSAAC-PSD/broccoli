@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Verify a broccoli air-gap bundle's integrity, then docker-load its images.
-# TARGET-SIDE: performs NO network access. Docker images come only from the
-# bundle's images/*.tar via `docker load`; downstream compose uses --pull never.
+# Verify a broccoli air-gap bundle's integrity, then load its images via the
+# container engine. TARGET-SIDE: performs NO network access. Images come only
+# from the bundle's images/*.tar via `<engine> load`; downstream compose uses
+# --pull never.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "$here/lib/manifest.sh"
+# shellcheck source=/dev/null
+source "$here/lib/runtime.sh"
 
 usage() { echo "Usage: load-bundle.sh --bundle DIR [--verify-only]"; }
 
@@ -27,10 +30,15 @@ echo "integrity OK"
 
 [ "$VERIFY_ONLY" = "1" ] && { echo "verify-only: done"; exit 0; }
 
-command -v docker >/dev/null 2>&1 || { echo "docker not found" >&2; exit 1; }
+# Honor an explicit BROCCOLI_ENGINE (setup.sh exports it); else self-detect a
+# working engine — install.sh calls us before it resolves the engine, and both
+# docker and podman support `load -i`.
+engine="${BROCCOLI_ENGINE:-$(runtime_engine)}"
+[ -n "$engine" ] || { echo "no working docker or podman found" >&2; exit 1; }
+command -v "$engine" >/dev/null 2>&1 || { echo "$engine not found" >&2; exit 1; }
 for tar in "$BUNDLE"/images/*.tar; do
   [ -e "$tar" ] || { echo "no images/*.tar in bundle" >&2; exit 1; }
   echo "loading $tar ..."
-  docker load -i "$tar"
+  "$engine" load -i "$tar"
 done
 echo "all images loaded"

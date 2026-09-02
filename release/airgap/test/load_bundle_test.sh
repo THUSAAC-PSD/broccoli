@@ -20,6 +20,21 @@ source "$here2/lib/manifest.sh"; manifest_generate "$T"
 
 bash "$lb" --bundle "$T" --verify-only >/dev/null || { echo "FAIL: verify-only rejected a clean bundle"; exit 1; }
 
+# engine-aware image load: BROCCOLI_ENGINE=podman must drive `podman load`, not
+# a hardcoded `docker load` (podman-parity regression guard). $T is still clean
+# (the fake podman shim lives in a sibling dir, NOT under $T, so it never
+# perturbs the manifest-verified bundle tree).
+pbin="$(mktemp -d)"; trap 'rm -rf "$T" "$pbin"' EXIT
+cat > "$pbin/podman" <<'E'
+#!/usr/bin/env bash
+[ "$1" = load ] && { echo "PODMAN-LOAD $*"; exit 0; }
+exit 0
+E
+chmod +x "$pbin/podman"
+pout="$(PATH="$pbin:$PATH" BROCCOLI_ENGINE=podman bash "$lb" --bundle "$T" 2>&1)" \
+  || { echo "FAIL: podman-engine image load failed"; echo "$pout"; exit 1; }
+echo "$pout" | grep -q 'PODMAN-LOAD load' || { echo "FAIL: load-bundle did not use the podman engine to load images"; echo "$pout"; exit 1; }
+
 printf 'TAMPER\n' >> "$T/bundle.json"
 if bash "$lb" --bundle "$T" --verify-only >/dev/null 2>&1; then
   echo "FAIL: verify-only accepted a tampered bundle"; exit 1
