@@ -72,4 +72,26 @@ rc=$?
 set -e
 [ "$rc" = 2 ] || { echo "FAIL: missing --lan-host should exit 2 (rc=$rc)"; exit 1; }
 
+# --- worker role: renders .env.worker from the cluster-secret sidecar ---
+cp "$rel/.env.worker.example" "$tmp/bundle/compose/.env.worker.example"
+( cd "$here/.." && . lib/manifest.sh && manifest_generate "$tmp/bundle" )   # re-manifest after adding a file
+cls="$tmp/bundle.cluster-secret"; mkdir -p "$cls"
+cat > "$cls/cluster-secrets.env" <<EOF
+POSTGRES_PASSWORD=pgpw
+REDIS_PASSWORD=rdpw
+BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=s3acc
+BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=s3sec
+BROCCOLI_SERVER_HOST=10.0.0.10
+EOF
+outw="$(PATH="$tmp/bin:$PATH" \
+  bash "$here/../setup.sh" --role worker --bundle "$tmp/bundle" \
+    --worker-id worker-9 --non-interactive --dry-run)"
+echo "$outw" | grep -q 'install.sh --role worker' || { echo "FAIL: worker exec plan missing"; echo "$outw"; exit 1; }
+echo "$outw" | grep -q '.env.worker (generated)' || { echo "FAIL: worker dry-run plan omits env line"; echo "$outw"; exit 1; }
+wenv="$tmp/bundle/compose/.env.worker"
+grep -qx 'BROCCOLI__WORKER__ID=worker-9' "$wenv" || { echo "FAIL: worker id not rendered"; cat "$wenv"; exit 1; }
+grep -qx 'BROCCOLI__DATABASE__URL=postgres://postgres:pgpw@10.0.0.10:5432/broccoli' "$wenv" || { echo "FAIL: worker db url wrong"; cat "$wenv"; exit 1; }
+grep -qx 'BROCCOLI__MQ__URL=redis://:rdpw@10.0.0.10:6379' "$wenv" || { echo "FAIL: worker mq url wrong"; cat "$wenv"; exit 1; }
+grep -q 'change-me' "$wenv" && { echo "FAIL: worker placeholder remains"; exit 1; } || true
+
 echo "PASS: setup.sh dry-run wiring + config generation"

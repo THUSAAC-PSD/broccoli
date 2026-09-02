@@ -16,7 +16,13 @@ here="$(cd "$(dirname "$0")" && pwd)"
 usage() {
   echo "Usage: setup.sh --role {server|worker|contestant} --bundle DIR [--lan-host H]" \
        "[--admin-user U] [--admin-pass P] [--engine docker|podman] [--server-secret DIR]" \
+       "[--cluster-secret DIR] [--worker-id ID]" \
        "[--non-interactive] [--dry-run]"
+}
+
+default_worker_id() {
+  local h; h="$(hostname -s 2>/dev/null | tr -cd 'A-Za-z0-9_-')"
+  [ -n "$h" ] && echo "$h" || echo "worker-1"
 }
 
 FLAG_NON_INTERACTIVE="" DRY_RUN=""
@@ -29,6 +35,8 @@ while [ $# -gt 0 ]; do
     --admin-pass)    FLAG_ADMIN_PASS="$2"; shift 2 ;;
     --engine)        FLAG_ENGINE="$2"; shift 2 ;;
     --server-secret) FLAG_SERVER_SECRET="$2"; shift 2 ;;
+    --cluster-secret) FLAG_CLUSTER_SECRET="$2"; shift 2 ;;
+    --worker-id)      FLAG_WORKER_ID="$2"; shift 2 ;;
     --non-interactive) FLAG_NON_INTERACTIVE=1; shift ;;
     --dry-run)       DRY_RUN=1; shift ;;
     -h|--help)       usage; exit 0 ;;
@@ -46,6 +54,7 @@ BUNDLE="$(cd "$BUNDLE" && pwd)"   # canonicalize so the default sidecar (and
 # release/docs/airgap-deployment.md, auto-resolved by install.sh): compute it
 # once here so preflight and install.sh agree on the same directory.
 secret_dir="${FLAG_SERVER_SECRET:-${BUNDLE%/}.server-secret}"
+cluster_dir="${FLAG_CLUSTER_SECRET:-${BUNDLE%/}.cluster-secret}"
 
 [ -n "${FLAG_ENGINE:-}" ] && export BROCCOLI_ENGINE="$FLAG_ENGINE"
 ENGINE="$(runtime_engine)"
@@ -55,7 +64,7 @@ COMPOSE="$(runtime_compose "$ENGINE")"
 export BROCCOLI_ENGINE="$ENGINE" COMPOSE
 
 echo "== preflight ($ROLE) =="
-preflight_run "$ROLE" "$BUNDLE" "$secret_dir" \
+preflight_run "$ROLE" "$BUNDLE" "$secret_dir" "$cluster_dir" \
   || { echo "preflight FAILED — resolve the FAIL lines above; nothing deployed." >&2; exit 2; }
 
 INST=( --role "$ROLE" --bundle "$BUNDLE" )
@@ -65,6 +74,7 @@ if [ "$ROLE" = server ]; then
   ADMIN_USER="$(answer ADMIN_USER 'Bootstrap admin username' admin 0)"
   ADMIN_PASS="$(answer_secret ADMIN_PASS 'Bootstrap admin password')"
   infra="$BUNDLE/compose/.env.infra"; server="$BUNDLE/compose/.env.server"
+  cluster_seed_infra "$infra" "$cluster_dir/cluster-secrets.env"
   envgen_write "$infra" "$server" \
     "$BUNDLE/compose/.env.infra.example" "$BUNDLE/compose/.env.server.example" \
     "$ADMIN_USER" "$ADMIN_PASS"
@@ -74,11 +84,21 @@ if [ "$ROLE" = server ]; then
   [ -n "${FLAG_SERVER_SECRET:-}" ] && INST+=( --server-secret "$FLAG_SERVER_SECRET" )
 fi
 
+if [ "$ROLE" = worker ]; then
+  WORKER_ID="$(answer WORKER_ID 'Worker id' "$(default_worker_id)" 0)"
+  # server LAN host: explicit --lan-host wins, else the sidecar's baked host
+  SERVER_HOST="${FLAG_LAN_HOST:-$(env_get "$cluster_dir/cluster-secrets.env" BROCCOLI_SERVER_HOST)}"
+  [ -n "$SERVER_HOST" ] || { echo "worker role needs the server LAN host: pass --lan-host, or build the bundle with --lan-host" >&2; exit 2; }
+  workergen_write "$BUNDLE/compose/.env.worker" "$BUNDLE/compose/.env.worker.example" \
+    "$cluster_dir/cluster-secrets.env" "$SERVER_HOST" "$WORKER_ID"
+fi
+
 if [ -n "$DRY_RUN" ]; then
   echo "== plan (dry-run) =="
   echo "engine:  $ENGINE"
   echo "compose: $COMPOSE"
   [ "$ROLE" = server ] && echo "env:     $BUNDLE/compose/.env.infra, .env.server (generated)"
+  [ "$ROLE" = worker ] && echo "env:     $BUNDLE/compose/.env.worker (generated)"
   echo "exec:    install.sh ${INST[*]}"
   exit 0
 fi
