@@ -135,16 +135,16 @@ the media has changed hands.
 auto-generated secrets kept consistent across `compose/.env.infra` and
 `compose/.env.server`, and compose service-name endpoints (so the server reaches
 its co-located infra by service name — `db`/`redis`/`seaweedfs` — instead of you
-wiring URLs by hand). It detects Docker **and** Podman, is interactive by
-default, and is fully scriptable via flags/environment variables for unattended
-installs. Like every target-side script in this runbook, it makes zero network
-calls.
+wiring URLs by hand). It auto-detects Docker **and** Podman (override with
+`--engine docker|podman` if both are present), is interactive by default, and is
+fully scriptable via flags/environment variables for unattended installs. Like
+every target-side script in this runbook, it makes zero network calls.
 
 On the server, from inside the transferred bundle directory:
 
 ```bash
 cd <bundle-dir>
-./setup.sh --role server --bundle . --lan-host <host-or-ip>
+./setup.sh --role server --bundle . --lan-host <host-or-ip> --admin-user admin
 ```
 
 On each worker or contestant host, from inside the transferred bundle directory:
@@ -155,12 +155,19 @@ cd <bundle-dir>
 ./setup.sh --role contestant --bundle .
 ```
 
-On the server you are prompted only for the bootstrap admin password (or pass it
-non-interactively with `--admin-pass` / `$BROCCOLI_SETUP_ADMIN_PASS`); the LAN
-hostname and admin username may also be supplied as flags (`--lan-host`,
-`--admin-user`, default `admin`) instead of answered at the prompt. Everything
-else — the Postgres/Redis passwords, the JWT secret, and the S3 credentials — is
-generated locally with `openssl rand` and written identically into both env
+The LAN hostname and admin username are also prompted for unless passed as flags
+(`--lan-host`, `--admin-user`, default `admin`) — pass both, as in the example
+above, and the server command prompts you for exactly one thing: the bootstrap
+admin password (or pass it non-interactively with `--admin-pass` /
+`$BROCCOLI_SETUP_ADMIN_PASS`). Everything else is generated locally with
+`openssl rand` — no key is dropped, and the same secret value is kept consistent
+across both files even where the key name differs. The Postgres and Redis
+passwords are written as `POSTGRES_PASSWORD`/ `REDIS_PASSWORD` only in
+`compose/.env.infra`; in `compose/.env.server` the same values are embedded
+inside the `BROCCOLI__DATABASE__URL` / `BROCCOLI__MQ__URL` connection strings
+rather than repeated as bare keys. The JWT secret (`BROCCOLI__AUTH__JWT_SECRET`)
+and the S3 access/secret keys (`BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY` /
+`..._SECRET_KEY`) are written identically, under the same key names, into both
 files. Re-running `setup.sh` against an existing install reuses any real
 (non-`change-me`) values already present in those files instead of rotating
 them, so it is safe to re-run.
