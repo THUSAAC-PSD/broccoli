@@ -23,6 +23,15 @@ for p in bundle.json manifest.sha256 ca/root.crt caddy/Caddyfile.airgap \
 done
 [ -x "$b/native/live-boot-preflight.sh" ] || { echo "FAIL: staged preflight not executable"; exit 1; }
 [ -x "$b/setup.sh" ] || { echo "FAIL: staged setup.sh not executable"; exit 1; }
+# worker deploy files must be staged
+for p in compose/docker-compose.worker.yaml.template compose/.env.worker.example; do
+  [ -e "$b/$p" ] || { echo "FAIL: bundle missing $p"; exit 1; }
+done
+# staged env examples carry LOCAL versioned image tags so target `--pull never` resolves
+grep -qx 'BROCCOLI_SERVER_IMAGE=broccoli-server:testv' "$b/compose/.env.server.example" \
+  || { echo "FAIL: .env.server.example image tag not rewritten to broccoli-server:testv"; exit 1; }
+grep -qx 'BROCCOLI_WORKER_IMAGE=broccoli-worker:testv' "$b/compose/.env.worker.example" \
+  || { echo "FAIL: .env.worker.example image tag not rewritten to broccoli-worker:testv"; exit 1; }
 # manifest actually verifies
 # shellcheck source=/dev/null
 source "$here/../lib/manifest.sh"; manifest_verify "$b" >/dev/null \

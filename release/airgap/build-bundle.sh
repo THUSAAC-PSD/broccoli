@@ -7,6 +7,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 # shellcheck source=/dev/null
 source "$here/lib/manifest.sh"
+# shellcheck source=/dev/null
+source "$here/lib/envgen.sh"
 
 usage() {
   echo "Usage: build-bundle.sh --version V [--output DIR] [--lan-host H] [--tar] [--skip-images]"
@@ -57,8 +59,14 @@ chmod +x "$B/native/live-boot-preflight.sh"
 # 3. Compose templates + env examples (reuse release/, do not fork)
 cp "$repo/release/docker-compose.server.yaml.template" \
    "$repo/release/docker-compose.infra.yaml.template" \
+   "$repo/release/docker-compose.worker.yaml.template" \
    "$repo/release/docker-compose.gateway-airgap.yaml.template" "$B/compose/"
-cp "$repo/release/.env.server.example" "$repo/release/.env.infra.example" "$B/compose/"
+cp "$repo/release/.env.server.example" "$repo/release/.env.infra.example" \
+   "$repo/release/.env.worker.example" "$B/compose/"
+# Rewrite the STAGED examples' image refs to the LOCAL versioned tags so the
+# target resolves them under `--pull never` (never touch the repo originals).
+env_set "$B/compose/.env.server.example" BROCCOLI_SERVER_IMAGE "broccoli-server:$VERSION"
+env_set "$B/compose/.env.worker.example" BROCCOLI_WORKER_IMAGE "broccoli-worker:$VERSION"
 
 # 4. Images + CLI (heavy; skipped for CI structural tests)
 if [ "$SKIP_IMAGES" = "0" ]; then
