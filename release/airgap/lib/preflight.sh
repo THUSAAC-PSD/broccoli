@@ -29,6 +29,18 @@ _pf_server() {
   fi
 }
 
+_pf_cluster() {
+  local cluster="$1" role="$2"
+  if [ -n "$cluster" ] && [ -f "$cluster/cluster-secrets.env" ]; then
+    _pf_pass "cluster-secret present"; return
+  fi
+  if [ "$role" = worker ]; then
+    _pf_bad "worker needs the cluster-secret sidecar (cluster-secrets.env) — deliver '<bundle>.cluster-secret' or pass --cluster-secret (got: ${cluster:-none})"
+  else
+    _pf_warn "no cluster-secret sidecar; server will generate fresh secrets and workers cannot join it (got: ${cluster:-none})"
+  fi
+}
+
 _pf_worker() {
   local pf="$_pf_dir/../native/live-boot-preflight.sh"
   if [ -x "$pf" ]; then
@@ -49,9 +61,9 @@ _pf_contestant() {
   esac
 }
 
-# preflight_run ROLE BUNDLE [SECRET]
+# preflight_run ROLE BUNDLE [SECRET] [CLUSTER]
 preflight_run() {
-  local role="$1" bundle="$2" secret="${3:-}"
+  local role="$1" bundle="$2" secret="${3:-}" cluster="${4:-}"
   _pf_fail=0
   local engine compose=""
   engine="$(runtime_engine)"
@@ -64,8 +76,8 @@ preflight_run() {
   else _pf_bad "bundle integrity check failed for ${bundle:-none}"; fi
   _pf_disk "$bundle"
   case "$role" in
-    server)     _pf_server "$secret" ;;
-    worker)     _pf_worker ;;
+    server)     _pf_server "$secret"; _pf_cluster "$cluster" server ;;
+    worker)     _pf_worker; _pf_cluster "$cluster" worker ;;
     contestant) _pf_contestant ;;
     *)          _pf_bad "unknown role: $role" ;;
   esac

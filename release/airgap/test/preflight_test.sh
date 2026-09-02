@@ -52,4 +52,15 @@ set -e
 [ "$rc" = 1 ] || { echo "FAIL: no-engine should fail (rc=$rc)"; exit 1; }
 echo "$out" | grep -q '^FAIL: no working docker' || { echo "FAIL: no docker/podman FAIL line"; exit 1; }
 
+# worker preflight PASSES with a cluster-secret sidecar present (4th arg)
+cls="$tmp/cls"; mkdir -p "$cls"; : > "$cls/cluster-secrets.env"
+set +e; out="$(run worker "$tmp/bundle" "" "$cls")"; rc=$?; set -e
+[ "$rc" = 0 ] || { echo "FAIL: worker preflight failed despite cluster-secret present (rc=$rc)"; echo "$out"; exit 1; }
+echo "$out" | grep -q '^PASS: cluster-secret present' || { echo "FAIL: no cluster-secret PASS line"; echo "$out"; exit 1; }
+
+# worker preflight FAILS without a cluster-secret sidecar
+set +e; out="$(run worker "$tmp/bundle" "" "")"; rc=$?; set -e
+[ "$rc" = 1 ] || { echo "FAIL: worker preflight should fail without cluster-secret (rc=$rc)"; echo "$out"; exit 1; }
+echo "$out" | grep -q '^FAIL:' || { echo "FAIL: expected a FAIL line for missing cluster-secret"; echo "$out"; exit 1; }
+
 echo "PASS: preflight go/no-go"
