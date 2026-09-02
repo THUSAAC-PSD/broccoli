@@ -9,6 +9,8 @@ repo="$(cd "$here/../.." && pwd)"
 source "$here/lib/manifest.sh"
 # shellcheck source=/dev/null
 source "$here/lib/envgen.sh"
+# shellcheck source=/dev/null
+source "$here/lib/runtime.sh"
 
 usage() {
   echo "Usage: build-bundle.sh --version V [--output DIR] [--lan-host H] [--tar] [--skip-images]"
@@ -85,20 +87,39 @@ env_set "$B/compose/.env.worker.example" BROCCOLI_WORKER_IMAGE "broccoli-worker:
 
 # 4. Images + CLI (heavy; skipped for CI structural tests)
 if [ "$SKIP_IMAGES" = "0" ]; then
-  # Frontend baked fresh into the server image; verify served bundle
-  # behaviorally rather than trusting mtime (e2e-frontend-deploy-staleness).
-  # server + infra + worker images are built/pulled then docker-saved:
-  #   docker build ... -t broccoli-server:$VERSION .
-  #   docker save broccoli-server:$VERSION postgres:... redis:... > images/*.tar
-  #   docker build -f Dockerfile.worker --target runtime-full -t broccoli-worker:$VERSION .
-  #   docker save broccoli-worker:$VERSION > images/worker.tar
-  # TLS gateway image (docker-compose.gateway-airgap.yaml.template) — the tag
-  # MUST match that file's CADDY_IMAGE default so `--pull never` resolves offline:
-  #   docker save caddy:2-alpine > images/caddy.tar
-  # CLI (musl-static, per noi-parity-worker-image):
-  #   cargo build -p broccoli-contestant-cli --profile release-cli \
-  #     --target x86_64-unknown-linux-musl && cp target/.../broccoli cli/broccoli
-  echo "NOTE: image/CLI assembly runs here on the staging box (see comments)"
+  ENGINE="${BROCCOLI_ENGINE:-$(runtime_engine)}"
+  [ -n "$ENGINE" ] || { echo "no docker/podman found for image build (install one, or pass --skip-images)" >&2; exit 2; }
+
+  # broccoli images — built from the repo. Frontend is baked fresh into the
+  # server image (verify served bundle behaviorally, not by mtime).
+  "$ENGINE" build -f "$repo/Dockerfile.server" -t "broccoli-server:$VERSION" "$repo"
+  "$ENGINE" build -f "$repo/Dockerfile.worker" --target runtime-full -t "broccoli-worker:$VERSION" "$repo"
+
+  # third-party image tags — single-sourced (DRY) from the staged examples/template
+  ex="$B/compose/.env.infra.example"
+  pg_img="$(env_get "$ex" POSTGRES_IMAGE)"
+  redis_img="$(env_get "$ex" REDIS_IMAGE)"
+  swfs_img="$(env_get "$ex" SEAWEEDFS_IMAGE)"
+  caddy_img="$(grep -oE 'CADDY_IMAGE:-[^}]+' "$B/compose/docker-compose.gateway-airgap.yaml.template" | head -1 | cut -d- -f2-)"
+  caddy_img="${caddy_img:-caddy:2-alpine}"
+  for img in "$pg_img" "$redis_img" "$swfs_img" "$caddy_img"; do
+    [ -n "$img" ] || { echo "could not resolve a third-party image tag" >&2; exit 1; }
+    "$ENGINE" pull "$img"
+  done
+
+  # save each image to its own tar (independent docker-load + per-image integrity)
+  "$ENGINE" save "broccoli-server:$VERSION" > "$B/images/server.tar"
+  "$ENGINE" save "broccoli-worker:$VERSION" > "$B/images/worker.tar"
+  "$ENGINE" save "$pg_img"    > "$B/images/postgres.tar"
+  "$ENGINE" save "$redis_img" > "$B/images/redis.tar"
+  "$ENGINE" save "$swfs_img"  > "$B/images/seaweedfs.tar"
+  "$ENGINE" save "$caddy_img" > "$B/images/caddy.tar"
+
+  # contestant CLI — static musl (per noi-parity-worker-image)
+  ( cd "$repo" && cargo build -p broccoli-contestant-cli --profile release-cli \
+      --target x86_64-unknown-linux-musl )
+  cp "$repo/target/x86_64-unknown-linux-musl/release-cli/broccoli" "$B/cli/broccoli"
+  chmod 0755 "$B/cli/broccoli"
 fi
 
 # 5. Provenance + integrity
