@@ -47,6 +47,21 @@ if [ -n "$LAN_HOST" ]; then
   bash "$here/ca/issue-leaf.sh" --ca-dir "$SRV" --host "$LAN_HOST" --out "$SRV"
 fi
 
+# 1b. Cluster-secret sidecar: machine secrets shared by server + workers.
+#     Sibling of the bundle, UNMANIFESTED, delivered to the server AND every
+#     worker host — never to contestants. JWT is NOT here (worker needs none;
+#     envgen mints it into .env.server). See docs/airgap-deployment.md.
+CLS="$OUTPUT/broccoli-airgap-$VERSION.cluster-secret"
+rm -rf "$CLS"; mkdir -p "$CLS"; chmod 700 "$CLS"
+{
+  printf 'POSTGRES_PASSWORD=%s\n' "$(envgen_secret 24)"
+  printf 'REDIS_PASSWORD=%s\n' "$(envgen_secret 24)"
+  printf 'BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=%s\n' "$(envgen_secret 18)"
+  printf 'BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=%s\n' "$(envgen_secret 24)"
+  [ -n "$LAN_HOST" ] && printf 'BROCCOLI_SERVER_HOST=%s\n' "$LAN_HOST"
+} > "$CLS/cluster-secrets.env"
+chmod 600 "$CLS/cluster-secrets.env"
+
 # 2. Target-side scripts + Caddyfile + trust helpers + installer libs
 cp "$here/load-bundle.sh" "$here/install.sh" "$here/setup.sh" "$B/"
 cp "$here"/lib/*.sh "$B/lib/"
@@ -99,6 +114,8 @@ manifest_generate "$B"
 echo "assembled bundle: $B"
 echo "SERVER-ONLY SECRETS: $SRV"
 echo "  contains CA/leaf private keys (root.key$([ -n "$LAN_HOST" ] && echo ', server.key')) — deliver ONLY to the server host; never to workers/contestants"
+echo "CLUSTER SECRETS: $CLS"
+echo "  contains DB/redis/S3 passwords shared by server+workers — deliver to the server AND every worker host; never to contestants"
 
 if [ "$TAR" = "1" ]; then
   ( cd "$OUTPUT" && tar -caf "broccoli-airgap-$VERSION.tar.zst" "broccoli-airgap-$VERSION" )

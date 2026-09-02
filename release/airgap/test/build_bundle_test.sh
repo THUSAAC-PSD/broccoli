@@ -45,4 +45,24 @@ grep -qE '(^| )\./ca/(root|server)\.key$' "$b/manifest.sha256" \
 # the CA/leaf private keys live in the server-only sidecar instead
 [ -f "$T/broccoli-airgap-testv.server-secret/root.key" ] \
   || { echo "FAIL: server-secret sidecar missing root.key"; exit 1; }
+
+# cluster-secret sidecar: sibling, present, has the shared machine-secret keys, NOT manifested
+cls="$T/broccoli-airgap-testv.cluster-secret/cluster-secrets.env"
+[ -f "$cls" ] || { echo "FAIL: cluster-secret sidecar missing cluster-secrets.env"; exit 1; }
+for k in POSTGRES_PASSWORD REDIS_PASSWORD \
+         BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY \
+         BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY; do
+  grep -qE "^${k}=" "$cls" || { echo "FAIL: cluster-secret missing $k"; exit 1; }
+done
+# no lan-host on this build -> no server host baked
+grep -qE '^BROCCOLI_SERVER_HOST=' "$cls" && { echo "FAIL: server host baked without --lan-host"; exit 1; } || true
+# leak guard: cluster secrets never appear in the manifested tree
+grep -q 'cluster-secret' "$b/manifest.sha256" && { echo "FAIL: cluster-secret path leaked into manifest"; exit 1; } || true
+
+# second build WITH --lan-host bakes BROCCOLI_SERVER_HOST
+bash "$bb" --version testv2 --output "$T" --lan-host contest.lan --skip-images >/dev/null
+cls2="$T/broccoli-airgap-testv2.cluster-secret/cluster-secrets.env"
+grep -qx 'BROCCOLI_SERVER_HOST=contest.lan' "$cls2" \
+  || { echo "FAIL: --lan-host not baked into cluster-secret as BROCCOLI_SERVER_HOST"; exit 1; }
+
 echo "PASS: build-bundle assembles a verifiable tree (skip-images)"
