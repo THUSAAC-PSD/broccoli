@@ -26,4 +26,11 @@ echo "$san" | grep -q 'IP Address:10.0.0.5'   || { echo "FAIL: IP SAN missing"; 
 # serverAuth EKU present
 openssl x509 -in "$LEAF/server.crt" -noout -ext extendedKeyUsage | grep -q 'TLS Web Server Authentication' \
   || { echo "FAIL: serverAuth EKU missing"; exit 1; }
+
+# the leaf out dir is created 0700 so server.key is never momentarily exposed to
+# group/world between mkdir and its 0600 chmod (default umask 022 -> 0755 parent).
+sub="$LEAF/nested-leaf"
+bash "$issue" --ca-dir "$CA" --host judge.contest.lan --out "$sub" --days 30 >/dev/null
+dperm="$(stat -c '%a' "$sub")"
+[ "$dperm" = "700" ] || { echo "FAIL: leaf out dir perms $dperm != 700"; exit 1; }
 echo "PASS: issue-leaf chains to CA with DNS+IP SANs and serverAuth"

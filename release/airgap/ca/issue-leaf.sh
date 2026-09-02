@@ -24,6 +24,9 @@ done
 [ -f "$CA_DIR/root.crt" ] && [ -f "$CA_DIR/root.key" ] \
   || { echo "CA dir must contain root.crt and root.key" >&2; exit 2; }
 mkdir -p "$OUT"
+# Lock the dir down BEFORE writing server.key: default umask 022 leaves a fresh
+# dir 0755, so the private key would be briefly group/world-readable.
+chmod 700 "$OUT"
 
 is_ip() { printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$|:'; }
 

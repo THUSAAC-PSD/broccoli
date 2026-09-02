@@ -19,6 +19,9 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$OUT" ] || { echo "--out is required" >&2; usage; exit 2; }
 mkdir -p "$OUT"
+# Lock the dir down BEFORE writing root.key: default umask 022 leaves a fresh
+# dir 0755, so the private key would be briefly group/world-readable.
+chmod 700 "$OUT"
 
 umask 077
 openssl ecparam -name prime256v1 -genkey -noout -out "$OUT/root.key"
@@ -27,7 +30,7 @@ chmod 0600 "$OUT/root.key"
 openssl req -x509 -new -key "$OUT/root.key" -sha256 -days "$DAYS" \
   -out "$OUT/root.crt" \
   -subj "/O=${ORG}/CN=${CN}" \
-  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
   -addext "keyUsage=critical,keyCertSign,cRLSign"
 
 echo "minted CA: $OUT/root.crt (key: $OUT/root.key, mode 0600)"

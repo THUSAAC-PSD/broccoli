@@ -6,7 +6,7 @@
 # automation cannot be reached; the server serves the leaf minted from the CA.
 {
 	admin off
-	auto_https disable_redirects
+	auto_https off
 }
 {$LAN_HOST} {
 	encode zstd gzip

@@ -18,4 +18,15 @@ echo "$txt" | grep -q 'Basic Constraints: critical' || { echo "FAIL: basicConstr
 echo "$txt" | grep -q 'Key Usage: critical'         || { echo "FAIL: keyUsage not critical"; exit 1; }
 echo "$txt" | grep -q 'Certificate Sign'            || { echo "FAIL: keyCertSign missing"; exit 1; }
 echo "$txt" | grep -q 'NIST CURVE: P-256'           || { echo "FAIL: key is not ECDSA P-256"; exit 1; }
+# pathlen:0 — this root signs the one server leaf directly; it must never be able
+# to mint intermediate sub-CAs (would widen the trust surface off one stolen key).
+echo "$txt" | grep -q 'pathlen:0'                   || { echo "FAIL: basicConstraints missing pathlen:0 (root can mint sub-CAs)"; exit 1; }
+
+# the CA out dir itself is created 0700 so root.key is never even momentarily
+# exposed to group/world between mkdir and the 0600 chmod (default umask 022
+# would otherwise leave the parent dir 0755).
+sub="$T/nested-ca"
+bash "$mint" --out "$sub" --days 30 >/dev/null
+dperm="$(stat -c '%a' "$sub")"
+[ "$dperm" = "700" ] || { echo "FAIL: CA out dir perms $dperm != 700"; exit 1; }
 echo "PASS: mint-ca produces a CA cert + 0600 key"
