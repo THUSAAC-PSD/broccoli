@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Per-role go/no-go for an air-gap install. Emits PASS/WARN/FAIL lines; the
+# aggregate rc is nonzero iff any FAIL was emitted. TARGET-SIDE: no network.
+set -euo pipefail
+_pf_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_pf_dir/runtime.sh"
+# shellcheck source=/dev/null
+. "$_pf_dir/manifest.sh"
+
+_pf_fail=0
+_pf_pass() { echo "PASS: $*"; }
+_pf_warn() { echo "WARN: $*"; }
+_pf_bad()  { echo "FAIL: $*"; _pf_fail=1; }
+
+_pf_disk() {
+  local path="$1" kb
+  kb="$(df -Pk "$path" 2>/dev/null | awk 'NR==2{print $4}')"
+  if [ -n "$kb" ] && [ "$kb" -ge 2097152 ]; then _pf_pass "disk: $((kb/1024)) MiB free"
+  else _pf_warn "low disk (<2 GiB free) at $path"; fi
+}
+
+_pf_server() {
+  local secret="$1"
+  if [ -n "$secret" ] && { { [ -f "$secret/server.crt" ] && [ -f "$secret/server.key" ]; } || [ -f "$secret/root.key" ]; }; then
+    _pf_pass "server TLS material present"
+  else
+    _pf_bad "server-secret dir needs server.crt+server.key or root.key (got: ${secret:-none})"
+  fi
+}
+
+_pf_worker() {
+  local pf="$_pf_dir/../native/live-boot-preflight.sh"
+  if [ -x "$pf" ]; then
+    if bash "$pf" >/dev/null 2>&1; then _pf_pass "worker sandbox preflight"
+    else _pf_warn "worker sandbox preflight reported issues (isolate may be degraded)"; fi
+  else
+    _pf_warn "sandbox preflight not staged; run go/no-go manually"
+  fi
+  if grep -qi microsoft /proc/version 2>/dev/null; then
+    _pf_warn "WSL kernel: isolate needs cgroup/namespace features WSL2 may lack"
+  fi
+}
+
+_pf_contestant() {
+  case "$(uname -s)" in
+    Linux|Darwin) _pf_pass "OS trust helper available" ;;
+    *) _pf_warn "no trust helper for $(uname -s); trust root.crt manually" ;;
+  esac
+}
+
+# preflight_run ROLE BUNDLE [SECRET]
+preflight_run() {
+  local role="$1" bundle="$2" secret="${3:-}"
+  _pf_fail=0
+  local engine compose=""
+  engine="$(runtime_engine)"
+  if [ -n "$engine" ]; then _pf_pass "container engine: $engine"
+  else _pf_bad "no working docker or podman found (install Docker, or Podman on RHEL-family)"; fi
+  [ -n "$engine" ] && compose="$(runtime_compose "$engine")"
+  if [ -n "$compose" ]; then _pf_pass "compose: $compose"
+  else _pf_bad "no compose provider ('docker compose' / 'podman compose' / 'podman-compose')"; fi
+  if [ -d "$bundle" ] && [ "$(manifest_verify "$bundle" 2>/dev/null)" = OK ]; then _pf_pass "bundle integrity"
+  else _pf_bad "bundle integrity check failed for ${bundle:-none}"; fi
+  _pf_disk "$bundle"
+  case "$role" in
+    server)     _pf_server "$secret" ;;
+    worker)     _pf_worker ;;
+    contestant) _pf_contestant ;;
+    *)          _pf_bad "unknown role: $role" ;;
+  esac
+  return "$_pf_fail"
+}
