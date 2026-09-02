@@ -65,4 +65,35 @@ manifest_verify "$gen" >/dev/null 2>&1 \
   && { echo "FAIL: manifest_verify must still catch tampering of shipped files"; exit 1; } || true
 echo "PASS: manifest excludes on-host env config, still catches tampering"
 
+# --- portable sha256: a bundle manifested with coreutils `sha256sum` must still
+#     verify on a host that has ONLY `shasum -a 256` (macOS operators cross-check
+#     a Linux-built bundle). Build a curated PATH that hides sha256sum, exposes
+#     shasum plus the coreutils the lib needs, and re-source the lib there so its
+#     tool resolver falls back to shasum. Both must agree byte-for-byte. ---
+if command -v shasum >/dev/null 2>&1; then
+  bin="$(mktemp -d)"; X="$(mktemp -d)"
+  trap 'rm -rf "$T" "$gen" "$bin" "$X"' EXIT
+  for t in find sort xargs mktemp diff rm; do ln -s "$(command -v "$t")" "$bin/$t"; done
+  ln -s "$(command -v shasum)" "$bin/shasum"          # shasum present; sha256sum absent from $bin
+  bash_abs="$(command -v bash)"
+  printf 'gamma\n' > "$X/g.txt"; mkdir -p "$X/d"; printf 'delta\n' > "$X/d/e.txt"
+  manifest_generate "$X"                              # generated with default tool (sha256sum here)
+  PATH="$bin" "$bash_abs" -c '
+      set -euo pipefail
+      source "'"$here"'/../lib/manifest.sh"
+      command -v sha256sum >/dev/null 2>&1 && { echo "sha256sum still on PATH — test not exercising fallback"; exit 3; }
+      [ "$(manifest_verify "'"$X"'")" = OK ]' \
+    || { echo "FAIL: sha256sum-built manifest did not verify under a shasum-only PATH"; exit 1; }
+  # reverse: a manifest generated under shasum-only must verify back under sha256sum
+  PATH="$bin" "$bash_abs" -c '
+      set -euo pipefail
+      source "'"$here"'/../lib/manifest.sh"
+      manifest_generate "'"$X"'"'
+  [ "$(manifest_verify "$X")" = OK ] \
+    || { echo "FAIL: shasum-built manifest did not verify back under sha256sum"; exit 1; }
+  echo "PASS: manifest sha256 is portable across sha256sum and shasum -a 256"
+else
+  echo "SKIP: shasum unavailable — portable-sha256 cross-check skipped"
+fi
+
 echo "PASS: manifest generate/verify round-trips and rejects tamper"

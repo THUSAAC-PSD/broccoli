@@ -100,7 +100,12 @@ if [ "$SKIP_IMAGES" = "0" ]; then
   pg_img="$(env_get "$ex" POSTGRES_IMAGE)"
   redis_img="$(env_get "$ex" REDIS_IMAGE)"
   swfs_img="$(env_get "$ex" SEAWEEDFS_IMAGE)"
-  caddy_img="$(grep -oE 'CADDY_IMAGE:-[^}]+' "$B/compose/docker-compose.gateway-airgap.yaml.template" | head -1 | cut -d- -f2-)"
+  # CADDY_IMAGE has no .env row; its sole source of truth is the
+  # ${CADDY_IMAGE:-...} default in the gateway template. Parse it defensively:
+  # grep -m1 stops at the first match (no `head` closing the pipe -> SIGPIPE ->
+  # pipefail abort), and `|| true` keeps a no-match from aborting under set -e so
+  # the :- fallback supplies the same literal the template ships.
+  caddy_img="$(grep -oE -m1 'CADDY_IMAGE:-[^}]+' "$B/compose/docker-compose.gateway-airgap.yaml.template" | cut -d- -f2- || true)"
   caddy_img="${caddy_img:-caddy:2-alpine}"
   for img in "$pg_img" "$redis_img" "$swfs_img" "$caddy_img"; do
     [ -n "$img" ] || { echo "could not resolve a third-party image tag" >&2; exit 1; }

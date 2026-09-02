@@ -65,4 +65,24 @@ cls2="$T/broccoli-airgap-testv2.cluster-secret/cluster-secrets.env"
 grep -qx 'BROCCOLI_SERVER_HOST=contest.lan' "$cls2" \
   || { echo "FAIL: --lan-host not baked into cluster-secret as BROCCOLI_SERVER_HOST"; exit 1; }
 
+# --- caddy image tag parse must be crash-proof under `set -euo pipefail`. The
+#     tag's only source of truth is the ${CADDY_IMAGE:-...} default in the gateway
+#     template; the parse must (a) use grep -m1 (no `head` closing the pipe early
+#     -> SIGPIPE -> pipefail abort even on a match) and (b) tolerate a no-match
+#     without aborting, so the :- fallback can supply the shipped literal. ---
+grep -qE "grep -oE -m1 'CADDY_IMAGE" "$bb" \
+  || { echo "FAIL: caddy tag parse must use 'grep -oE -m1' (head|pipefail SIGPIPE hazard)"; exit 1; }
+grep -qE "CADDY_IMAGE:-\[\^}\]\+.*\|\| true" "$bb" \
+  || { echo "FAIL: caddy tag parse must guard no-match with '|| true' (else set -e aborts before the fallback)"; exit 1; }
+# behavioral: replicate the parse contract — a template with NO CADDY_IMAGE line
+# must NOT abort and must fall through to the shipped default.
+gw_real="$here/../../docker-compose.gateway-airgap.yaml.template"
+tag_real="$( set -euo pipefail; c="$(grep -oE -m1 'CADDY_IMAGE:-[^}]+' "$gw_real" | cut -d- -f2- || true)"; echo "${c:-caddy:2-alpine}" )"
+[ "$tag_real" = 'caddy:2-alpine' ] || { echo "FAIL: caddy parse on the real template got '$tag_real', want caddy:2-alpine"; exit 1; }
+nomatch="$(mktemp)"; printf 'services:\n  gateway:\n    image: caddy\n' > "$nomatch"
+tag_none="$( set -euo pipefail; c="$(grep -oE -m1 'CADDY_IMAGE:-[^}]+' "$nomatch" | cut -d- -f2- || true)"; echo "${c:-caddy:2-alpine}" )"
+rc=$?; rm -f "$nomatch"
+[ "$rc" = 0 ] || { echo "FAIL: caddy parse aborted (rc=$rc) on a template with no CADDY_IMAGE line"; exit 1; }
+[ "$tag_none" = 'caddy:2-alpine' ] || { echo "FAIL: caddy parse no-match fallback got '$tag_none', want caddy:2-alpine"; exit 1; }
+
 echo "PASS: build-bundle assembles a verifiable tree (skip-images)"
