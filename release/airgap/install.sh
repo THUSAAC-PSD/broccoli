@@ -81,11 +81,24 @@ case "$ROLE" in
     echo "TLS gateway will serve https://$LAN_HOST using leaf in $abs_secret"
     echo "server plaintext :3000 bound to host loopback ($BROCCOLI_HTTP_BIND); 443 is the only LAN entrypoint"
     [ -n "$COMPOSE" ] || { echo "no working docker/podman compose provider found" >&2; exit 2; }
-    ( cd "$BUNDLE/compose" && $COMPOSE \
-        --env-file .env.infra --env-file .env.server \
-        -f docker-compose.infra.yaml.template \
-        -f docker-compose.server.yaml.template \
-        -f docker-compose.gateway-airgap.yaml.template up -d --pull never )
+    (
+      cd "$BUNDLE/compose"
+      compose_args=(
+        --env-file .env.infra --env-file .env.server
+        -f docker-compose.infra.yaml.template
+        -f docker-compose.server.yaml.template
+        -f docker-compose.gateway-airgap.yaml.template
+      )
+      $COMPOSE "${compose_args[@]}" up -d --pull never
+      # Reload the gateway's leaf. `up -d` recreates a container only when its
+      # spec changes; a re-issued or rotated leaf is written to the SAME
+      # bind-mount path, so Compose sees no change and leaves the running
+      # gateway (and its old in-memory leaf) as-is — Caddy does not watch the
+      # cert files. Restart just the gateway so every server bring-up, including
+      # a leaf/CA rotation, serves the current cert immediately. Cheap and
+      # offline; no image swap, no data-volume touch.
+      $COMPOSE "${compose_args[@]}" restart gateway
+    )
     ;;
   worker)
     bash "$here/load-bundle.sh" --bundle "$BUNDLE"

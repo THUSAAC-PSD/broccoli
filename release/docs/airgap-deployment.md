@@ -434,7 +434,122 @@ Either way, only `ca/root.crt` (the public certificate, safe to distribute) is
 ever installed on worker or contestant machines by `trust-ca` — now structurally
 guaranteed, since no private key is ever part of the bundle tree they receive.
 
-## 9. Troubleshooting
+## 9. Upgrading a deployment
+
+A new bundle version (a fresh `build-bundle.sh --version <V+1>` on the staging
+box) rolls out **in place** — the postgres, redis, and SeaweedFS data live in
+named Docker volumes that an image swap never touches, so every contest,
+problem, submission, and uploaded file survives the upgrade.
+
+On the **server** host:
+
+1. Transfer and unpack the new bundle beside the old one (step 3). Loading its
+   images does not disturb the running stack.
+2. Carry your **existing** on-host config into the new bundle so secrets are
+   never regenerated: copy `compose/.env.infra` and `compose/.env.server` from
+   the old bundle into the new bundle's `compose/`, and deliver the same
+   `broccoli-airgap-<oldV>.server-secret/` sidecar as the new bundle's
+   `.server-secret/` (its CA and leaf stay valid — clients already trust
+   `root.crt`). The new bundle's `.env.*.example` templates name the new image
+   tags, but your carried-over `.env.server` still names the old one, so set
+   `BROCCOLI_SERVER_IMAGE` (and, on workers, `BROCCOLI_WORKER_IMAGE`) to the new
+   version — it must match `bundle.json`'s `version`.
+3. Re-run `./install.sh --role server --lan-host <host-or-ip> --bundle .` from
+   the new bundle. It `docker load`s the new images, reuses your secrets and
+   leaf (no re-issue), and recreates only the containers whose image changed;
+   the data volumes are reattached untouched.
+
+Repeat on each **worker** host with `--role worker` (step 6). Server and worker
+may run mixed versions briefly during a rolling upgrade — a new server judges
+correctly against an as-yet-un-upgraded worker.
+
+Confirm the swap took effect. The image carries its version in an OCI label —
+the only offline provenance signal, since there is no registry to query:
+
+```
+docker inspect <server-container> \
+  --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
+```
+
+then check that `https://<host>/healthz` returns `200`.
+
+> **Always upgrade with `install.sh`, never a hand-rolled `docker compose up`.**
+> The infra secrets (`REDIS_PASSWORD`, the database and S3 credentials) live in
+> `.env.infra`, and `install.sh` passes both `--env-file .env.infra` and
+> `--env-file .env.server`. A manual `compose up` that omits `.env.infra`
+> recreates redis with a blank password; the server's message-queue auth then
+> fails and `/healthz` returns 503 (see §11, "Server won't start").
+
+## 10. Rotating TLS certificates and the CA
+
+TLS material rotates in place, like an upgrade — the gateway serves whatever
+leaf is in the server-secret sidecar. How many machines you must touch depends
+on **which** key changes.
+
+The leaf is bind-mounted into the gateway at a fixed path, so Compose does not
+recreate the gateway when only the file *content* changes, and Caddy does not
+watch the cert files — a new leaf is served only after the gateway restarts.
+`install.sh --role server` restarts the gateway for you on every run, so always
+rotate by re-running it, never with a hand-rolled `docker compose up`.
+
+### Leaf rotation (same CA)
+
+Use this when the server leaf is near expiry or its SAN must change (e.g. the
+venue's IP moved). The root CA — and therefore every client's trust — is
+unchanged, so **no worker or contestant needs to do anything.** On the server,
+with `root.key` still in the sidecar (do this before burning it):
+
+```
+./ca/issue-leaf.sh --ca-dir <server-secret-dir> --host <host-or-ip> \
+  --out <server-secret-dir>
+./install.sh --role server --lan-host <host-or-ip> --bundle .
+```
+
+The re-issued leaf gets a new serial, still chains to the unchanged `root.crt`,
+and the gateway serves it as soon as `install.sh` restarts it. Confirm with
+`curl --cacert ca/root.crt https://<host>/healthz` — the *same* `root.crt`
+clients already trust.
+
+### CA rotation (new root)
+
+Use this when the CA signing key is compromised or the root CA itself is
+expiring. The trust anchor moves, so **every client must be re-trusted** — until
+it holds the new `root.crt`, it rejects the server.
+
+1. On the **staging box**, mint a fresh CA and issue a leaf from it:
+
+   ```
+   ./ca/mint-ca.sh --out <new-ca-dir>
+   ./ca/issue-leaf.sh --ca-dir <new-ca-dir> --host <host-or-ip> --out <new-leaf-dir>
+   ```
+
+2. Assemble the new sidecar: `root.crt` from `<new-ca-dir>`, plus
+   `server.crt`/`server.key` from `<new-leaf-dir>` (add `root.key` from
+   `<new-ca-dir>` only if you will re-issue leaves on-site later). Replace the
+   bundle's public `ca/root.crt` with the new one as well, so fresh installs
+   trust it.
+3. On the **server**, deliver the new sidecar and re-run
+   `./install.sh --role server --lan-host <host-or-ip> --bundle .`. The gateway
+   restarts onto the new leaf.
+4. Re-distribute the new `ca/root.crt` to **every worker and contestant** and
+   re-run their trust step: `install.sh --role worker` / `--role contestant`
+   re-trust from the bundle's `ca/root.crt`; Firefox users re-import it (step 7).
+
+A client still holding only the old `root.crt` fails the handshake with an
+`unable to get local issuer certificate` error — that is the rotation working,
+not a misconfiguration. It clears once the client trusts the new root. (Workers
+reach postgres/redis/SeaweedFS directly on the LAN, not through the 443 gateway,
+so a CA rotation does not interrupt in-flight judging.)
+
+### After `--burn-ca-key`
+
+Burning deletes `root.key` from the server host, so you cannot re-issue a leaf
+there. Keep the CA (`root.key`) on the offline staging box: mint or issue a
+replacement there and redeliver the sidecar as above. The running gateway keeps
+serving its existing leaf until you do — burning the CA key never interrupts a
+live TLS endpoint.
+
+## 11. Troubleshooting
 
 **`ABORT: bundle integrity check failed` / `manifest verification failed`** —
 the copy onto removable media was corrupted or incomplete (or the tree was

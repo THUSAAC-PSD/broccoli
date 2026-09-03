@@ -18,6 +18,11 @@ grep -q 'docker-compose.worker.yaml.template' "$inst" \
   || { echo "FAIL: install.sh worker branch does not use the worker compose template"; exit 1; }
 grep -q 'up -d --pull never' "$inst" \
   || { echo "FAIL: install.sh does not run compose up --pull never"; exit 1; }
+# server bring-up restarts the gateway after `up -d` so a re-issued or rotated
+# leaf — written to the SAME bind-mount path, which `up -d` won't recreate the
+# gateway for — is loaded immediately (Caddy doesn't watch the cert files).
+grep -qE '\$COMPOSE .*restart gateway' "$inst" \
+  || { echo "FAIL: server role does not restart the gateway to reload a rotated leaf"; exit 1; }
 # COMPOSE resolved exactly once (hoisted), not duplicated per branch
 [ "$(grep -c 'runtime_compose' "$inst")" = "1" ] \
   || { echo "FAIL: COMPOSE should be resolved once (hoisted), found duplicates"; exit 1; }
