@@ -12,12 +12,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/lib/envgen.sh"
 # shellcheck source=/dev/null
 . "$here/lib/preflight.sh"
+# shellcheck source=/dev/null
+. "$here/lib/manifest.sh"
 
 usage() {
   echo "Usage: setup.sh --role {server|worker|contestant} --bundle DIR [--lan-host H]" \
        "[--admin-user U] [--admin-pass P] [--engine docker|podman] [--server-secret DIR]" \
        "[--cluster-secret DIR] [--worker-id ID]" \
-       "[--non-interactive] [--dry-run]"
+       "[--reconfigure] [--non-interactive] [--dry-run]"
 }
 
 default_worker_id() {
@@ -25,7 +27,7 @@ default_worker_id() {
   [ -n "$h" ] && echo "$h" || echo "worker-1"
 }
 
-FLAG_NON_INTERACTIVE="" DRY_RUN=""
+FLAG_NON_INTERACTIVE="" DRY_RUN="" FLAG_RECONFIGURE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --role)          FLAG_ROLE="$2"; shift 2 ;;
@@ -37,6 +39,7 @@ while [ $# -gt 0 ]; do
     --server-secret) FLAG_SERVER_SECRET="$2"; shift 2 ;;
     --cluster-secret) FLAG_CLUSTER_SECRET="$2"; shift 2 ;;
     --worker-id)      FLAG_WORKER_ID="$2"; shift 2 ;;
+    --reconfigure)   FLAG_RECONFIGURE=1; shift ;;
     --non-interactive) FLAG_NON_INTERACTIVE=1; shift ;;
     --dry-run)       DRY_RUN=1; shift ;;
     -h|--help)       usage; exit 0 ;;
@@ -50,6 +53,27 @@ BUNDLE="$(answer BUNDLE 'Bundle dir' '' 1)"
 [ -d "$BUNDLE" ] || { echo "bundle dir not found: $BUNDLE" >&2; exit 2; }
 BUNDLE="$(cd "$BUNDLE" && pwd)"   # canonicalize so the default sidecar (and
                                   # install.sh) agree on an absolute path
+
+# Pristine-bundle gate (before any env generation). The on-host env files are
+# excluded from manifest integrity (they're generated here and hold secrets), so
+# a planted one rides a "verified" bundle undetected and would be adopted by the
+# generation below. On a freshly-transported bundle this role's env files must
+# NOT yet exist; if they do, refuse — either it's tampering, or it's a genuine
+# re-deploy the operator opts into with --reconfigure. Role-scoped so a shared
+# staging dir where another role already generated its env is not a false alarm.
+if [ -z "$FLAG_RECONFIGURE" ]; then
+  case "$ROLE" in
+    server)     hostenv=(.env.infra .env.server) ;;
+    worker)     hostenv=(.env.worker) ;;
+    contestant) hostenv=(.env.infra .env.server .env.worker) ;;
+    *)          hostenv=() ;;
+  esac
+  if [ "${#hostenv[@]}" -gt 0 ]; then
+    manifest_no_hostenv "$BUNDLE" "${hostenv[@]}" \
+      || { echo "ABORT: on-host env config already present on this bundle. If this is an intentional re-deploy on a host you configured, re-run with --reconfigure; otherwise treat it as tampering and rebuild the bundle from trusted media." >&2; exit 2; }
+  fi
+fi
+
 # Default server-secret sidecar convention (documented in
 # release/docs/airgap-deployment.md, auto-resolved by install.sh): compute it
 # once here so preflight and install.sh agree on the same directory.

@@ -36,6 +36,13 @@ grep -qx 'BROCCOLI_WORKER_IMAGE=broccoli-worker:testv' "$b/compose/.env.worker.e
 # shellcheck source=/dev/null
 source "$here/../lib/manifest.sh"; manifest_verify "$b" >/dev/null \
   || { echo "FAIL: assembled bundle fails its own manifest"; exit 1; }
+# ship-clean: build-bundle must assert the assembled tree carries NO on-host env
+# config (those basenames are manifest-excluded, so a leaked one would ride every
+# bundle undetected) — and the assembled tree must actually be clean.
+grep -q 'manifest_no_hostenv' "$bb" \
+  || { echo "FAIL: build-bundle must assert ship-clean via manifest_no_hostenv"; exit 1; }
+manifest_no_hostenv "$b" >/dev/null 2>&1 \
+  || { echo "FAIL: assembled bundle carries on-host env config"; exit 1; }
 # security: NO private key ever enters the client-distributed (manifested) tree.
 for k in ca/root.key ca/server.key; do
   [ ! -e "$b/$k" ] || { echo "FAIL: private key leaked into client tree: $k"; exit 1; }

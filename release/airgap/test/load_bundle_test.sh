@@ -35,6 +35,21 @@ pout="$(PATH="$pbin:$PATH" BROCCOLI_ENGINE=podman bash "$lb" --bundle "$T" 2>&1)
   || { echo "FAIL: podman-engine image load failed"; echo "$pout"; exit 1; }
 echo "$pout" | grep -q 'PODMAN-LOAD load' || { echo "FAIL: load-bundle did not use the podman engine to load images"; echo "$pout"; exit 1; }
 
+# --- --pristine: a freshly-transported bundle must carry NONE of the on-host
+#     env files. They are manifest-excluded, so integrity alone can't see a
+#     planted one — --pristine is the check that does. $T is still clean here. ---
+bash "$lb" --bundle "$T" --verify-only --pristine >/dev/null \
+  || { echo "FAIL: --pristine rejected a clean bundle"; exit 1; }
+mkdir -p "$T/compose"; printf 'BROCCOLI__DATABASE__URL=postgres://evil\n' > "$T/compose/.env.server"
+# integrity is UNCHANGED (the planted file is manifest-excluded) — the blind spot
+bash "$lb" --bundle "$T" --verify-only >/dev/null \
+  || { echo "FAIL: plain verify should still pass (host-env is manifest-excluded)"; exit 1; }
+# but --pristine MUST catch the planted file
+if bash "$lb" --bundle "$T" --verify-only --pristine >/dev/null 2>&1; then
+  echo "FAIL: --pristine accepted a bundle carrying a planted .env.server"; exit 1
+fi
+rm -rf "$T/compose"
+
 printf 'TAMPER\n' >> "$T/bundle.json"
 if bash "$lb" --bundle "$T" --verify-only >/dev/null 2>&1; then
   echo "FAIL: verify-only accepted a tampered bundle"; exit 1

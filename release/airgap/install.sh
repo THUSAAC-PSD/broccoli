@@ -116,7 +116,9 @@ case "$ROLE" in
   contestant)
     # Re-verify bundle integrity before trusting a CA or installing a binary
     # onto PATH — this is the client-side trust boundary after USB transfer.
-    bash "$here/load-bundle.sh" --bundle "$BUNDLE" --verify-only
+    # --pristine: a contestant bundle NEVER carries on-host env config (it's
+    # excluded from the manifest); one present signals tampering, so refuse.
+    bash "$here/load-bundle.sh" --bundle "$BUNDLE" --verify-only --pristine
     helper="$(os_helper)"
     [ -n "$helper" ] || { echo "unsupported OS for contestant trust helper" >&2; exit 1; }
     bash "$helper" "$BUNDLE/ca/root.crt"

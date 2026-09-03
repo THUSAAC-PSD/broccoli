@@ -137,6 +137,12 @@ cat > "$B/bundle.json" <<JSON
 }
 JSON
 manifest_generate "$B"
+# Ship-clean assertion (defense-in-depth): the client-distributed tree must never
+# carry on-host env config — those basenames are manifest-excluded, so one leaked
+# in here (a dirty release/ dir, a future cp bug) would ride every bundle past
+# integrity verification undetected. Fail the build loudly rather than ship it.
+manifest_no_hostenv "$B" \
+  || { echo "BUILD ABORT: assembled bundle carries on-host env config (see above) — refusing to ship" >&2; exit 1; }
 echo "assembled bundle: $B"
 echo "SERVER-ONLY SECRETS: $SRV"
 echo "  contains CA/leaf private keys (root.key$([ -n "$LAN_HOST" ] && echo ', server.key')) — deliver ONLY to the server host; never to workers/contestants"

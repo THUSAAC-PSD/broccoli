@@ -18,6 +18,11 @@ grep -q -- '--pull never'  "$ins" || { echo "FAIL: does not pass --pull never"; 
 grep -Eq '\b(curl|wget|apt|apt-get|pip[0-9]*)\b' "$ins" && { echo "FAIL: network fetch present"; exit 1; }
 grep -q 'docker pull' "$ins" && { echo "FAIL: docker pull present"; exit 1; }
 
+# the contestant trust boundary re-verifies AND asserts the bundle is pristine
+# (no manifest-excluded host-env files planted before USB transfer)
+grep -Eq -- '--bundle "\$BUNDLE" --verify-only --pristine' "$ins" \
+  || { echo "FAIL: contestant path must verify --pristine (planted host-env guard)"; exit 1; }
+
 # unknown role exits nonzero
 if bash "$ins" --role bogus --bundle /tmp/nope 2>/dev/null; then
   echo "FAIL: unknown role accepted"; exit 1

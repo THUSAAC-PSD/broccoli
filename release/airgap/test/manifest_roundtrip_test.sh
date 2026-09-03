@@ -65,6 +65,27 @@ manifest_verify "$gen" >/dev/null 2>&1 \
   && { echo "FAIL: manifest_verify must still catch tampering of shipped files"; exit 1; } || true
 echo "PASS: manifest excludes on-host env config, still catches tampering"
 
+# --- manifest_no_hostenv: the pristine-bundle check. A tree with none of the
+#     excluded host-env files is clean; a planted one (which manifest_verify
+#     cannot see, since it's excluded) MUST be caught here. $T carries no env
+#     files at this point (only a.txt/sub/b.txt/added.txt). ---
+manifest_no_hostenv "$T" >/dev/null 2>&1 \
+  || { echo "FAIL: manifest_no_hostenv flagged a clean tree"; exit 1; }
+printf 'PLANTED\n' > "$T/.env.server"
+if manifest_no_hostenv "$T" >/dev/null 2>&1; then
+  echo "FAIL: manifest_no_hostenv missed a planted .env.server"; exit 1
+fi
+# role-scoped: checking only .env.worker ignores the planted .env.server
+manifest_no_hostenv "$T" .env.worker >/dev/null 2>&1 \
+  || { echo "FAIL: manifest_no_hostenv .env.worker flagged an unrelated .env.server"; exit 1; }
+# nested plant is found too (find recurses into subdirs)
+rm -f "$T/.env.server"; mkdir -p "$T/compose"; printf 'x\n' > "$T/compose/.env.infra"
+if manifest_no_hostenv "$T" >/dev/null 2>&1; then
+  echo "FAIL: manifest_no_hostenv missed a nested planted .env.infra"; exit 1
+fi
+rm -rf "$T/compose"
+echo "PASS: manifest_no_hostenv detects planted host-env, role-scopes by name"
+
 # --- portable sha256: a bundle manifested with coreutils `sha256sum` must still
 #     verify on a host that has ONLY `shasum -a 256` (macOS operators cross-check
 #     a Linux-built bundle). Build a curated PATH that hides sha256sum, exposes

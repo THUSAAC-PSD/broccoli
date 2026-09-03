@@ -44,7 +44,7 @@ set +e
 out2="$(PATH="$tmp/bin:$PATH" BROCCOLI_SETUP_ADMIN_PASS=adminpw123 \
   bash "$here/../setup.sh" --role server --bundle "$tmp/bundle" \
     --lan-host contest.lan --admin-user admin \
-    --non-interactive --dry-run)"
+    --reconfigure --non-interactive --dry-run)"
 rc2=$?
 set -e
 [ "$rc2" = 0 ] || { echo "FAIL: default server-secret sidecar not honored by preflight (rc=$rc2)"; echo "$out2"; exit 1; }
@@ -57,7 +57,7 @@ set +e
 out3="$(cd "$tmp/bundle" && PATH="$tmp/bin:$PATH" BROCCOLI_SETUP_ADMIN_PASS=adminpw123 \
   bash "$here/../setup.sh" --role server --bundle . \
     --lan-host contest.lan --admin-user admin \
-    --non-interactive --dry-run)"
+    --reconfigure --non-interactive --dry-run)"
 rc3=$?
 set -e
 [ "$rc3" = 0 ] || { echo "FAIL: --bundle . default sidecar not resolved (rc=$rc3)"; echo "$out3"; exit 1; }
@@ -65,9 +65,12 @@ echo "$out3" | grep -q 'install.sh --role server' || { echo "FAIL: --bundle . ru
 
 # missing required non-interactive answer (no lan-host) -> exit 2
 set +e
+# --reconfigure so the pristine gate is skipped and this genuinely exercises the
+# missing-lan-host path (env already exists from the run above; without the opt-in
+# the gate would exit 2 for a different reason and mask this assertion).
 PATH="$tmp/bin:$PATH" BROCCOLI_SETUP_ADMIN_PASS=x \
   bash "$here/../setup.sh" --role server --bundle "$tmp/bundle" \
-    --admin-user admin --server-secret "$sec" --non-interactive --dry-run >/dev/null 2>&1
+    --admin-user admin --server-secret "$sec" --reconfigure --non-interactive --dry-run >/dev/null 2>&1
 rc=$?
 set -e
 [ "$rc" = 2 ] || { echo "FAIL: missing --lan-host should exit 2 (rc=$rc)"; exit 1; }
@@ -119,5 +122,36 @@ grep -qx 'POSTGRES_USER=postgres' "$sinfra" || { echo "FAIL: .env.infra missing 
 grep -qx 'POSTGRES_PASSWORD=pgpw' "$sinfra" || { echo "FAIL: .env.infra did not adopt cluster-secret POSTGRES_PASSWORD"; cat "$sinfra"; exit 1; }
 sserver="$tmp/bundle/compose/.env.server"
 grep -q 'postgres://postgres:pgpw@' "$sserver" || { echo "FAIL: .env.server did not reuse cluster-secret POSTGRES_PASSWORD in db url"; cat "$sserver"; exit 1; }
+
+# --- pristine gate: a planted on-host env file (excluded from the manifest, so
+# integrity verify can't see it) must HARD-ABORT the server deploy as a tampering
+# signal. --reconfigure is the operator's explicit opt-in for a real re-deploy.
+# Uses its own isolated bundle so it is order-independent from the runs above. ---
+plant="$(mktemp -d)"
+mkdir -p "$plant/bundle/compose"
+cp "$rel/.env.infra.example"  "$plant/bundle/compose/.env.infra.example"
+cp "$rel/.env.server.example" "$plant/bundle/compose/.env.server.example"
+echo img > "$plant/bundle/images.txt"
+( cd "$here/.." && . lib/manifest.sh && manifest_generate "$plant/bundle" )
+psec="$plant/bundle.server-secret"; mkdir -p "$psec"; echo k > "$psec/root.key"
+# plant a rogue .env.server AFTER manifesting — the manifest excludes it, so
+# integrity stays green while the planted file rides along
+printf 'BROCCOLI__DATABASE__URL=postgres://evil\n' > "$plant/bundle/compose/.env.server"
+set +e
+outp="$(PATH="$tmp/bin:$PATH" BROCCOLI_SETUP_ADMIN_PASS=adminpw123 \
+  bash "$here/../setup.sh" --role server --bundle "$plant/bundle" \
+    --lan-host contest.lan --admin-user admin --server-secret "$psec" \
+    --non-interactive --dry-run 2>&1)"
+rcp=$?
+set -e
+[ "$rcp" = 2 ] || { echo "FAIL: planted .env.server must hard-abort the server deploy (rc=$rcp)"; echo "$outp"; exit 1; }
+echo "$outp" | grep -q -- '--reconfigure' || { echo "FAIL: planting abort must point the operator at --reconfigure"; echo "$outp"; exit 1; }
+# --reconfigure opts into the re-deploy despite the pre-existing env file
+PATH="$tmp/bin:$PATH" BROCCOLI_SETUP_ADMIN_PASS=adminpw123 \
+  bash "$here/../setup.sh" --role server --bundle "$plant/bundle" \
+    --lan-host contest.lan --admin-user admin --server-secret "$psec" \
+    --reconfigure --non-interactive --dry-run >/dev/null \
+  || { echo "FAIL: --reconfigure must allow a re-deploy despite existing on-host env"; exit 1; }
+rm -rf "$plant"
 
 echo "PASS: setup.sh dry-run wiring + config generation"
