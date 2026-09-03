@@ -20,4 +20,12 @@ grep -Eq '^[[:space:]]*auto_https[[:space:]]+off([[:space:]]|$)' "$cf" \
   || { echo "FAIL: auto_https not set to 'off' (fail-closed offline)"; exit 1; }
 grep -q 'disable_redirects' "$cf" \
   && { echo "FAIL: 'auto_https disable_redirects' still present (leaves cert automation on)"; exit 1; } || true
+# Bare-IP / no-SNI reachability: with auto_https off, Caddy will only serve the
+# explicit leaf to a ClientHello whose SNI matches the site name. Browsers and
+# curl connecting to a bare IP send NO SNI (SNI carries hostnames only, per RFC
+# 6066), so without a default the handshake dies with a TLS internal-error alert
+# — the whole gateway is unreachable on an IP-addressed air-gap LAN. default_sni
+# pins the site name for no-SNI hellos so the leaf is served.
+grep -Eq '^[[:space:]]*default_sni[[:space:]]+\{\$LAN_HOST\}([[:space:]]|$)' "$cf" \
+  || { echo "FAIL: default_sni {\$LAN_HOST} missing — bare-IP/no-SNI clients get a TLS internal-error alert"; exit 1; }
 echo "PASS: Caddyfile.airgap uses explicit leaf, no ACME"

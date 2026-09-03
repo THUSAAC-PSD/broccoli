@@ -74,13 +74,16 @@ echo "$cli_file" | grep -q 'dynamically linked' \
 echo "== compose smoke: server up + gateway responds =="
 bash "$here/../setup.sh" --role server --bundle "$b" --lan-host "$HOST" \
   --admin-user admin --admin-pass smoke-admin-pw --engine "$ENGINE" --non-interactive
-# give the gateway a moment; poll for a TLS response
+# give the gateway a moment; poll for a TLS response. Verify STRICTLY against the
+# bundle CA (not -k): $HOST is a bare IP, and a browser/curl connecting by IP
+# sends no SNI, so this exercises both the internal-CA trust chain AND the no-SNI
+# cert-selection path (default_sni) — the exact case a bare-IP LAN hits.
 ok=0
 for _ in $(seq 1 30); do
-  if curl -fksS "https://$HOST/" -o /dev/null; then ok=1; break; fi
+  if curl -fsS --cacert "$b/ca/root.crt" "https://$HOST/" -o /dev/null; then ok=1; break; fi
   sleep 2
 done
-[ "$ok" = 1 ] || { echo "FAIL: TLS gateway did not respond at https://$HOST/"; exit 1; }
+[ "$ok" = 1 ] || { echo "FAIL: TLS gateway did not serve a CA-trusted response at https://$HOST/ (check default_sni for bare-IP/no-SNI clients)"; exit 1; }
 
 echo "== compose smoke: worker up + becomes healthy =="
 bash "$here/../setup.sh" --role worker --bundle "$b" --lan-host "$HOST" \

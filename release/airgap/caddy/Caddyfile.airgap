@@ -7,6 +7,13 @@
 {
 	admin off
 	auto_https off
+	# No-SNI clients (browsers/curl connecting by bare IP — SNI carries hostnames
+	# only, per RFC 6066) must still resolve to this site's leaf. With auto_https
+	# off, Caddy serves the explicit cert only when the ClientHello's SNI matches
+	# the site name; a bare-IP hello sends none, so the handshake dies with a TLS
+	# internal-error alert and the gateway is unreachable on an IP-addressed LAN.
+	# Pin the default SNI to the site name so the leaf is served regardless.
+	default_sni {$LAN_HOST}
 }
 {$LAN_HOST} {
 	encode zstd gzip
