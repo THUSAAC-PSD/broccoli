@@ -130,6 +130,22 @@ set_out="$( set -u
 [ "$set_out" = "<--build-arg><USE_CN_MIRRORS=true><--build-arg><RUNTIME_IMAGE=debian:bookworm-slim>" ] \
   || { echo "FAIL: set env must emit both --build-args as distinct tokens (got: $set_out)"; exit 1; }
 
+# --- the bundle VERSION must reach BOTH images' OCI version label. Both
+#     Dockerfiles carry `ARG VERSION=dev` -> org.opencontainers.image.version;
+#     without an emitted `--build-arg VERSION` every shipped image reports "dev"
+#     regardless of the bundle version. Air-gapped targets have no registry to
+#     query, so the loaded image's version label is the ONLY offline way to tell
+#     one bundle's images from the next's (e.g. confirming an in-place upgrade
+#     actually swapped the image). Unlike the mirror levers this is
+#     unconditional — every build stamps it. ---
+grep -qE 'version_build_arg=\(--build-arg "VERSION=\$VERSION"\)' "$bb" \
+  || { echo "FAIL: build-bundle must stamp the bundle VERSION via --build-arg VERSION (image OCI label is the only offline provenance signal)"; exit 1; }
+awk '/Dockerfile.server/{s=1} s&&/version_build_arg\[@\]/{sv=1} /-t "broccoli-server/{s=0}
+     /Dockerfile.worker/{w=1} w&&/version_build_arg\[@\]/{wv=1} /-t "broccoli-worker/{w=0}
+     END{ if(!sv){print "MISS server version"; exit 1}
+          if(!wv){print "MISS worker version"; exit 1} }' "$bb" \
+  || { echo "FAIL: --build-arg VERSION not wired into both image builds"; exit 1; }
+
 # --- third-party image pull must tolerate a blocked registry when the image is
 #     ALREADY in the local store. This air-gap feature targets mirror-fronted /
 #     intermittently-connected staging boxes where docker.io is often blocked

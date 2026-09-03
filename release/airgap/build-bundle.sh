@@ -106,13 +106,22 @@ if [ "$SKIP_IMAGES" = "0" ]; then
   [ -n "${BROCCOLI_RUNTIME_IMAGE:-}" ] && \
     server_runtime_arg=(--build-arg "RUNTIME_IMAGE=$BROCCOLI_RUNTIME_IMAGE")
 
+  # Stamp the bundle version into both images' OCI version label. Both
+  # Dockerfiles carry `ARG VERSION=dev` -> org.opencontainers.image.version;
+  # without this build-arg every shipped image reports "dev" regardless of the
+  # bundle version. Air-gapped targets have no registry to query, so
+  # `docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}'`
+  # on the loaded image is the ONLY offline way to tell one bundle's images
+  # from the next's (e.g. verifying an upgrade actually swapped the image).
+  version_build_arg=(--build-arg "VERSION=$VERSION")
+
   # broccoli images — built from the repo. Frontend is baked fresh into the
   # server image (verify served bundle behaviorally, not by mtime).
   "$ENGINE" build -f "$repo/Dockerfile.server" \
-    "${mirror_build_args[@]}" "${server_runtime_arg[@]}" \
+    "${mirror_build_args[@]}" "${server_runtime_arg[@]}" "${version_build_arg[@]}" \
     -t "broccoli-server:$VERSION" "$repo"
   "$ENGINE" build -f "$repo/Dockerfile.worker" --target runtime-full \
-    "${mirror_build_args[@]}" \
+    "${mirror_build_args[@]}" "${version_build_arg[@]}" \
     -t "broccoli-worker:$VERSION" "$repo"
 
   # Default plugins for the bind-mount source. The server + worker compose
