@@ -56,6 +56,19 @@ done
 # the heavy debug build tree must never ride along
 [ ! -e "$b/compose/plugins/batch-evaluator/target" ] \
   || { echo "FAIL: plugin target/ detritus leaked into bundle"; exit 1; }
+# Build-only node_modules must never ride along either. The `!plugins/**`
+# dockerignore include (needed for the gitignored built .wasm + frontend dist)
+# also drags in every plugin frontend's node_modules — ~54k files, ~460MB —
+# unless a plugins-specific re-exclude wins LAST (a generic `**/node_modules/**`
+# does NOT, once a plugins-wide `!` include is in force). Assert none survived,
+# AND that the runtime payload that re-exclude must preserve (built frontend
+# dist) did — guarding both an under-exclude (bloat) and an over-exclude (broken
+# frontends). This only manifests through the image build, so it lives here.
+nmc="$(find "$b/compose/plugins" -type d -name node_modules | wc -l)"
+[ "$nmc" -eq 0 ] \
+  || { echo "FAIL: $nmc node_modules dir(s) leaked into bundle plugins (~460MB bloat; dockerignore plugins node_modules re-exclude regressed)"; exit 1; }
+find "$b/compose/plugins" -path '*/dist/*' -type f | grep -q . \
+  || { echo "FAIL: no built plugin frontend dist in bundle — dockerignore over-excluded (dist is runtime-required for plugin frontends)"; exit 1; }
 # shipped plugin code is integrity-protected (present in the manifest)
 grep -q 'compose/plugins/standard-checkers/plugin.toml' "$b/manifest.sha256" \
   || { echo "FAIL: staged plugins not covered by manifest.sha256 (integrity gap)"; exit 1; }
