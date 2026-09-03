@@ -85,6 +85,22 @@ for _ in $(seq 1 30); do
 done
 [ "$ok" = 1 ] || { echo "FAIL: TLS gateway did not serve a CA-trusted response at https://$HOST/ (check default_sni for bare-IP/no-SNI clients)"; exit 1; }
 
+echo "== compose smoke: plugins actually register at boot (not just 'healthy') =="
+# A "healthy" server can still be judging-dead: the runtime runs as distroless
+# nonroot 65532, whose HOME is not writable in the base image, so wasmtime cannot
+# create its plugin cache and EVERY evaluator/checker/hook plugin fails init()
+# silently — empty evaluator registry, no problem creatable, nothing judges. The
+# healthcheck stays green throughout. Assert the boot actually registered plugins:
+# zero activation failures AND at least one contest type registered (both come
+# from the plugin init() path the cache bug breaks).
+scid="$($ENGINE ps --filter ancestor="$srv_ref" --format '{{.ID}}' | head -1)"
+[ -n "$scid" ] || { echo "FAIL: could not locate the running server container to inspect plugin registration"; exit 1; }
+slog="$("$ENGINE" logs "$scid" 2>&1)"
+echo "$slog" | grep -qiE 'failed to create cache directory|activation failed|init\(\) failed' \
+  && { echo "FAIL: server logged plugin activation/cache failures — evaluator registry is empty, nothing will judge"; exit 1; } || true
+echo "$slog" | grep -q 'Contest type registered' \
+  || { echo "FAIL: no 'Contest type registered' in server log — plugin init() did not run (writable HOME/wasmtime cache?)"; exit 1; }
+
 echo "== compose smoke: worker up + becomes healthy =="
 bash "$here/../setup.sh" --role worker --bundle "$b" --lan-host "$HOST" \
   --worker-id smoke-worker --engine "$ENGINE" --non-interactive

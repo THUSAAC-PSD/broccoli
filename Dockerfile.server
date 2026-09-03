@@ -139,6 +139,18 @@ RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
     apt-get install -y --no-install-recommends tini=0.19.0-1+b3 && \
     rm -rf /var/lib/apt/lists/*
 
+# Provision a writable, nonroot-owned HOME to bake into the distroless runtime.
+# distroless :nonroot sets HOME=/home/nonroot but does NOT make that directory
+# writable by uid 65532. wasmtime (via extism) derives its compilation cache
+# from $HOME and aborts plugin *instantiation* with "failed to create cache
+# directory: .../.cache/wasmtime" when it cannot mkdir under $HOME. That failure
+# is per-plugin at init(): every evaluator/checker/hook plugin silently fails to
+# register, so the server boots "healthy" yet the evaluator registry is empty —
+# no problem can be created ("problem_type must be one of:" with an empty list)
+# and nothing judges. Create the dir in this shell-bearing stage; the runtime
+# stage COPYs it with --chown (distroless has no shell to mkdir/chown itself).
+RUN mkdir -p /out/home/nonroot/.cache
+
 FROM ${RUNTIME_IMAGE} AS runtime
 
 ARG CREATED=unknown
@@ -160,8 +172,14 @@ COPY --from=rust-builder --chown=65532:65532 /out/broccoli-server /usr/local/bin
 COPY --from=web-builder --chown=65532:65532 /out/dist /srv/dist
 COPY --from=plugin-stage --chown=65532:65532 /out/plugins /plugins
 COPY --from=tini-stage --chown=65532:65532 /usr/bin/tini /usr/bin/tini
+# Writable, uid-65532-owned HOME (see tini-stage): overrides the base image's
+# non-writable /home/nonroot so wasmtime's plugin cache can be created and every
+# evaluator/checker/hook plugin registers at boot. Without HOME set explicitly a
+# base bump could silently reintroduce the empty-registry / no-judging failure.
+COPY --from=tini-stage --chown=65532:65532 /out/home/nonroot /home/nonroot
 
-ENV BROCCOLI__PLUGIN__PLUGINS_DIR=/plugins \
+ENV HOME=/home/nonroot \
+    BROCCOLI__PLUGIN__PLUGINS_DIR=/plugins \
     BROCCOLI__SERVER__FRONTEND_DIST=/srv/dist \
     BROCCOLI__SERVER__HOST=0.0.0.0 \
     BROCCOLI__SERVER__PORT=3000 \
