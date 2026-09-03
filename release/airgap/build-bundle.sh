@@ -143,7 +143,21 @@ if [ "$SKIP_IMAGES" = "0" ]; then
   caddy_img="${caddy_img:-caddy:2-alpine}"
   for img in "$pg_img" "$redis_img" "$swfs_img" "$caddy_img"; do
     [ -n "$img" ] || { echo "could not resolve a third-party image tag" >&2; exit 1; }
-    "$ENGINE" pull "$img"
+    # Prefer a fresh pull, but do NOT hard-abort when the registry is unreachable
+    # IF the image is already in the local store. This air-gap feature targets
+    # mirror-fronted / intermittently-connected staging boxes where docker.io is
+    # often blocked (empty daemon registry-mirrors) and the operator has
+    # pre-seeded the third-party images — or a prior build-bundle run left them
+    # local. Falling back to the local copy keeps the bundle assemblable offline;
+    # an image that is neither pullable nor present still aborts loudly.
+    if ! "$ENGINE" pull "$img"; then
+      if "$ENGINE" image inspect "$img" >/dev/null 2>&1; then
+        echo "WARN: pull failed for $img; using the copy already in the local image store" >&2
+      else
+        echo "ERROR: cannot pull $img and it is not in the local image store — pre-seed it (docker pull via your mirror) or fix registry access" >&2
+        exit 1
+      fi
+    fi
   done
 
   # save each image to its own tar (independent docker-load + per-image integrity)

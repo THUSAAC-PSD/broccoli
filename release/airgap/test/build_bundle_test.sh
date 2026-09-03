@@ -130,4 +130,43 @@ set_out="$( set -u
 [ "$set_out" = "<--build-arg><USE_CN_MIRRORS=true><--build-arg><RUNTIME_IMAGE=debian:bookworm-slim>" ] \
   || { echo "FAIL: set env must emit both --build-args as distinct tokens (got: $set_out)"; exit 1; }
 
+# --- third-party image pull must tolerate a blocked registry when the image is
+#     ALREADY in the local store. This air-gap feature targets mirror-fronted /
+#     intermittently-connected staging boxes where docker.io is often blocked
+#     (empty daemon registry-mirrors) and the operator has pre-seeded the pg/
+#     redis/seaweedfs/caddy images (or a prior build-bundle run left them local).
+#     An UNCONDITIONAL `docker pull` aborts under `set -e` on such a box even
+#     though the bundle could be assembled from the local copy. Require: pull,
+#     and on failure fall back to the local image store; abort only if the image
+#     is truly absent. (Invisible to --skip-images: the loop is image-gated.) ---
+grep -qE 'if ! "\$ENGINE" pull "\$img"' "$bb" \
+  || { echo "FAIL: third-party pull must be failure-tolerant ('if ! \$ENGINE pull'), not an unconditional abort"; exit 1; }
+grep -qE '"\$ENGINE" image inspect "\$img"' "$bb" \
+  || { echo "FAIL: third-party pull must fall back to the local image store ('image inspect \$img') on pull failure"; exit 1; }
+# behavioral: replicate the fallback contract with a stub engine (a function
+# named in $ENGINE, invoked exactly as the script does — "$ENGINE" pull / image).
+#   pull fails + image present  -> loop continues (rc 0)
+#   pull fails + image absent   -> loop aborts    (rc 1)
+eng_present() { case "$1" in pull) return 1 ;; image) return 0 ;; *) return 0 ;; esac; }
+eng_absent()  { case "$1" in pull) return 1 ;; image) return 1 ;; *) return 0 ;; esac; }
+run_pull_body() { # $1 = engine fn name
+  set -euo pipefail
+  local ENGINE="$1" img="postgres:18-alpine"
+  if ! "$ENGINE" pull "$img"; then
+    if "$ENGINE" image inspect "$img" >/dev/null 2>&1; then
+      : # present locally — keep going
+    else
+      exit 1
+    fi
+  fi
+  echo CONTINUED
+}
+out_present="$( run_pull_body eng_present || true )"
+[ "$out_present" = "CONTINUED" ] \
+  || { echo "FAIL: pull-fail + image-present must continue (got: '$out_present')"; exit 1; }
+rc_absent=0
+( run_pull_body eng_absent ) >/dev/null 2>&1 || rc_absent=$?
+[ "$rc_absent" = "1" ] \
+  || { echo "FAIL: pull-fail + image-absent must abort with rc=1 (got rc=$rc_absent)"; exit 1; }
+
 echo "PASS: build-bundle assembles a verifiable tree (skip-images)"
