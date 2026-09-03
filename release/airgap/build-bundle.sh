@@ -90,10 +90,30 @@ if [ "$SKIP_IMAGES" = "0" ]; then
   ENGINE="${BROCCOLI_ENGINE:-$(runtime_engine)}"
   [ -n "$ENGINE" ] || { echo "no docker/podman found for image build (install one, or pass --skip-images)" >&2; exit 2; }
 
+  # Optional build-arg passthrough for staging boxes that cannot reach the image
+  # defaults. This air-gap feature targets mirror-fronted LANs (e.g. Chinese
+  # infra) whose staging box has NO route to gcr.io/distroless (the default
+  # server runtime base) and only a throttled route to static.rust-lang.org
+  # (the toolchain). Both Dockerfiles already carry RUNTIME_IMAGE / USE_CN_MIRRORS
+  # levers; surface them here so the documented staging entrypoint can flip them
+  # WITHOUT weakening the shipped defaults — unset means distroless runtime +
+  # upstream toolchain, exactly as before. USE_CN_MIRRORS applies to both images;
+  # RUNTIME_IMAGE is server-only (the worker bases are already mirror-agnostic).
+  mirror_build_args=()
+  [ -n "${BROCCOLI_USE_CN_MIRRORS:-}" ] && \
+    mirror_build_args+=(--build-arg "USE_CN_MIRRORS=$BROCCOLI_USE_CN_MIRRORS")
+  server_runtime_arg=()
+  [ -n "${BROCCOLI_RUNTIME_IMAGE:-}" ] && \
+    server_runtime_arg=(--build-arg "RUNTIME_IMAGE=$BROCCOLI_RUNTIME_IMAGE")
+
   # broccoli images — built from the repo. Frontend is baked fresh into the
   # server image (verify served bundle behaviorally, not by mtime).
-  "$ENGINE" build -f "$repo/Dockerfile.server" -t "broccoli-server:$VERSION" "$repo"
-  "$ENGINE" build -f "$repo/Dockerfile.worker" --target runtime-full -t "broccoli-worker:$VERSION" "$repo"
+  "$ENGINE" build -f "$repo/Dockerfile.server" \
+    "${mirror_build_args[@]}" "${server_runtime_arg[@]}" \
+    -t "broccoli-server:$VERSION" "$repo"
+  "$ENGINE" build -f "$repo/Dockerfile.worker" --target runtime-full \
+    "${mirror_build_args[@]}" \
+    -t "broccoli-worker:$VERSION" "$repo"
 
   # Default plugins for the bind-mount source. The server + worker compose
   # templates mount ./plugins:/plugins:ro, which OVERLAYS the image-baked

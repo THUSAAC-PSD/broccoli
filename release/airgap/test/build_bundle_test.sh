@@ -92,4 +92,42 @@ rc=$?; rm -f "$nomatch"
 [ "$rc" = 0 ] || { echo "FAIL: caddy parse aborted (rc=$rc) on a template with no CADDY_IMAGE line"; exit 1; }
 [ "$tag_none" = 'caddy:2-alpine' ] || { echo "FAIL: caddy parse no-match fallback got '$tag_none', want caddy:2-alpine"; exit 1; }
 
+# --- optional build-arg passthrough: a mirror-fronted staging box (the Chinese
+#     infra this air-gap feature targets) has no route to gcr.io/distroless nor a
+#     fast one to static.rust-lang.org. build-bundle must surface the Dockerfiles'
+#     RUNTIME_IMAGE / USE_CN_MIRRORS levers via env WITHOUT weakening the shipped
+#     defaults (unset => distroless + upstream, no --build-arg emitted at all). ---
+grep -qE 'BROCCOLI_USE_CN_MIRRORS.*--build-arg|mirror_build_args\+=\(--build-arg "USE_CN_MIRRORS=' "$bb" \
+  || { echo "FAIL: build-bundle does not pass BROCCOLI_USE_CN_MIRRORS through as --build-arg USE_CN_MIRRORS"; exit 1; }
+grep -qE 'server_runtime_arg=\(--build-arg "RUNTIME_IMAGE=\$BROCCOLI_RUNTIME_IMAGE"' "$bb" \
+  || { echo "FAIL: build-bundle does not pass BROCCOLI_RUNTIME_IMAGE through as --build-arg RUNTIME_IMAGE (server)"; exit 1; }
+# the mirror args must reach BOTH image builds; the runtime override is server-only
+# (worker bases are mirror-agnostic and have no RUNTIME_IMAGE arg to consume).
+awk '/Dockerfile.server/{s=1} s&&/mirror_build_args\[@\]/{sm=1} s&&/server_runtime_arg\[@\]/{sr=1} /-t "broccoli-server/{s=0}
+     /Dockerfile.worker/{w=1} w&&/mirror_build_args\[@\]/{wm=1} /-t "broccoli-worker/{w=0}
+     END{ if(!sm){print "MISS server mirror"; exit 1}
+          if(!sr){print "MISS server runtime"; exit 1}
+          if(!wm){print "MISS worker mirror"; exit 1} }' "$bb" \
+  || { echo "FAIL: build-arg passthrough not wired to the right image build(s)"; exit 1; }
+# the worker build must NOT receive the server-only RUNTIME_IMAGE override.
+awk '/Dockerfile.worker/{w=1} w&&/server_runtime_arg\[@\]/{print "worker got runtime arg"; exit 1} /-t "broccoli-worker/{w=0}' "$bb" \
+  || { echo "FAIL: RUNTIME_IMAGE override leaked into the worker build"; exit 1; }
+# behavioral: the array-building idiom must be safe under `set -u` when the env
+# vars are UNSET (empty array expansion must not error and must add NO elements)
+# AND emit exactly the right flags — each a distinct token — when set.
+unset_cnt="$( set -u
+  mirror_build_args=(); server_runtime_arg=()
+  [ -n "${BROCCOLI_USE_CN_MIRRORS:-}" ] && mirror_build_args+=(--build-arg "USE_CN_MIRRORS=$BROCCOLI_USE_CN_MIRRORS")
+  [ -n "${BROCCOLI_RUNTIME_IMAGE:-}" ] && server_runtime_arg=(--build-arg "RUNTIME_IMAGE=$BROCCOLI_RUNTIME_IMAGE")
+  all=( "${mirror_build_args[@]}" "${server_runtime_arg[@]}" ); echo "${#all[@]}" )"
+[ "$unset_cnt" = "0" ] || { echo "FAIL: unset env must emit NO build-args (got element count: $unset_cnt)"; exit 1; }
+set_out="$( set -u
+  export BROCCOLI_USE_CN_MIRRORS=true BROCCOLI_RUNTIME_IMAGE=debian:bookworm-slim
+  mirror_build_args=(); server_runtime_arg=()
+  [ -n "${BROCCOLI_USE_CN_MIRRORS:-}" ] && mirror_build_args+=(--build-arg "USE_CN_MIRRORS=$BROCCOLI_USE_CN_MIRRORS")
+  [ -n "${BROCCOLI_RUNTIME_IMAGE:-}" ] && server_runtime_arg=(--build-arg "RUNTIME_IMAGE=$BROCCOLI_RUNTIME_IMAGE")
+  all=( "${mirror_build_args[@]}" "${server_runtime_arg[@]}" ); printf '<%s>' "${all[@]}" )"
+[ "$set_out" = "<--build-arg><USE_CN_MIRRORS=true><--build-arg><RUNTIME_IMAGE=debian:bookworm-slim>" ] \
+  || { echo "FAIL: set env must emit both --build-args as distinct tokens (got: $set_out)"; exit 1; }
+
 echo "PASS: build-bundle assembles a verifiable tree (skip-images)"
