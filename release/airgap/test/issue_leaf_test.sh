@@ -33,4 +33,18 @@ sub="$LEAF/nested-leaf"
 bash "$issue" --ca-dir "$CA" --host judge.contest.lan --out "$sub" --days 30 >/dev/null
 dperm="$(stat -c '%a' "$sub")"
 [ "$dperm" = "700" ] || { echo "FAIL: leaf out dir perms $dperm != 700"; exit 1; }
+
+# input validation: a --host must be a bare DNS name or IP literal. A comma would
+# splice an extra SAN entry and a newline would inject an extfile directive (e.g.
+# basicConstraints=CA:TRUE, forging a CA-capable leaf) — both refused before openssl.
+if bash "$issue" --ca-dir "$CA" --host 'a,IP:10.0.0.9' --out "$LEAF/inj-comma" --days 30 >/dev/null 2>&1; then
+  echo "FAIL: issue-leaf accepted a --host with a comma (SAN injection)"; exit 1; fi
+[ -e "$LEAF/inj-comma/server.crt" ] && { echo "FAIL: issue-leaf wrote a cert for a comma --host"; exit 1; } || true
+if bash "$issue" --ca-dir "$CA" --host "$(printf 'good.lan\nsubjectKeyIdentifier=hash')" --out "$LEAF/inj-nl" --days 30 >/dev/null 2>&1; then
+  echo "FAIL: issue-leaf accepted a --host with a newline (extfile injection)"; exit 1; fi
+[ -e "$LEAF/inj-nl/server.crt" ] && { echo "FAIL: issue-leaf wrote a cert for a newline --host"; exit 1; } || true
+# a legitimate extra DNS label still issues fine
+bash "$issue" --ca-dir "$CA" --host node-1.contest.lan --out "$LEAF/ok-extra" --days 30 >/dev/null \
+  || { echo "FAIL: issue-leaf rejected a legitimate hyphenated DNS host"; exit 1; }
+
 echo "PASS: issue-leaf chains to CA with DNS+IP SANs and serverAuth"

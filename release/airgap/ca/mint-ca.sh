@@ -18,6 +18,18 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$OUT" ] || { echo "--out is required" >&2; usage; exit 2; }
+
+# Reject subject DN components that could inject extra RDNs. '/' is the -subj
+# field separator and a newline would splice new DN lines — either could forge
+# O=/CN= fields. `case` (not grep) so an embedded newline is matched rather than
+# swallowed as a line separator.
+for v in "$ORG" "$CN"; do
+  case "$v" in
+    ""|*[[:cntrl:]]*|*/*)
+      echo "invalid --org/--cn value: must be non-empty with no control chars or '/'" >&2; exit 2 ;;
+  esac
+done
+
 mkdir -p "$OUT"
 # Lock the dir down BEFORE writing root.key: default umask 022 leaves a fresh
 # dir 0755, so the private key would be briefly group/world-readable.

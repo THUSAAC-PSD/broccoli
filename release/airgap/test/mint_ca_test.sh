@@ -29,4 +29,20 @@ sub="$T/nested-ca"
 bash "$mint" --out "$sub" --days 30 >/dev/null
 dperm="$(stat -c '%a' "$sub")"
 [ "$dperm" = "700" ] || { echo "FAIL: CA out dir perms $dperm != 700"; exit 1; }
+
+# input validation: subject DN components must reject injection. '/' is the
+# openssl -subj RDN separator and a newline would splice extra DN lines — either
+# could forge O=/CN= fields, so both are refused before openssl runs.
+if bash "$mint" --out "$T/inj-cn" --cn 'evil/CN=Injected' --days 30 >/dev/null 2>&1; then
+  echo "FAIL: mint-ca accepted a --cn with a '/' RDN separator"; exit 1; fi
+[ -e "$T/inj-cn/root.crt" ] && { echo "FAIL: mint-ca wrote a cert for an injected --cn"; exit 1; } || true
+if bash "$mint" --out "$T/inj-org" --org "$(printf 'a\nO=Injected')" --days 30 >/dev/null 2>&1; then
+  echo "FAIL: mint-ca accepted a --org containing a newline"; exit 1; fi
+[ -e "$T/inj-org/root.crt" ] && { echo "FAIL: mint-ca wrote a cert for a newline --org"; exit 1; } || true
+# a legitimate custom org/cn (spaces allowed) still works
+bash "$mint" --out "$T/custom" --org "Custom LAN Org" --cn "custom.root.ca" --days 30 >/dev/null \
+  || { echo "FAIL: mint-ca rejected a legitimate custom --org/--cn"; exit 1; }
+openssl x509 -in "$T/custom/root.crt" -noout -subject | grep -q 'custom.root.ca' \
+  || { echo "FAIL: custom CN not present in cert subject"; exit 1; }
+
 echo "PASS: mint-ca produces a CA cert + 0600 key"
