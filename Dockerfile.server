@@ -35,7 +35,13 @@ RUN if [ "$USE_CN_MIRRORS" = "true" ]; then \
 FROM ${RUST_IMAGE} AS rust-builder
 
 ARG USE_CN_MIRRORS=false
-ARG CARGO_BUILD_JOBS
+# Must have a non-empty default: the next line does `ENV CARGO_BUILD_JOBS=${...}`,
+# and an UNSET build-arg expands to an empty STRING (not unset), which cargo
+# rejects hard ("could not parse ``. Number of parallel jobs should be `default`
+# or a number."). `default` is cargo's own accepted sentinel (= logical CPU
+# count), so every build path — including build-bundle.sh, which passes no
+# --build-arg — works out of the box; callers that want a cap still override it.
+ARG CARGO_BUILD_JOBS=default
 ARG CARGO_BUILD_PROFILE=release
 ARG CARGO_BUILD_RUSTFLAGS=
 ARG SERVER_FEATURES=""

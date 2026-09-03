@@ -29,4 +29,13 @@ grep -Eq '^[[:space:]]*COPY[[:space:]].*--chown=65532:65532[[:space:]].*/out/hom
 grep -Eq '^[[:space:]]*ENV[[:space:]]+HOME=/home/nonroot([[:space:]]|\\|$)' "$df" \
   || { echo "FAIL: Dockerfile.server does not set ENV HOME=/home/nonroot (wasmtime cache would fall back to an unwritable path)"; exit 1; }
 
+# 4. CARGO_BUILD_JOBS must carry a non-empty default. The rust-builder does
+#    `ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}`; an UNSET build-arg expands to an
+#    empty string, and cargo rejects "" hard ("could not parse ``"). build-bundle.sh
+#    (the shipped air-gap staging entrypoint) passes NO --build-arg, so an empty
+#    default is a release blocker — the bundle's server image cannot build. Assert
+#    the ARG defaults to a value cargo accepts (`default` or a number).
+grep -Eq '^[[:space:]]*ARG[[:space:]]+CARGO_BUILD_JOBS=(default|[0-9]+)([[:space:]]|$)' "$df" \
+  || { echo "FAIL: Dockerfile.server ARG CARGO_BUILD_JOBS has no non-empty default; an unset build-arg -> empty string -> cargo panics ('could not parse \`\`')"; exit 1; }
+
 echo "PASS: server image bakes a writable uid-65532 HOME so plugins can instantiate/register"
