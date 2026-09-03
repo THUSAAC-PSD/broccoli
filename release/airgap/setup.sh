@@ -107,8 +107,9 @@ if [ "$ROLE" = server ]; then
   envgen_write "$infra" "$server" \
     "$BUNDLE/compose/.env.infra.example" "$BUNDLE/compose/.env.server.example" \
     "$ADMIN_USER" "$ADMIN_PASS"
-  # SELinux relabel for rootless podman bind mounts (TLS dir + Caddyfile).
-  runtime_relabel "$ENGINE" "$secret_dir" "$here/caddy/Caddyfile.airgap" 2>/dev/null || true
+  # SELinux relabel of bind-mount sources (TLS leaf dir + Caddyfile + plugins) is
+  # done by install.sh — the single deploy engine for both setup.sh and standalone
+  # invocations, and for both roles — so it is not duplicated here.
   INST+=( --lan-host "$LAN_HOST" )
   [ -n "${FLAG_SERVER_SECRET:-}" ] && INST+=( --server-secret "$FLAG_SERVER_SECRET" )
 fi

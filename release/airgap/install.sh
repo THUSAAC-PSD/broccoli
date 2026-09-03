@@ -24,10 +24,12 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$ROLE" ] && [ -n "$BUNDLE" ] || { echo "--role and --bundle are required" >&2; usage; exit 2; }
 
-# Resolve the compose provider once for deploy roles (server/worker). Reuse
-# setup.sh's export when present; else self-resolve (standalone use). Contestant
-# does not deploy, so an empty result here is only fatal inside server/worker.
-COMPOSE="${COMPOSE:-$(runtime_compose "${BROCCOLI_ENGINE:-$(runtime_engine)}")}"
+# Resolve the container engine + compose provider once for deploy roles
+# (server/worker). Reuse setup.sh's export when present; else self-resolve
+# (standalone use). Contestant does not deploy, so an empty result here is only
+# fatal inside server/worker. ENGINE is also what gates the SELinux relabel below.
+ENGINE="${BROCCOLI_ENGINE:-$(runtime_engine)}"
+COMPOSE="${COMPOSE:-$(runtime_compose "$ENGINE")}"
 
 os_helper() {
   case "$(uname -s)" in
@@ -81,6 +83,13 @@ case "$ROLE" in
     echo "TLS gateway will serve https://$LAN_HOST using leaf in $abs_secret"
     echo "server plaintext :3000 bound to host loopback ($BROCCOLI_HTTP_BIND); 443 is the only LAN entrypoint"
     [ -n "$COMPOSE" ] || { echo "no working docker/podman compose provider found" >&2; exit 2; }
+    # Relabel every bind-mount SOURCE for rootless Podman under SELinux Enforcing
+    # (no-op off podman+SELinux): the TLS leaf dir, the un-rendered Caddyfile, and
+    # the ./plugins tree the server mounts read-only. Without the plugins relabel,
+    # SELinux denies the container read access and the plugin registry loads empty
+    # — infra HEALTHY but nothing judges. Runs before compose up so labels are set
+    # before the containers mount them.
+    runtime_relabel "$ENGINE" "$abs_secret" "$here/caddy/Caddyfile.airgap" "$BUNDLE/compose/plugins" 2>/dev/null || true
     (
       cd "$BUNDLE/compose"
       compose_args=(
@@ -124,6 +133,10 @@ case "$ROLE" in
     # ./plugins:/plugins:ro is bind-mounted from the bundle; build-bundle.sh
     # stages the real plugin set there (manifest-verified above), so the source
     # dir already exists and carries the evaluators/checkers the worker runs.
+    # Relabel that source for rootless Podman under SELinux Enforcing (no-op
+    # otherwise) — else SELinux denies the read and the worker loads no
+    # evaluators/checkers. Runs before compose up so the label is set first.
+    runtime_relabel "$ENGINE" "$BUNDLE/compose/plugins" 2>/dev/null || true
     ( cd "$BUNDLE/compose" && $COMPOSE --env-file .env.worker \
         -f docker-compose.worker.yaml.template up -d --pull never )
     echo "worker started against server infra (compose up --pull never)"
