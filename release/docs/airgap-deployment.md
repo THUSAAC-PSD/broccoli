@@ -84,6 +84,14 @@ everything an install needs:
   (`docker-compose.gateway-airgap.yaml.template`) compose templates, plus
   `compose/.env.server.example` and `compose/.env.infra.example` (real env files
   are _not_ shipped — see the server install section below).
+- `compose/plugins/` — the default contest-format and evaluator/checker plugins
+  (built `.wasm` + frontend assets), copied out of the server image at assembly.
+  The server and worker compose files bind-mount `./plugins:/plugins:ro`, which
+  overlays the image-baked copy, so this directory must be present or the judge
+  boots with an empty plugin registry and cannot evaluate submissions. It is part
+  of the manifested tree, so `load-bundle.sh` integrity-verifies the plugin code
+  along with everything else. (A `--skip-images` structural bundle omits it, as it
+  omits the images themselves.)
 - `cli/` — the musl-static `broccoli` contestant CLI binary.
 - `ca/` — `root.crt` (public, ships everywhere) and `issue-leaf.sh`; NO private
   key lives here. The CA/leaf private keys live only in the

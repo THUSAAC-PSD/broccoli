@@ -45,6 +45,21 @@ wrk_ref="$(env_get "$b/compose/.env.worker.example" BROCCOLI_WORKER_IMAGE)"
 "$ENGINE" image inspect "$srv_ref" >/dev/null 2>&1 || { echo "FAIL: server image $srv_ref not loaded"; exit 1; }
 "$ENGINE" image inspect "$wrk_ref" >/dev/null 2>&1 || { echo "FAIL: worker image $wrk_ref not loaded"; exit 1; }
 
+echo "== default plugins staged into the bind-mount source AND manifest-covered =="
+# The compose templates mount ./plugins:/plugins:ro OVER the image-baked /plugins;
+# the bundle must carry the built plugin set there or the server boots with an
+# empty registry (nothing judges). build-bundle copies it out of the server image.
+for pf in compose/plugins/standard-checkers/plugin.toml \
+          compose/plugins/standard-checkers/standard_checkers.wasm; do
+  [ -e "$b/$pf" ] || { echo "FAIL: bundle missing default plugin file: $pf (empty /plugins overlay -> no judging)"; exit 1; }
+done
+# the heavy debug build tree must never ride along
+[ ! -e "$b/compose/plugins/batch-evaluator/target" ] \
+  || { echo "FAIL: plugin target/ detritus leaked into bundle"; exit 1; }
+# shipped plugin code is integrity-protected (present in the manifest)
+grep -q 'compose/plugins/standard-checkers/plugin.toml' "$b/manifest.sha256" \
+  || { echo "FAIL: staged plugins not covered by manifest.sha256 (integrity gap)"; exit 1; }
+
 echo "== CLI is a static musl ELF =="
 # A musl static build reports "static-pie linked" (PIE + no interpreter), while a
 # classic non-PIE static build reports "statically linked" — accept either. The

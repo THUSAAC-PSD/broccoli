@@ -108,7 +108,9 @@ case "$ROLE" in
     worker_env="$BUNDLE/compose/.env.worker"
     [ -f "$worker_env" ] || { echo "missing $worker_env — run setup.sh --role worker (or copy compose/.env.worker.example and fill in secrets)" >&2; exit 2; }
     [ -n "$COMPOSE" ] || { echo "no working docker/podman compose provider found" >&2; exit 2; }
-    mkdir -p "$BUNDLE/compose/plugins"   # bind source for ./plugins:/plugins:ro (empty is fine)
+    # ./plugins:/plugins:ro is bind-mounted from the bundle; build-bundle.sh
+    # stages the real plugin set there (manifest-verified above), so the source
+    # dir already exists and carries the evaluators/checkers the worker runs.
     ( cd "$BUNDLE/compose" && $COMPOSE --env-file .env.worker \
         -f docker-compose.worker.yaml.template up -d --pull never )
     echo "worker started against server infra (compose up --pull never)"

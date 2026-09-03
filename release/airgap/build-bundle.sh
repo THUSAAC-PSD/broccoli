@@ -95,6 +95,20 @@ if [ "$SKIP_IMAGES" = "0" ]; then
   "$ENGINE" build -f "$repo/Dockerfile.server" -t "broccoli-server:$VERSION" "$repo"
   "$ENGINE" build -f "$repo/Dockerfile.worker" --target runtime-full -t "broccoli-worker:$VERSION" "$repo"
 
+  # Default plugins for the bind-mount source. The server + worker compose
+  # templates mount ./plugins:/plugins:ro, which OVERLAYS the image-baked
+  # /plugins; if the bundle omits that source dir the overlay is empty and the
+  # server boots with an empty plugin registry (discover_plugins scans the dir at
+  # startup — no evaluators/checkers means nothing judges). Copy the built set
+  # straight out of the server image we just built: the single source of truth,
+  # already pruned by .dockerignore (no target/ detritus) and carrying the built
+  # .wasm + frontend dist that are gitignored on disk. Staged into the manifested
+  # tree below, so bundle integrity covers the plugin code too.
+  rm -rf "$B/compose/plugins"; mkdir -p "$B/compose/plugins"
+  pcid="$("$ENGINE" create "broccoli-server:$VERSION")"
+  "$ENGINE" cp "$pcid:/plugins/." "$B/compose/plugins/"
+  "$ENGINE" rm "$pcid" >/dev/null
+
   # third-party image tags — single-sourced (DRY) from the staged examples/template
   ex="$B/compose/.env.infra.example"
   pg_img="$(env_get "$ex" POSTGRES_IMAGE)"
