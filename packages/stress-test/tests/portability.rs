@@ -78,7 +78,11 @@ fn alpine_help_smoke(binary: &Path, platform: &str) {
 #[test]
 #[ignore = "requires prebuilt musl binary and Docker; opt in with --ignored"]
 fn musl_x86_64_binary_is_static() {
-    let binary = musl_binary("x86_64-unknown-linux-musl", "release", "broccoli-stress-test");
+    let binary = musl_binary(
+        "x86_64-unknown-linux-musl",
+        "release",
+        "broccoli-stress-test",
+    );
     assert!(
         binary.exists(),
         "missing {}; run `just stress-test-linux-x86_64` first",
@@ -92,7 +96,11 @@ fn musl_x86_64_binary_is_static() {
 #[test]
 #[ignore = "requires prebuilt musl binary and Docker; opt in with --ignored"]
 fn musl_aarch64_binary_is_static() {
-    let binary = musl_binary("aarch64-unknown-linux-musl", "release", "broccoli-stress-test");
+    let binary = musl_binary(
+        "aarch64-unknown-linux-musl",
+        "release",
+        "broccoli-stress-test",
+    );
     assert!(
         binary.exists(),
         "missing {}; run `just stress-test-linux-aarch64` first",
