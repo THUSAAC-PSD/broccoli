@@ -18,7 +18,7 @@ use super::traits::{BlobStore, BoxReader};
 /// running `CREATE TABLE IF NOT EXISTS` against the same fresh database.
 /// Postgres' DDL path through `pg_type` is not internally serialized,
 /// so the loser surfaces a unique-violation on `pg_type_typname_nsp_index`
-/// or a "type … already exists" / "relation … already exists" error even
+/// or a "type ... already exists" / "relation ... already exists" error even
 /// though `IF NOT EXISTS` was specified.
 pub fn is_concurrent_create_race(err: &DbErr) -> bool {
     let msg = err.to_string();
@@ -155,15 +155,15 @@ impl BlobStore for DatabaseBlobStore {
         len: usize,
     ) -> Result<(Vec<u8>, bool), StorageError> {
         let hash_hex = hash.to_hex();
-        let start = i64::try_from(offset.saturating_add(1))
+        let start = i32::try_from(offset.saturating_add(1))
             .map_err(|_| StorageError::Backend(format!("range offset overflow: {offset}")))?;
-        let len_i64 = i64::try_from(len)
+        let len_i32 = i32::try_from(len)
             .map_err(|_| StorageError::Backend(format!("range length overflow: {len}")))?;
 
         let stmt = Statement::from_sql_and_values(
             self.db.get_database_backend(),
             r#"SELECT substr(data, $1, $2) AS chunk, size FROM blob_data WHERE content_hash = $3"#,
-            [start.into(), len_i64.into(), hash_hex.clone().into()],
+            [start.into(), len_i32.into(), hash_hex.clone().into()],
         );
         let row = self
             .db

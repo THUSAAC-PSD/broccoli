@@ -8,6 +8,9 @@ services:
       BROCCOLI__WORKER__SANDBOX_BACKEND: isolate
       BROCCOLI__WORKER__ISOLATE_BIN: /usr/local/bin/isolate
       BROCCOLI__WORKER__ENABLE_CGROUPS: "true"
+      BROCCOLI__WORKER__MAX_CONCURRENCY: "${BROCCOLI__WORKER__MAX_CONCURRENCY:-1}"
+      BROCCOLI__WORKER__DEDUP_TTL_SECS: "${BROCCOLI__WORKER__DEDUP_TTL_SECS:-600}"
+      BROCCOLI__WORKER__FAIRNESS_UNSAFE_ALLOW: "${BROCCOLI__WORKER__FAIRNESS_UNSAFE_ALLOW:-false}"
       BROCCOLI__DATABASE__URL: "${BROCCOLI__DATABASE__URL}"
       BROCCOLI__DATABASE__MAX_CONNECTIONS: "${BROCCOLI__WORKER_DATABASE_MAX_CONNECTIONS:-5}"
       BROCCOLI__MQ__ENABLED: "true"
@@ -24,6 +27,14 @@ services:
       BROCCOLI__OBSERVABILITY__LOG_FILTER: "${BROCCOLI__OBSERVABILITY__LOG_FILTER:-info}"
     volumes:
       - ./plugins:/plugins:ro
+      # NOTE: do NOT bind-mount the host's /usr/local/etc/isolate here. isolate's
+      # default config lives at that path as a single FILE (not a directory), and
+      # the worker image already bakes a correct one. A host bind makes Docker
+      # auto-create an empty DIRECTORY at the missing source and then mount it over
+      # the image's config file — "mount ... not a directory" — so the container
+      # cannot start on any host lacking a pre-existing file there. Per-submission
+      # resource limits are passed via isolate CLI flags, not this static config,
+      # so no deployment needs to override it.
       - worker_data:/data
     healthcheck:
       test: ["CMD", "gosu", "worker:worker", "/usr/local/bin/broccoli-worker", "--healthcheck"]

@@ -227,7 +227,7 @@ export function PluginRegistryProvider({
           if (pluginInfo.css && pluginInfo.css.length > 0) {
             for (const cssUrl of pluginInfo.css) {
               const href = resolvePluginEntryUrl(cssUrl, bustCache);
-              // Avoid duplicate <link> tags — match by plugin ID, not href
+              // Avoid duplicate <link> tags - match by plugin ID, not href
               // (href includes cache-buster query params that change on reload)
               const existing = document.querySelector(
                 `link[data-plugin-id="${pluginInfo.id}"][data-css-file="${cssUrl}"]`,

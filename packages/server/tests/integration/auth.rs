@@ -1,3 +1,4 @@
+use broccoli_server_sdk::permissions as perm;
 use serde_json::json;
 
 use crate::common::{TestApp, TestResponse, routes};
@@ -147,7 +148,7 @@ mod login {
         let permissions = res.body["permissions"]
             .as_array()
             .expect("permissions should be an array");
-        assert!(permissions.contains(&json!("submission:submit")));
+        assert!(permissions.contains(&json!(perm::SUBMISSION_SUBMIT)));
     }
 
     #[tokio::test]
@@ -283,6 +284,81 @@ mod token_refresh {
         let replay_b_body: serde_json::Value = replay_b.json().await.unwrap();
         assert_eq!(replay_b_body["code"], "TOKEN_INVALID");
     }
+
+    /// Replaying a rotated refresh token AFTER the benign-race grace window is
+    /// treated as theft: it revokes the user's entire token family, so even the
+    /// current (legitimately rotated) token stops working.
+    #[tokio::test]
+    async fn reused_refresh_token_past_grace_kills_the_family() {
+        fn extract_refresh_cookie(resp: &TestResponse) -> String {
+            for hv in resp.headers.get_all("set-cookie").iter() {
+                let s = hv.to_str().expect("set-cookie utf-8");
+                if let Some(rest) = s.strip_prefix("broccoli_refresh=") {
+                    let val = rest.split(';').next().unwrap_or("").to_string();
+                    if !val.is_empty() {
+                        return val;
+                    }
+                }
+            }
+            panic!("no broccoli_refresh Set-Cookie on response");
+        }
+
+        let app = TestApp::spawn().await;
+        let body = json!({"username": "carol", "password": "securepass"});
+        app.post_without_token(routes::REGISTER, &body).await;
+        let login_res = app.post_without_token(routes::LOGIN, &body).await;
+        let cookie_a = extract_refresh_cookie(&login_res);
+
+        // Rotate A -> B (A is now retained as revoked).
+        let r1 = app.post_without_token(routes::REFRESH, &json!({})).await;
+        assert_eq!(r1.status, 200);
+        let cookie_b = extract_refresh_cookie(&r1);
+
+        // Backdate the revoked token past the grace window so a replay reads as
+        // theft rather than a concurrent-refresh race (avoids sleeping the grace
+        // period). A is the only revoked row in this fresh DB.
+        {
+            use sea_orm::ConnectionTrait;
+            app.db
+                .execute_unprepared(
+                    "UPDATE refresh_tokens SET revoked_at = NOW() - INTERVAL '1 hour' \
+                     WHERE revoked_at IS NOT NULL",
+                )
+                .await
+                .expect("backdate revoked_at");
+        }
+
+        let raw = reqwest::Client::builder()
+            .no_proxy()
+            .cookie_store(false)
+            .build()
+            .unwrap();
+
+        // Replay A past grace: reuse detected -> family kill -> 401.
+        let replay_a = raw
+            .post(format!("http://{}{}", app.addr, routes::REFRESH))
+            .header("cookie", format!("broccoli_refresh={cookie_a}"))
+            .json(&json!({}))
+            .send()
+            .await
+            .expect("send refresh replay A past grace");
+        assert_eq!(replay_a.status(), 401);
+
+        // The current token B was legitimately issued, but the family kill revoked
+        // it too: a stolen chain cannot outlive detection.
+        let use_b = raw
+            .post(format!("http://{}{}", app.addr, routes::REFRESH))
+            .header("cookie", format!("broccoli_refresh={cookie_b}"))
+            .json(&json!({}))
+            .send()
+            .await
+            .expect("send refresh with current token B");
+        assert_eq!(
+            use_b.status(),
+            401,
+            "reuse past grace must revoke the whole token family, including the current token"
+        );
+    }
 }
 
 mod logout {
@@ -399,5 +475,65 @@ mod authenticated_access {
         let res = TestResponse::from_response(res).await;
         assert_eq!(res.status, 401);
         assert_eq!(res.body["code"], "TOKEN_INVALID");
+    }
+}
+
+mod token_freshness {
+    use super::*;
+    use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Statement};
+    use server::entity::user;
+
+    /// A `FreshAuthUser`-guarded mutation must reject an access token minted
+    /// before the caller's `credentials_changed_at`, while the stateless read
+    /// path keeps accepting the same token (so the hot path stays DB-free).
+    #[tokio::test]
+    async fn stale_access_token_rejected_on_mutation_but_accepted_on_reads() {
+        let app = TestApp::spawn().await;
+        let admin_token = app
+            .create_user_with_role("fresh_admin", "securepass", "admin")
+            .await;
+
+        let admin_id = user::Entity::find()
+            .filter(user::Column::Username.eq("fresh_admin"))
+            .one(&app.db)
+            .await
+            .expect("db query failed")
+            .expect("admin should exist")
+            .id;
+
+        // Simulate a credential/authorization change strictly after the token
+        // was minted (an hour ahead removes any same-second flakiness).
+        app.db
+            .execute_raw(Statement::from_string(
+                app.db.get_database_backend(),
+                format!(
+                    "UPDATE \"user\" SET credentials_changed_at = now() + interval '1 hour' WHERE id = {admin_id}"
+                ),
+            ))
+            .await
+            .expect("bump credentials_changed_at");
+
+        // Guarded high-value mutation rejects the now-stale token.
+        let stale = app
+            .post_with_token(
+                &routes::user_roles(admin_id),
+                &json!({ "role": "contestant" }),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(
+            stale.status, 401,
+            "stale token must be rejected on a guarded mutation: {}",
+            stale.text
+        );
+        assert_eq!(stale.body["code"], "TOKEN_INVALID");
+
+        // The stateless read path still accepts the same token.
+        let read = app.get_with_token(routes::USERS, &admin_token).await;
+        assert_eq!(
+            read.status, 200,
+            "stateless read path must keep accepting the token: {}",
+            read.text
+        );
     }
 }

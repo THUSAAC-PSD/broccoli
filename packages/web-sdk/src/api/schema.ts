@@ -260,6 +260,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/auth/cli-refresh': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Refresh a CLI access token using a stored refresh token
+     * @description Body-based (cookie-free) refresh for CLI clients. Validates and rotates the supplied refresh token, returning a new access token and a new refresh token. The old refresh token is invalidated.
+     */
+    post: operations['cliRefreshToken'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/auth/cli-token': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Issue a long-lived refresh token for the CLI
+     * @description Exchanges the caller's current access token for a fresh access token plus a long-lived refresh token. The CLI stores the refresh token and uses POST /auth/cli-refresh to obtain new access tokens without re-prompting.
+     */
+    post: operations['issueCliToken'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/device-authorize': {
     parameters: {
       query?: never;
@@ -716,6 +756,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/contests/{id}/prewarm': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Pre-warm worker caches with a contest's testcase blobs */
+    post: operations['prewarmContest'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/contests/{id}/prewarm/status': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Per-worker progress of a contest cache pre-warm */
+    get: operations['getPrewarmStatus'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/contests/{id}/problems': {
     parameters: {
       query?: never;
@@ -860,6 +934,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/contests/{id}/problems/{problem_id}/samples': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get sample test cases for a contest problem
+     * @description Returns sample test cases (input and output) for a problem within a contest. Requires the user to be a participant or have contest:manage permission. The contest must have started.
+     */
+    get: operations['getContestProblemSamples'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/contests/{id}/problems/{problem_id}/submissions': {
     parameters: {
       query?: never;
@@ -975,7 +1069,7 @@ export interface paths {
     put?: never;
     /**
      * Bulk-retry DLQ messages
-     * @description Retries multiple dead letter messages by resetting their submissions to Pending and re-dispatching to the plugin-based judging system. Supports either specific message IDs or filter-based selection. Only stuck_submission messages with a known submission_id in SystemError or Pending state are retryable. Requires `dlq:manage` permission.
+     * @description Retries multiple dead letter messages by resetting their submissions to Queued (the claim fiber then promotes each to Pending) and re-dispatching to the plugin-based judging system. Supports either specific message IDs or filter-based selection. Only stuck_submission messages with a known submission_id in SystemError or Pending state are retryable; other message types are skipped. Requires `dlq:manage` permission.
      */
     post: operations['bulkRetryDlq'];
     delete?: never;
@@ -1039,9 +1133,29 @@ export interface paths {
     put?: never;
     /**
      * Retry a DLQ message
-     * @description Retries a dead letter message by resetting the submission to Pending and re-dispatching it to the plugin-based judging system. Only stuck_submission messages can be retried; operation_task messages are coordinated by the plugin and cannot be retried from here. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.
+     * @description Retries a dead letter message by resetting the submission to Queued (the claim fiber then promotes it to Pending) and re-dispatching it to the plugin-based judging system. Only stuck_submission messages can be retried; operation_task, stuck_code_run, and stuck_submission_judgement messages are visibility-only from here. Marks the DLQ entry as resolved. Requires `dlq:manage` permission.
      */
     post: operations['retryDlqMessage'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/health': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Server liveness and dependency health
+     * @description Public, unauthenticated. Pings the database and message queue with a 2s timeout each. Returns 200 with `status: "ok"` when all probed components are healthy; 503 with `status: "degraded"` otherwise. Used by load balancers and Docker `HEALTHCHECK` (via the `--healthcheck` CLI flag).
+     */
+    get: operations['getHealth'];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -1338,7 +1452,7 @@ export interface paths {
     get: operations['getCheckerSource'];
     /**
      * Upload checker source files
-     * @description Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission. Body limit: 1 GB.
+     * @description Sets the checker source files for a problem. Replaces any existing checker source. Requires `problem:edit` permission. Body limit: 32 MiB.
      */
     put: operations['uploadCheckerSource'];
     post?: never;
@@ -1671,7 +1785,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** List submission judgement versions */
+    /**
+     * List submission judgement versions
+     * @description Returns all judgement versions for a submission. Visibility matches `getSubmission`.
+     */
     get: operations['listSubmissionJudgements'];
     put?: never;
     post?: never;
@@ -1690,7 +1807,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Apply a finalized submission judgement */
+    /**
+     * Apply a finalized submission judgement
+     * @description Makes a finalized judgement the current version and copies its cached result fields onto the submission. Requires `submission:rejudge` permission.
+     */
     post: operations['applySubmissionJudgement'];
     delete?: never;
     options?: never;
@@ -1707,7 +1827,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Discard a non-current submission judgement */
+    /**
+     * Discard a non-current submission judgement
+     * @description Deletes a non-current judgement and its test-case result rows. Requires `submission:rejudge` permission.
+     */
     post: operations['discardSubmissionJudgement'];
     delete?: never;
     options?: never;
@@ -1726,7 +1849,7 @@ export interface paths {
     put?: never;
     /**
      * Rejudge a submission
-     * @description Re-queues the submission for judging. Requires `submission:rejudge` permission. Optionally pin to a worker via `?target_worker_id=...` (requires `system:admin`); pass an empty value to clear an existing pin.
+     * @description Re-queues the submission for judging. Requires `submission:rejudge` permission. Optionally pin to a worker via `?target_worker_id=...` (requires `system:admin`); pass an empty value to clear an existing pin (also requires `system:admin`).
      */
     post: operations['rejudgeSubmission'];
     delete?: never;
@@ -2093,18 +2216,19 @@ export interface components {
       username: string;
     };
     BulkRejudgeRequest: {
-      submission_ids: number[];
       /**
        * @description When true (default), the new judgement becomes current immediately
        *     and the submission cache is reset to Pending. When false, the new
        *     judgement runs as a non-current candidate until explicitly applied.
        * @default true
        */
-      apply_immediately?: boolean;
+      apply_immediately: boolean;
+      submission_ids: number[];
       /**
        * @description When set, every rejudged submission is pinned to this worker. The
        *     caller must hold `system:admin` and the worker must have a live
-       *     heartbeat.
+       *     heartbeat. An empty string clears existing pins and also requires
+       *     `system:admin`.
        */
       target_worker_id?: string | null;
     };
@@ -2132,24 +2256,6 @@ export interface components {
        * @example 7
        */
       id: number;
-    };
-    /** @description A single checker format registration entry. */
-    CheckerFormatEntry: {
-      /**
-       * @description Checker format identifier (e.g. "exact", "tokens", "testlib").
-       * @example exact
-       */
-      checker_format: string;
-      /**
-       * @description Plugin function invoked to run the checker.
-       * @example check_exact
-       */
-      function_name: string;
-      /**
-       * @description Plugin that registered this checker format.
-       * @example standard-checkers
-       */
-      plugin_id: string;
     };
     CheckerSourceFile: {
       /**
@@ -2230,6 +2336,17 @@ export interface components {
       resolved_by_name?: string | null;
       /** Format: date-time */
       updated_at: string;
+    };
+    CliRefreshRequest: {
+      /** @example a1b2c3...:d4e5f6... */
+      refresh_token: string;
+    };
+    /** @description Access and refresh tokens returned to the CLI. */
+    CliTokenResponse: {
+      /** @example a1b2c3...:d4e5f6... */
+      refresh_token: string;
+      /** @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... */
+      token: string;
     };
     ClientError: {
       /** @example TypeError: Cannot read properties of undefined */
@@ -2611,6 +2728,8 @@ export interface components {
       content: string;
       /** @example ioi */
       default_contest_type?: string;
+      /** @example false */
+      is_public?: boolean | null;
       /**
        * Format: int32
        * @example 262144
@@ -2842,6 +2961,36 @@ export interface components {
        */
       problem_type: string;
     };
+    HealthResponse: {
+      /**
+       * @description Database probe result: `"ok"` or `"down"`.
+       * @example ok
+       */
+      db: string;
+      /**
+       * @description Short Git SHA captured at build time (or `"unknown"` if not built
+       *     from a git checkout).
+       * @example abc1234
+       */
+      git_sha: string;
+      /**
+       * @description Message-queue probe result: `"ok"`, `"down"`, or `"disabled"` when
+       *     MQ is not configured.
+       * @example ok
+       */
+      mq: string;
+      /**
+       * @description Aggregate status: `"ok"` when every probed component is healthy,
+       *     `"degraded"` otherwise.
+       * @example ok
+       */
+      status: string;
+      /**
+       * @description Server version, matching the `Cargo.toml` `[package].version`.
+       * @example 0.2.0
+       */
+      version: string;
+    };
     /** @description A single hook registration entry. */
     HookEntryInfo: {
       /**
@@ -2972,9 +3121,19 @@ export interface components {
       operation_task: number;
       /**
        * Format: int64
+       * @example 1
+       */
+      stuck_code_run: number;
+      /**
+       * Format: int64
        * @example 3
        */
       stuck_submission: number;
+      /**
+       * Format: int64
+       * @example 1
+       */
+      stuck_submission_judgement: number;
     };
     Pagination: {
       /**
@@ -3063,6 +3222,28 @@ export interface components {
     };
     /** @enum {string} */
     PluginStatusResponse: 'Unloaded' | 'Loaded' | 'Failed';
+    /** @description Response to `POST /contests/{id}/prewarm`. */
+    PrewarmResponse: {
+      /** Format: int32 */
+      contest_id: number;
+      /**
+       * @description The warm job id; pass to the status endpoint to follow progress.
+       * @example 9f1c2e7a-2b4d-4a8e-9c3f-1a2b3c4d5e6f
+       */
+      job_id: string;
+      /**
+       * Format: int32
+       * @description Live workers the job was broadcast to at publish time.
+       * @example 3
+       */
+      live_workers: number;
+      /**
+       * Format: int32
+       * @description Distinct testcase blobs (input + answer) workers will cache.
+       * @example 60
+       */
+      total_blobs: number;
+    };
     ProblemListItem: {
       /** @example exact */
       checker_format: string;
@@ -3078,6 +3259,8 @@ export interface components {
        * @example 1
        */
       id: number;
+      /** @example false */
+      is_public: boolean;
       /**
        * Format: int32
        * @example 262144
@@ -3107,7 +3290,6 @@ export interface components {
     ProblemResponse: {
       /** @example exact */
       checker_format: string;
-      checker_source?: unknown;
       /** @example Given an array of integers... */
       content: string;
       /**
@@ -3122,6 +3304,8 @@ export interface components {
        * @example 1
        */
       id: number;
+      /** @example false */
+      is_public: boolean;
       /**
        * Format: int32
        * @example 262144
@@ -3158,6 +3342,9 @@ export interface components {
        */
       updated_at: string;
     };
+    ProblemSamplesResponse: {
+      samples: components['schemas']['SampleCase'][];
+    };
     QueueInfo: {
       /** @description Per-state breakdown (e.g. `{"queued": 0, "processing": 0, "failed": 0}`). */
       breakdown: {
@@ -3191,7 +3378,6 @@ export interface components {
       username: string;
     };
     RegistriesResponse: {
-      checker_format_handlers: components['schemas']['CheckerFormatEntry'][];
       /**
        * @example [
        *       "exact",
@@ -3218,6 +3404,22 @@ export interface components {
        */
       problem_types: string[];
     };
+    RejudgeRequest: {
+      /**
+       * @description When true (default), the new judgement becomes current immediately
+       *     and the submission cache is reset to Pending. When false, the new
+       *     judgement runs as a non-current candidate until explicitly applied.
+       * @default true
+       */
+      apply_immediately: boolean;
+      /**
+       * @description Pin the rejudged submission to a specific worker. Requires
+       *     `system:admin`. An empty string clears an existing pin and also
+       *     requires `system:admin`. When omitted, the submission is rejudged on the
+       *     shared worker pool.
+       */
+      target_worker_id?: string | null;
+    };
     ReloadAllResponse: {
       failed: components['schemas']['ReloadFailure'][];
       new: string[];
@@ -3226,21 +3428,6 @@ export interface components {
     ReloadFailure: {
       error: string;
       id: string;
-    };
-    RejudgeRequest: {
-      /**
-       * @description When true (default), the new judgement becomes current immediately
-       *     and the submission cache is reset to Pending. When false, the new
-       *     judgement runs as a non-current candidate until explicitly applied.
-       * @default true
-       */
-      apply_immediately?: boolean;
-      /**
-       * @description Pin the rejudged submission to a specific worker. Requires
-       *     `system:admin`. When omitted, the submission is rejudged on the
-       *     shared worker pool.
-       */
-      target_worker_id?: string | null;
     };
     ReorderContestProblemsRequest: {
       /**
@@ -3282,6 +3469,12 @@ export interface components {
       /** @example cpp */
       language: string;
     };
+    SampleCase: {
+      /** @description Optional markdown note explaining this sample (author-written). */
+      description?: string | null;
+      input: string;
+      output: string;
+    };
     SampleTestCaseMeta: {
       /** @example The sample demonstrates the smallest non-empty input. */
       description?: string | null;
@@ -3313,6 +3506,61 @@ export interface components {
       content: string;
       /** @example solution.cpp */
       filename: string;
+    };
+    SubmissionJudgementResponse: {
+      compile_output?: string | null;
+      /**
+       * Format: date-time
+       * @example 2025-10-01T14:30:00Z
+       */
+      created_at: string;
+      error_code?: string | null;
+      error_message?: string | null;
+      /** Format: date-time */
+      finalized_at?: string | null;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      id: number;
+      is_current: boolean;
+      is_finalized: boolean;
+      /**
+       * Format: int32
+       * @example 1
+       */
+      judge_epoch: number;
+      /**
+       * Format: int32
+       * @example 1024
+       */
+      memory_used?: number | null;
+      /**
+       * Format: double
+       * @example 100
+       */
+      score?: number | null;
+      status: components['schemas']['SubmissionStatus'];
+      /**
+       * Format: int32
+       * @example 1
+       */
+      submission_id: number;
+      /** @example worker-1 */
+      target_worker_id?: string | null;
+      test_case_results: components['schemas']['TestCaseResultResponse'][];
+      /**
+       * Format: int32
+       * @example 50
+       */
+      time_used?: number | null;
+      /** @example Accepted */
+      verdict?: string | null;
+      /**
+       * Format: int32
+       * @example 2
+       */
+      version: number;
     };
     SubmissionListItem: {
       /** Format: int32 */
@@ -3424,56 +3672,9 @@ export interface components {
       /** @example alice */
       username: string;
     };
-    SubmissionJudgementResponse: {
-      compile_output?: string | null;
-      /**
-       * Format: date-time
-       * @example 2025-10-01T14:30:00Z
-       */
-      created_at: string;
-      error_code?: string | null;
-      error_message?: string | null;
-      /**
-       * Format: date-time
-       */
-      finalized_at?: string | null;
-      /**
-       * Format: int32
-       * @example 1
-       */
-      id: number;
-      is_current: boolean;
-      is_finalized: boolean;
-      /**
-       * Format: int32
-       * @example 1
-       */
-      judge_epoch: number;
-      /** @example 1024 */
-      memory_used?: number | null;
-      /** @example 100 */
-      score?: number | null;
-      status: components['schemas']['SubmissionStatus'];
-      /**
-       * Format: int32
-       * @example 1
-       */
-      submission_id: number;
-      /** @example worker-1 */
-      target_worker_id?: string | null;
-      test_case_results: components['schemas']['TestCaseResultResponse'][];
-      /** @example 50 */
-      time_used?: number | null;
-      /** @example Accepted */
-      verdict?: string | null;
-      /**
-       * Format: int32
-       * @example 2
-       */
-      version: number;
-    };
     /** @enum {string} */
     SubmissionStatus:
+      | 'Queued'
       | 'Pending'
       | 'Compiling'
       | 'Running'
@@ -3558,10 +3759,22 @@ export interface components {
        *     9
        */
       input: string;
+      /**
+       * @example 4
+       *     2 7 11 15
+       *     9
+       */
+      input_preview: string;
+      /** @example 12 */
+      input_size: number;
       /** @example true */
       is_sample: boolean;
       /** @example sample_01 */
       label: string;
+      /** @example 0 1 */
+      output_preview: string;
+      /** @example 4 */
+      output_size: number;
       /**
        * Format: int32
        * @example 0
@@ -3670,6 +3883,8 @@ export interface components {
       content?: string | null;
       /** @example ioi */
       default_contest_type?: string | null;
+      /** @example true */
+      is_public?: boolean | null;
       /**
        * Format: int32
        * @example 524288
@@ -3737,7 +3952,7 @@ export interface components {
     UploadTestCasesMergeStrategy: 'abort' | 'skip' | 'overwrite' | 'replace';
     UploadTestCasesRequest: {
       /** Format: binary */
-      file: string;
+      file: Blob;
       /** @example input_*.txt */
       input_format: string;
       /** @example output_*.txt */
@@ -3768,8 +3983,6 @@ export interface components {
        * @example 1
        */
       id: number;
-      /** @example $argon2id$v=19$m=19456,t=2,p=1$... */
-      password: string;
       /**
        * @example [
        *       "contestant"
@@ -3790,6 +4003,31 @@ export interface components {
        * @example 0.2.0
        */
       version: string;
+    };
+    /** @description Response to `GET /contests/{id}/prewarm/status`. */
+    WarmStatusResponse: {
+      /** Format: int32 */
+      contest_id: number;
+      /** @description The job being reported, or null if no warm has been triggered. */
+      job_id?: string | null;
+      /**
+       * Format: double
+       * @description Mean completion fraction across live workers, in [0, 1].
+       */
+      overall_fraction: number;
+      /** Format: int32 */
+      total_blobs: number;
+      workers: components['schemas']['WorkerWarmStatus'][];
+      /**
+       * Format: int32
+       * @description Live workers that finished warming successfully.
+       */
+      workers_complete: number;
+      /**
+       * Format: int32
+       * @description Live workers expected to warm.
+       */
+      workers_total: number;
     };
     WebDetailResponse: {
       components: components['schemas']['ComponentMap'];
@@ -3855,6 +4093,13 @@ export interface components {
        */
       cpu_count?: number | null;
       /**
+       * @description The worker's fairness mode (e.g. `pinned`, `cooperative`, `unknown`),
+       *     reported in its heartbeat. `None` for legacy workers that predate the
+       *     field. See the worker `fairness` module.
+       * @example pinned
+       */
+      fairness_mode?: string | null;
+      /**
        * @description OS hostname of the machine running this worker. Useful for identifying
        *     physical machines in a lab.
        * @example lab-pc-07
@@ -3892,12 +4137,39 @@ export interface components {
        * @example 3
        */
       seconds_since_last_seen: number;
-      /** @description True when the heartbeat is older than 10s — worker is likely unhealthy. */
+      /** @description True when the heartbeat is older than 10s - worker is likely unhealthy. */
       stale: boolean;
       /** Format: date-time */
       started_at: string;
       /** @example 0.1.0 */
       version: string;
+    };
+    /** @description One worker's progress within a warm job. */
+    WorkerWarmStatus: {
+      /** @description Last error message if the worker hit a blob it couldn't fetch. */
+      error?: string | null;
+      /**
+       * Format: double
+       * @description Completion fraction in [0, 1].
+       */
+      fraction: number;
+      /** @description False if this live worker hasn't reported any progress yet. */
+      reported: boolean;
+      /** @description True if the worker's heartbeat is stale (it may have died mid-warm). */
+      stale: boolean;
+      /**
+       * @description `pending` | `warming` | `complete` | `error`.
+       * @example warming
+       */
+      state: string;
+      /** Format: int32 */
+      total: number;
+      /**
+       * Format: int32
+       * @description Blobs cached so far on this worker.
+       */
+      warmed: number;
+      worker_id: string;
     };
     WorkersResponse: {
       workers: components['schemas']['WorkerInfo'][];
@@ -4550,6 +4822,15 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Durable queue depth exceeded (QUEUE_OVERLOADED) */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
   };
   getSystemOverview: {
@@ -4657,6 +4938,68 @@ export interface operations {
       };
       /** @description Forbidden (PERMISSION_DENIED) */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  cliRefreshToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CliRefreshRequest'];
+      };
+    };
+    responses: {
+      /** @description Token refreshed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CliTokenResponse'];
+        };
+      };
+      /** @description Invalid or expired refresh token (TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  issueCliToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description CLI token issued */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CliTokenResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
         headers: {
           [name: string]: unknown;
         };
@@ -4816,6 +5159,15 @@ export interface operations {
       };
       /** @description Invalid credentials (INVALID_CREDENTIALS) */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Rate limited (RATE_LIMITED). Includes Retry-After header when auth rate limiting is enabled. */
+      429: {
         headers: {
           [name: string]: unknown;
         };
@@ -6062,6 +6414,97 @@ export interface operations {
       };
     };
   };
+  prewarmContest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest id */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Warm job published */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PrewarmResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  getPrewarmStatus: {
+    parameters: {
+      query?: {
+        /** @description Specific warm job to report; defaults to the contest's most recent warm. */
+        job?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Contest id */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Aggregated warm status */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WarmStatusResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Contest not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   listContestProblems: {
     parameters: {
       query?: never;
@@ -6495,8 +6938,17 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Rate limited (RATE_LIMITED) */
+      /** @description Per-user rate limited (RATE_LIMITED) */
       429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Durable queue depth exceeded (QUEUE_OVERLOADED) */
+      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -6728,6 +7180,58 @@ export interface operations {
       };
     };
   };
+  getContestProblemSamples: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Contest ID */
+        id: number;
+        /** @description Problem ID */
+        problem_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Sample test cases */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemSamplesResponse'];
+        };
+      };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Contest or problem not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
   createContestSubmission: {
     parameters: {
       query?: never;
@@ -6791,8 +7295,17 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED) */
+      /** @description Per-user rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED) */
       429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Durable queue depth exceeded (QUEUE_OVERLOADED) */
+      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -7116,6 +7629,15 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Durable queue depth exceeded (QUEUE_OVERLOADED) */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
   };
   getDlqStats: {
@@ -7318,6 +7840,44 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Durable queue depth exceeded (QUEUE_OVERLOADED) */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getHealth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description All components healthy */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HealthResponse'];
+        };
+      };
+      /** @description One or more components are down */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HealthResponse'];
         };
       };
     };
@@ -8828,8 +9388,17 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Rate limited (RATE_LIMITED) */
+      /** @description Per-user rate limited (RATE_LIMITED) */
       429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Durable queue depth exceeded (QUEUE_OVERLOADED) */
+      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -9114,8 +9683,17 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
-      /** @description Rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED) */
+      /** @description Per-user rate limit or plugin rejection (RATE_LIMITED, PLUGIN_REJECTED) */
       429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Durable queue depth exceeded (QUEUE_OVERLOADED) */
+      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -9733,7 +10311,7 @@ export interface operations {
     };
     responses: {
       /** @description Permission granted successfully */
-      200: {
+      201: {
         headers: {
           [name: string]: unknown;
         };
@@ -9783,7 +10361,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       /** @description Permission revoked successfully */
-      200: {
+      204: {
         headers: {
           [name: string]: unknown;
         };
@@ -9926,6 +10504,15 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Durable queue depth exceeded (QUEUE_OVERLOADED) */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
     };
   };
   getSubmission: {
@@ -9999,6 +10586,7 @@ export interface operations {
           'application/json': components['schemas']['SubmissionJudgementResponse'][];
         };
       };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
       401: {
         headers: {
           [name: string]: unknown;
@@ -10007,6 +10595,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Submission not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -10040,6 +10629,7 @@ export interface operations {
           'application/json': components['schemas']['SubmissionResponse'];
         };
       };
+      /** @description Judgement is not finalized (VALIDATION_ERROR) */
       400: {
         headers: {
           [name: string]: unknown;
@@ -10048,6 +10638,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
       401: {
         headers: {
           [name: string]: unknown;
@@ -10056,6 +10647,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Forbidden (PERMISSION_DENIED) */
       403: {
         headers: {
           [name: string]: unknown;
@@ -10064,6 +10656,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Submission or judgement not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -10095,6 +10688,7 @@ export interface operations {
         };
         content?: never;
       };
+      /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
       401: {
         headers: {
           [name: string]: unknown;
@@ -10103,6 +10697,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Forbidden (PERMISSION_DENIED) */
       403: {
         headers: {
           [name: string]: unknown;
@@ -10111,6 +10706,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Submission or judgement not found (NOT_FOUND) */
       404: {
         headers: {
           [name: string]: unknown;
@@ -10119,6 +10715,7 @@ export interface operations {
           'application/json': components['schemas']['ErrorBody'];
         };
       };
+      /** @description Cannot discard current judgement (CONFLICT) */
       409: {
         headers: {
           [name: string]: unknown;
@@ -10142,7 +10739,7 @@ export interface operations {
       };
       cookie?: never;
     };
-    requestBody?: {
+    requestBody: {
       content: {
         'application/json': components['schemas']['RejudgeRequest'];
       };
@@ -10186,6 +10783,15 @@ export interface operations {
       };
       /** @description Submission not found (NOT_FOUND) */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Durable queue depth exceeded (QUEUE_OVERLOADED) */
+      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -10518,7 +11124,7 @@ export interface operations {
     };
     responses: {
       /** @description Role assigned */
-      204: {
+      201: {
         headers: {
           [name: string]: unknown;
         };

@@ -10,7 +10,7 @@ zh-CN = "i18n/zh-CN.toml"
 entry = "print_plugin.wasm"
 permissions = ["logger", "sql", "config:read"]
 
-# ── Contestant endpoints (JWT; access checked in-handler via contest::) ──
+# -- Contestant endpoints (JWT; access checked in-handler via contest::) --
 [[server.routes]]
 method = "POST"
 path = "/api/plugins/print/contests/{contest_id}/submissions/{submission_id}"
@@ -26,7 +26,7 @@ method = "GET"
 path = "/api/plugins/print/jobs/mine"
 handler = "api_my_jobs"
 
-# ── Staff endpoints (server-enforced `contest:manage` permission) ──
+# -- Staff endpoints (server-enforced `contest:manage` permission) --
 [[server.routes]]
 method = "GET"
 path = "/api/plugins/print/admin/jobs"
@@ -69,7 +69,7 @@ path = "/api/plugins/print/admin/stations"
 handler = "api_admin_stations"
 permission = "contest:manage"
 
-# ── Station endpoints (PUBLIC routes; handler validates PrintStation token) ──
+# -- Station endpoints (PUBLIC routes; handler validates PrintStation token) --
 [[server.routes]]
 method = "POST"
 path = "/api/plugins/print/stations/heartbeat"
@@ -90,7 +90,7 @@ method = "POST"
 path = "/api/plugins/print/stations/jobs/{id}/status"
 handler = "api_station_status"
 
-# ── Configuration ──
+# -- Configuration --
 # Contest scope: per-contest printing behaviour. Plugin scope: deployment-wide
 # station tokens (a single token authorizes a station for every contest on the
 # deployment). Tokens may also be added per-contest for finer-grained access.
@@ -132,7 +132,7 @@ description = "Opaque secrets that authorize print stations. Stations send 'Auth
 items = { type = "string" }
 default = []
 
-# ── Web UI ──
+# -- Web UI --
 [web]
 root = "web/dist"
 entry = "index.js"

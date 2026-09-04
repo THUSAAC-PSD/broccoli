@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { parseApiError, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import {
@@ -22,15 +22,16 @@ import type { ConfigScope, InheritedConfig } from './types';
 type ConfigSchemaResponse = PluginDetail['config_schemas'][number];
 type PluginDetailResponse = PluginDetail;
 
-/** A config entry returned by resource-scoped config list endpoints. */
+/** A config entry returned by resource-scoped config list endpoints.
+ *  Mirrors the generated `PluginConfigResponse` schema shape. */
 interface ConfigEntry {
   plugin_id: string;
   namespace: string;
   config: unknown;
-  enabled: boolean | null;
+  enabled?: boolean | null;
   position: number;
-  updated_at: string | null;
-  json_schema?: Record<string, unknown>;
+  updated_at?: string | null;
+  json_schema?: unknown;
   description?: string | null;
 }
 
@@ -40,6 +41,16 @@ export interface ResourceConfigDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+// Stable empty fallbacks. Disabled queries would otherwise produce a fresh
+// `[]` default on every render, cascading new identities through the memos
+// below and re-firing every effect that depends on them.
+const EMPTY_PLUGIN_DETAILS: PluginDetailResponse[] = [];
+const EMPTY_CONFIG_ENTRIES: ConfigEntry[] = [];
+const EMPTY_PLUGIN_SCHEMAS: {
+  pluginId: string;
+  schemas: ConfigSchemaResponse[];
+}[] = [];
 
 function buildConfigCallbacks(
   apiClient: ReturnType<typeof useApiClient>,
@@ -328,7 +339,7 @@ function usePluginScopeSchemas(
   scope: ConfigScope,
   open: boolean,
 ) {
-  const { data: plugins = [] } = useQuery({
+  const { data: plugins = EMPTY_PLUGIN_DETAILS } = useQuery({
     queryKey: ['admin-plugins'],
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/admin/plugins');
@@ -338,10 +349,14 @@ function usePluginScopeSchemas(
     enabled: open && scope.scope === 'plugin',
   });
 
+  // Depend on the primitive plugin id, not the scope object (callers pass
+  // inline scope literals, so the object identity changes on every render).
+  const scopePluginId = scope.scope === 'plugin' ? scope.pluginId : null;
+
   return useMemo(() => {
-    if (scope.scope !== 'plugin') return [];
+    if (scopePluginId === null) return EMPTY_PLUGIN_SCHEMAS;
     return plugins
-      .filter((p: PluginDetailResponse) => p.id === scope.pluginId)
+      .filter((p: PluginDetailResponse) => p.id === scopePluginId)
       .map((p: PluginDetailResponse) => ({
         pluginId: p.id,
         schemas: p.config_schemas.filter((s: ConfigSchemaResponse) =>
@@ -349,7 +364,7 @@ function usePluginScopeSchemas(
         ),
       }))
       .filter((e: { schemas: ConfigSchemaResponse[] }) => e.schemas.length > 0);
-  }, [plugins, scope]);
+  }, [plugins, scopePluginId]);
 }
 
 export function ResourceConfigDialog({
@@ -365,26 +380,36 @@ export function ResourceConfigDialog({
   const pluginSchemas = usePluginScopeSchemas(apiClient, scope, open);
 
   // For resource scopes, use self-describing config list endpoint
-  const { data: configEntries = [] } = useResourceConfigList(
+  const { data: configEntries = EMPTY_CONFIG_ENTRIES } = useResourceConfigList(
     apiClient,
     scope,
     open,
   );
 
+  const scopeKind = scope.scope;
   const pluginsWithSchemas = useMemo(() => {
-    if (scope.scope === 'plugin') return pluginSchemas;
+    if (scopeKind === 'plugin') return pluginSchemas;
     return configEntriesToPluginSchemas(configEntries);
-  }, [scope, pluginSchemas, configEntries]);
+  }, [scopeKind, pluginSchemas, configEntries]);
 
   const [activePlugin, setActivePlugin] = useState('');
   const [activeNamespace, setActiveNamespace] = useState('');
 
+  // Initialize/repair the selection without ever clobbering a valid one:
+  // only fall back to the first plugin when the current selection is empty
+  // or no longer present (e.g. the dialog was reused for another resource).
   useEffect(() => {
-    if (open && pluginsWithSchemas.length > 0) {
+    if (!open || pluginsWithSchemas.length === 0) return;
+    const current = pluginsWithSchemas.find((e) => e.pluginId === activePlugin);
+    if (!current) {
       setActivePlugin(pluginsWithSchemas[0].pluginId);
       setActiveNamespace(pluginsWithSchemas[0].schemas[0]?.namespace ?? '');
+      return;
     }
-  }, [open, pluginsWithSchemas]);
+    if (!current.schemas.some((s) => s.namespace === activeNamespace)) {
+      setActiveNamespace(current.schemas[0]?.namespace ?? '');
+    }
+  }, [open, pluginsWithSchemas, activePlugin, activeNamespace]);
 
   const invalidateKeys = [configListQueryKey(scope)];
   if (scope.scope === 'plugin') invalidateKeys.push(['admin-plugins']);
@@ -493,48 +518,66 @@ function SinglePluginContent({
 
   useEffect(() => {
     if (!open || !showEnabledToggle || schemas.length === 0) return;
-    const firstNs = schemas[0].namespace;
+    let cancelled = false;
 
-    // Load enabled from the first namespace's config row
-    let req: Promise<{ data?: { enabled: boolean | null }; error?: unknown }>;
-    if (scope.scope === 'contest') {
-      req = apiClient.GET('/contests/{id}/config/{plugin_id}/{namespace}', {
-        params: {
-          path: {
-            id: scope.contestId,
-            plugin_id: pluginId,
-            namespace: firstNs,
-          },
-        },
-      });
-    } else if (scope.scope === 'problem') {
-      req = apiClient.GET('/problems/{id}/config/{plugin_id}/{namespace}', {
-        params: {
-          path: {
-            id: scope.problemId,
-            plugin_id: pluginId,
-            namespace: firstNs,
-          },
-        },
-      });
-    } else {
-      return;
-    }
-
-    req
-      .then(({ data }) => {
-        if (data?.enabled == null) {
-          setEnabled('unset');
-        } else {
-          setEnabled(data.enabled);
+    const fetchRowEnabled = async (
+      namespace: string,
+    ): Promise<boolean | null> => {
+      try {
+        if (scope.scope === 'contest') {
+          const { data } = await apiClient.GET(
+            '/contests/{id}/config/{plugin_id}/{namespace}',
+            {
+              params: {
+                path: { id: scope.contestId, plugin_id: pluginId, namespace },
+              },
+            },
+          );
+          return data?.enabled ?? null;
         }
-      })
-      .catch(() => setEnabled('unset'));
+        if (scope.scope === 'problem') {
+          const { data } = await apiClient.GET(
+            '/problems/{id}/config/{plugin_id}/{namespace}',
+            {
+              params: {
+                path: { id: scope.problemId, plugin_id: pluginId, namespace },
+              },
+            },
+          );
+          return data?.enabled ?? null;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+
+    // Enablement is stored per (plugin, namespace) config row; the server
+    // merges same-scope rows with true-wins semantics (hooks.rs). Load ALL
+    // rows and apply the same merge so the toggle reflects what the server
+    // will actually do: any true wins, else any false, else unset.
+    Promise.all(schemas.map((s) => fetchRowEnabled(s.namespace))).then(
+      (rows) => {
+        if (cancelled) return;
+        setEnabled(
+          rows.includes(true) ? true : rows.includes(false) ? false : 'unset',
+        );
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
   }, [open, showEnabledToggle, schemas, apiClient, scope, pluginId]);
 
+  // Same guard as the plugin-level selection: never clobber a still-valid
+  // namespace selection when the schema list refreshes (e.g. after a save
+  // invalidates the config list query).
   useEffect(() => {
     if (open && schemas.length > 0 && !controlledNamespace) {
-      setLocalNamespace(schemas[0].namespace);
+      setLocalNamespace((ns) =>
+        schemas.some((s) => s.namespace === ns) ? ns : schemas[0].namespace,
+      );
     }
   }, [open, schemas, controlledNamespace]);
 
@@ -620,13 +663,96 @@ function SinglePluginContent({
     [apiClient, scope, pluginId, schemas],
   );
 
-  // The enabled toggle is form-local state — persisted via the form's Save
+  // The enabled toggle is form-local state - persisted via the form's Save
   // button, not auto-saved. This avoids a race condition where the toggle's
   // read-modify-write overlaps with a concurrent form save on slow networks.
   const handleEnabledChange = useCallback((newEnabled: 'unset' | boolean) => {
     setEnabled(newEnabled);
     enabledRef.current = newEnabled;
   }, []);
+
+  // The UI presents enablement as a single per-plugin choice, but it is
+  // persisted on every (plugin, namespace) row and the server merges rows
+  // with true-wins semantics. Writing it only to the saved namespace would
+  // let a stale `true` on another row silently override a disable, so after
+  // a save we rewrite every OTHER existing row with the same enabled value,
+  // preserving that row's config and position. Rows that do not exist stay
+  // absent: they contribute nothing to the server-side merge.
+  const propagateEnabled = useCallback(
+    async (
+      savedNamespace: string,
+      enabled: boolean | undefined,
+    ): Promise<{ error?: unknown }> => {
+      for (const schema of schemas) {
+        const namespace = schema.namespace;
+        if (namespace === savedNamespace) continue;
+
+        try {
+          if (scope.scope === 'contest') {
+            const path = {
+              id: scope.contestId,
+              plugin_id: pluginId,
+              namespace,
+            };
+            const { data: row, error: getError } = await apiClient.GET(
+              '/contests/{id}/config/{plugin_id}/{namespace}',
+              { params: { path } },
+            );
+            if (getError) {
+              // No row for this namespace is fine; anything else must fail
+              // the save so the admin knows enablement is inconsistent.
+              if (parseApiError(getError)?.code === 'NOT_FOUND') continue;
+              return { error: getError };
+            }
+            if (!row || (row.enabled ?? undefined) === enabled) continue;
+            const { error } = await apiClient.PUT(
+              '/contests/{id}/config/{plugin_id}/{namespace}',
+              {
+                params: { path },
+                body: {
+                  config: row.config ?? {},
+                  position: row.position,
+                  ...(enabled !== undefined ? { enabled } : {}),
+                },
+              },
+            );
+            if (error) return { error };
+          } else if (scope.scope === 'problem') {
+            const path = {
+              id: scope.problemId,
+              plugin_id: pluginId,
+              namespace,
+            };
+            const { data: row, error: getError } = await apiClient.GET(
+              '/problems/{id}/config/{plugin_id}/{namespace}',
+              { params: { path } },
+            );
+            if (getError) {
+              if (parseApiError(getError)?.code === 'NOT_FOUND') continue;
+              return { error: getError };
+            }
+            if (!row || (row.enabled ?? undefined) === enabled) continue;
+            const { error } = await apiClient.PUT(
+              '/problems/{id}/config/{plugin_id}/{namespace}',
+              {
+                params: { path },
+                body: {
+                  config: row.config ?? {},
+                  position: row.position,
+                  ...(enabled !== undefined ? { enabled } : {}),
+                },
+              },
+            );
+            if (error) return { error };
+          }
+        } catch (error) {
+          return { error };
+        }
+      }
+      return {};
+    },
+    [schemas, scope, apiClient, pluginId],
+  );
 
   const callbacksByNamespace = useMemo(() => {
     if (!showEnabledToggle) return rawCallbacks;
@@ -635,19 +761,22 @@ function SinglePluginContent({
         ns,
         {
           ...cbs,
-          putConfig: (config: Record<string, unknown>) => {
+          putConfig: async (config: Record<string, unknown>) => {
             const enabledValue = enabledRef.current;
-            return (
+            const enabled = enabledValue === 'unset' ? undefined : enabledValue;
+            const result = await (
               cbs.putConfig as (
                 c: Record<string, unknown>,
                 e?: boolean,
               ) => Promise<{ error?: unknown }>
-            )(config, enabledValue === 'unset' ? undefined : enabledValue);
+            )(config, enabled);
+            if (result.error) return result;
+            return propagateEnabled(ns, enabled);
           },
         },
       ]),
     );
-  }, [rawCallbacks, showEnabledToggle]);
+  }, [rawCallbacks, showEnabledToggle, propagateEnabled]);
 
   const enabledToggle = showEnabledToggle ? (
     <div className="rounded-lg border p-3 space-y-2">

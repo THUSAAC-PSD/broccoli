@@ -4,185 +4,110 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use crate::error::SdkError;
-#[cfg(target_arch = "wasm32")]
-use crate::types::SubmissionStatus;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::types::TestCaseBodyRef;
-use crate::types::{SubmissionUpdate, TestCaseResultRow, TestCaseRow};
+use crate::types::{SubmissionStatus, SubmissionUpdate, TestCaseResultRow, TestCaseRow};
 
 pub struct Submissions {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) inner: SubmissionsMock,
 }
 
+impl Submissions {
+    pub fn set_compiling(
+        &self,
+        submission_id: i32,
+        judgement_id: i32,
+        judge_epoch: i32,
+    ) -> Result<u64, SdkError> {
+        self.update(&SubmissionUpdate {
+            submission_id,
+            judgement_id,
+            judge_epoch,
+            status: Some(SubmissionStatus::Compiling),
+            ..Default::default()
+        })
+    }
+
+    pub fn set_running(
+        &self,
+        submission_id: i32,
+        judgement_id: i32,
+        judge_epoch: i32,
+    ) -> Result<u64, SdkError> {
+        self.update(&SubmissionUpdate {
+            submission_id,
+            judgement_id,
+            judge_epoch,
+            status: Some(SubmissionStatus::Running),
+            ..Default::default()
+        })
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 impl Submissions {
     pub fn query_test_cases(&self, problem_id: i32) -> Result<Vec<TestCaseRow>, SdkError> {
-        use crate::db::Params;
-
-        let mut p = Params::new();
-        let sql = format!(
-            "SELECT id, score, is_sample, position, description, label \
-             FROM test_case WHERE problem_id = {} ORDER BY position ASC",
-            p.bind(problem_id)
-        );
-        super::shared::raw_query(&sql, &p.into_args())
+        // The server owns the SQL now: serialize the structured input and call
+        // the capability-gated `submission_query_test_cases` host fn, which
+        // returns the same `HostDbResponse` envelope `db_query` did.
+        let payload = serde_json::to_string(&problem_id)?;
+        let result_json = unsafe { crate::host::raw::submission_query_test_cases(payload)? };
+        let resp: super::shared::HostDbResponse = serde_json::from_str(&result_json)?;
+        super::shared::parse_rows(resp.into_result()?)
     }
 
     pub fn update(&self, update: &SubmissionUpdate) -> Result<u64, SdkError> {
-        use crate::db::Params;
-
-        let mut p = Params::new();
-        let mut sets = Vec::new();
-
-        super::shared::push_judge_sets(
-            &mut p,
-            &mut sets,
-            &update.status,
-            &update.verdict,
-            &update.score,
-            &update.time_used,
-            &update.memory_used,
-            &update.compile_output,
-            &update.error_code,
-            &update.error_message,
-        );
-
-        if sets.is_empty() {
-            return Ok(1);
+        // Pre-DB guard preserved from the old SQL-building path: a non-positive
+        // judgement id is a stale epoch and must not reach the server.
+        if update.judgement_id <= 0 {
+            return Err(SdkError::StaleEpoch);
         }
 
-        // Mirror the same column writes onto submission_judgement so the
-        // versioned row stays in sync with the denormalized cache. Skipped
-        // when judgement_id is unset (legacy caller path); the backfill
-        // job handles those rows on the next server boot.
-        let mut judgement_rows = 0;
-        if update.judgement_id > 0 {
-            let mut jp = Params::new();
-            let mut jsets = Vec::new();
-            super::shared::push_judge_sets(
-                &mut jp,
-                &mut jsets,
-                &update.status,
-                &update.verdict,
-                &update.score,
-                &update.time_used,
-                &update.memory_used,
-                &update.compile_output,
-                &update.error_code,
-                &update.error_message,
-            );
-            if !jsets.is_empty() {
-                let mut judgement_sets: Vec<String> = jsets
-                    .into_iter()
-                    .filter(|set| set != "judged_at = NOW()")
-                    .collect();
-                let is_terminal_marker = match update.status {
-                    Some(SubmissionStatus::Judged) | Some(SubmissionStatus::CompilationError) => {
-                        true
-                    }
-                    _ => false,
-                };
-                if is_terminal_marker {
-                    judgement_sets.push("is_finalized = TRUE".to_string());
-                    judgement_sets.push("finalized_at = NOW()".to_string());
-                }
-                let jsql = format!(
-                    "UPDATE submission_judgement SET {} WHERE id = {} AND judge_epoch = {} \
-                     AND is_finalized = FALSE \
-                     AND (is_current = TRUE OR version = ( \
-                         SELECT MAX(version) FROM submission_judgement WHERE submission_id = {} \
-                     ))",
-                    judgement_sets.join(", "),
-                    jp.bind(update.judgement_id),
-                    jp.bind(update.judge_epoch),
-                    jp.bind(update.submission_id),
-                );
-                judgement_rows = super::shared::raw_execute(&jsql, &jp.into_args())?;
-            }
-        }
-
-        let sql = format!(
-            "UPDATE submission SET {} WHERE id = {} AND judge_epoch = {} \
-             AND status NOT IN ('Judged', 'CompilationError', 'SystemError')",
-            sets.join(", "),
-            p.bind(update.submission_id),
-            p.bind(update.judge_epoch),
-        );
-        let submission_rows = super::shared::raw_execute(&sql, &p.into_args())?;
-        if update.judgement_id > 0 {
-            Ok(judgement_rows)
-        } else {
-            Ok(submission_rows)
-        }
+        // The server reproduces the exact `submission_judgement` + `submission`
+        // statements (including the empty-sets and 0-rows short-circuits) from
+        // this structured input and returns rows-affected in the standard
+        // envelope.
+        let payload = serde_json::to_string(update)?;
+        let result_json = unsafe { crate::host::raw::submission_update(payload)? };
+        let resp: super::shared::HostDbResponse = serde_json::from_str(&result_json)?;
+        Ok(super::shared::parse_affected(resp.into_result()?))
     }
 
     pub fn insert_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
-        use crate::db::Params;
-        use crate::types::sanitize_result_text_field;
-        use serde_json::json;
-
+        // Match the old early-return and per-row stale-epoch guards before the
+        // host call; the server owns the INSERT + result-text sanitization.
         if results.is_empty() {
             return Ok(());
         }
-
-        let mut p = Params::new();
-        let mut rows = Vec::with_capacity(results.len());
-
         for r in results {
-            let score_val = if r.score.is_finite() { r.score } else { 0.0 };
-            let message = r.message.as_deref().map(sanitize_result_text_field);
-            let stdout = r.stdout.as_deref().map(sanitize_result_text_field);
-            let stderr = r.stderr.as_deref().map(sanitize_result_text_field);
-            let judgement_param = if r.judgement_id > 0 {
-                json!(r.judgement_id)
-            } else {
-                json!(null)
-            };
-            rows.push(format!(
-                "({}, {}::int, {}::int, {}::int, {}, {}, {}::int, {}::int, {}::text, {}::text, {}::text, NOW())",
-                p.bind(r.submission_id),
-                p.bind(judgement_param),
-                p.bind(json!(r.test_case_id)),
-                p.bind(json!(r.run_index)),
-                p.bind(r.verdict.to_db_str()),
-                p.bind(score_val),
-                p.bind(json!(r.time_used)),
-                p.bind(json!(r.memory_used)),
-                p.bind(json!(message.as_deref())),
-                p.bind(json!(stdout.as_deref())),
-                p.bind(json!(stderr.as_deref())),
-            ));
+            if r.judgement_id <= 0 {
+                return Err(SdkError::StaleEpoch);
+            }
         }
 
-        let sql = format!(
-            "INSERT INTO test_case_result \
-             (submission_id, judgement_id, test_case_id, run_index, verdict, score, \
-              time_used, memory_used, checker_output, stdout, stderr, created_at) \
-             VALUES {}",
-            rows.join(", ")
-        );
-        super::shared::raw_execute(&sql, &p.into_args())?;
+        let payload = serde_json::to_string(results)?;
+        let result_json = unsafe { crate::host::raw::submission_insert_results(payload)? };
+        let resp: super::shared::HostDbResponse = serde_json::from_str(&result_json)?;
+        // Propagate any DB error; the affected-row count is not used here.
+        resp.into_result()?;
         Ok(())
     }
 
-    pub fn delete_results(&self, submission_id: i32, judgement_id: i32) -> Result<(), SdkError> {
-        use crate::db::Params;
+    pub fn delete_results(
+        &self,
+        submission_id: i32,
+        judgement_id: i32,
+        judge_epoch: i32,
+    ) -> Result<(), SdkError> {
+        if judgement_id <= 0 {
+            return Err(SdkError::StaleEpoch);
+        }
 
-        let mut p = Params::new();
-        let sql = if judgement_id > 0 {
-            format!(
-                "DELETE FROM test_case_result WHERE submission_id = {} AND judgement_id = {}",
-                p.bind(submission_id),
-                p.bind(judgement_id),
-            )
-        } else {
-            format!(
-                "DELETE FROM test_case_result WHERE submission_id = {} AND judgement_id IS NULL",
-                p.bind(submission_id),
-            )
-        };
-        super::shared::raw_execute(&sql, &p.into_args())?;
+        let payload = serde_json::to_string(&(submission_id, judgement_id, judge_epoch))?;
+        let result_json = unsafe { crate::host::raw::submission_delete_results(payload)? };
+        let resp: super::shared::HostDbResponse = serde_json::from_str(&result_json)?;
+        resp.into_result()?;
         Ok(())
     }
 }
@@ -195,6 +120,11 @@ pub(super) struct SubmissionsMock {
     insert_errors: RefCell<VecDeque<SdkError>>,
     updates: RefCell<Vec<SubmissionUpdate>>,
     tc_results: RefCell<Vec<TestCaseResultRow>>,
+    /// Number of `insert_results` calls that actually issued an INSERT
+    /// (empty-slice calls early-return and are not counted). Used by the
+    /// UP#34 bulk-insert-results regression tests to assert that plugins
+    /// batch their per-testcase rows rather than calling once per row.
+    insert_call_count: RefCell<usize>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -207,6 +137,7 @@ impl SubmissionsMock {
             insert_errors: RefCell::new(VecDeque::new()),
             updates: RefCell::new(Vec::new()),
             tc_results: RefCell::new(Vec::new()),
+            insert_call_count: RefCell::new(0),
         }
     }
 }
@@ -221,6 +152,9 @@ impl Submissions {
     }
 
     pub fn update(&self, update: &SubmissionUpdate) -> Result<u64, SdkError> {
+        if update.judgement_id <= 0 {
+            return Err(SdkError::StaleEpoch);
+        }
         self.inner.updates.borrow_mut().push(update.clone());
         if let Some(result) = self.inner.update_results.borrow_mut().pop_front() {
             return result;
@@ -229,9 +163,16 @@ impl Submissions {
     }
 
     pub fn insert_results(&self, results: &[TestCaseResultRow]) -> Result<(), SdkError> {
+        if results.is_empty() {
+            return Ok(());
+        }
+        if results.iter().any(|r| r.judgement_id <= 0) {
+            return Err(SdkError::StaleEpoch);
+        }
         if let Some(err) = self.inner.insert_errors.borrow_mut().pop_front() {
             return Err(err);
         }
+        *self.inner.insert_call_count.borrow_mut() += 1;
         self.inner
             .tc_results
             .borrow_mut()
@@ -239,11 +180,20 @@ impl Submissions {
         Ok(())
     }
 
-    pub fn delete_results(&self, submission_id: i32, judgement_id: i32) -> Result<(), SdkError> {
-        self.inner
-            .tc_results
-            .borrow_mut()
-            .retain(|r| r.submission_id != submission_id || r.judgement_id != judgement_id);
+    pub fn delete_results(
+        &self,
+        submission_id: i32,
+        judgement_id: i32,
+        judge_epoch: i32,
+    ) -> Result<(), SdkError> {
+        if judgement_id <= 0 {
+            return Err(SdkError::StaleEpoch);
+        }
+        self.inner.tc_results.borrow_mut().retain(|r| {
+            r.submission_id != submission_id
+                || r.judgement_id != judgement_id
+                || r.judge_epoch != judge_epoch
+        });
         Ok(())
     }
 
@@ -290,5 +240,36 @@ impl Submissions {
 
     pub fn results(&self) -> Vec<TestCaseResultRow> {
         self.inner.tc_results.borrow().clone()
+    }
+
+    /// Number of `insert_results` calls that actually issued an INSERT.
+    /// Empty-slice calls early-return and are not counted. Plugins are
+    /// expected to batch per-testcase rows (UP#34) - assert
+    /// `insert_call_count() <= ceil(rows / threshold) + small_constant` in
+    /// regression tests.
+    pub fn insert_call_count(&self) -> usize {
+        *self.inner.insert_call_count.borrow()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sdk::Host;
+    use crate::types::SubmissionStatus;
+
+    #[test]
+    fn status_helpers_write_compiling_and_running_updates() {
+        let host = Host::mock();
+
+        assert_eq!(host.submission.set_compiling(10, 20, 30).unwrap(), 1);
+        assert_eq!(host.submission.set_running(10, 20, 30).unwrap(), 1);
+
+        let updates = host.submission.updates();
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].submission_id, 10);
+        assert_eq!(updates[0].judgement_id, 20);
+        assert_eq!(updates[0].judge_epoch, 30);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::Running));
     }
 }

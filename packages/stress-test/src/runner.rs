@@ -4,13 +4,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
+use uuid::Uuid;
 
 use crate::bootstrap::{BootstrapConfig, BootstrapState};
-use crate::cli::Cli;
+use crate::cli::{Cli, LoadProfile};
 use crate::client::{AuthCreds, Client};
 use crate::events::{Event, Phase};
 use crate::report::{
-    CorrectnessSummary, DlqDelta, LoadSummary, PassthroughSummary, RunSummary, format_summary,
+    DlqDelta, LoadSummary, MixedSummary, PassthroughSummary, RunSummary, format_summary,
 };
 use crate::scenarios::SCENARIOS;
 use crate::version_check::{ServerVersion, VersionCheck, compare, warning_message};
@@ -144,8 +145,14 @@ pub async fn run(cli: Cli) -> u8 {
         perform_version_check(&cli.url).await;
     }
 
+    let run_id = cli
+        .run_id
+        .clone()
+        .unwrap_or_else(|| format!("stress-{}", Uuid::now_v7()));
+    let _ = writeln!(io::stderr(), "stress-test: run id -> {}", run_id);
+
     let creds = build_creds(&cli);
-    let client = match Client::new(cli.url.clone(), creds).await {
+    let client = match Client::new_with_run_id(cli.url.clone(), creds, run_id).await {
         Ok(c) => c,
         Err(e) => {
             eprintln!("setup error: failed to build client: {e}");
@@ -175,7 +182,20 @@ pub async fn run(cli: Cli) -> u8 {
         contest_type: cli.contest_type.clone(),
         problem_type: cli.problem_type.clone(),
     };
-    let state = match crate::bootstrap::bootstrap(&client, SCENARIOS, &bootstrap_config).await {
+    let uses_existing_contest_for_load = cli.contest_id.is_some() && !cli.skip_load;
+    let state_result = if uses_existing_contest_for_load {
+        crate::bootstrap::load_existing_contest(
+            &client,
+            cli.contest_id.expect("checked above"),
+            cli.problem_id,
+            SCENARIOS,
+            &bootstrap_config,
+        )
+        .await
+    } else {
+        crate::bootstrap::bootstrap(&client, SCENARIOS, &bootstrap_config).await
+    };
+    let state = match state_result {
         Ok(s) => s,
         Err(e) => {
             tx.send(Event::Error {
@@ -197,6 +217,7 @@ pub async fn run(cli: Cli) -> u8 {
                     bootstrap_error: Some(format!("{e}")),
                     correctness: None,
                     load: None,
+                    mixed: None,
                     passthrough: PassthroughSummary::NotRun,
                     cleanup_warnings: vec![],
                     log_file: log_file_path(&log_target),
@@ -222,6 +243,7 @@ pub async fn run(cli: Cli) -> u8 {
         bootstrap_error: None,
         correctness: None,
         load: None,
+        mixed: None,
         passthrough: PassthroughSummary::NotRun,
         cleanup_warnings: vec![],
         log_file: log_file_path(&log_target),
@@ -229,41 +251,53 @@ pub async fn run(cli: Cli) -> u8 {
     };
     let mut overall_exit = exit_code::PASS;
 
-    if !cli.skip_correctness {
-        let timeout = Duration::from_secs(cli.per_job_timeout);
-        let outcome = crate::correctness::run(&client, &state, SCENARIOS, timeout, &tx).await;
-        let ok = outcome.is_ok();
-        summary.correctness = Some(CorrectnessSummary {
-            total: outcome.total,
-            passed: outcome.passed,
-            failed_scenarios: outcome.failed_scenarios,
-        });
-        if !ok {
-            overall_exit = exit_code::CORRECTNESS_FAIL;
-        }
-    }
-
     if overall_exit == exit_code::PASS && !cli.skip_load && !cli.correctness_only {
-        let load_config = crate::load::LoadConfig {
-            total: cli.total,
-            rate: cli.rate,
-            concurrency: cli.concurrency,
-            per_job_timeout: Duration::from_secs(cli.per_job_timeout),
-            p95_budget_ms: cli.p95_budget_ms,
-            seed: cli.seed,
-        };
-        let outcome = crate::load::run(&client, &state, SCENARIOS, &load_config, &tx).await;
-        summary.load = Some(LoadSummary::from_outcome(
-            &outcome,
-            cli.total,
-            cli.p95_budget_ms,
-        ));
-        if !outcome.passed_overall {
-            overall_exit = exit_code::LOAD_FAIL;
+        match cli.profile {
+            LoadProfile::Judge => {
+                let load_config = crate::load::LoadConfig {
+                    total: cli.total,
+                    rate: cli.rate,
+                    concurrency: cli.concurrency,
+                    per_job_timeout: Duration::from_secs(cli.per_job_timeout),
+                    p95_budget_ms: cli.p95_budget_ms,
+                    seed: cli.seed,
+                    validate_expected_verdicts: state.owns_fixtures,
+                };
+                let outcome = crate::load::run(&client, &state, SCENARIOS, &load_config, &tx).await;
+                summary.load = Some(LoadSummary::from_outcome(
+                    &outcome,
+                    cli.total,
+                    cli.p95_budget_ms,
+                ));
+                if !outcome.passed_overall {
+                    overall_exit = exit_code::LOAD_FAIL;
+                }
+            }
+            LoadProfile::Mixed => {
+                let mixed_config = crate::mixed::MixedConfig {
+                    total: cli.total,
+                    duration: cli.duration.map(Duration::from_secs),
+                    rate: cli.rate,
+                    concurrency: cli.concurrency,
+                    per_job_timeout: Duration::from_secs(cli.per_job_timeout),
+                    seed: cli.seed,
+                    contestants: cli.contestants,
+                    final_burst_duration: Duration::from_secs(cli.final_burst_duration),
+                    final_burst_multiplier: cli.final_burst_multiplier,
+                };
+                let outcome =
+                    crate::mixed::run(&client, &state, SCENARIOS, &mixed_config, &tx).await;
+                summary.mixed = Some(MixedSummary::from_outcome(&outcome));
+                if !outcome.passed_overall {
+                    overall_exit = exit_code::LOAD_FAIL;
+                }
+            }
         }
     }
 
-    if let Some(contest_id) = cli.contest_id {
+    if let Some(contest_id) = cli.contest_id
+        && !uses_existing_contest_for_load
+    {
         let pt_config = crate::passthrough::PassthroughConfig {
             contest_id,
             problem_id: cli.problem_id,
@@ -292,18 +326,24 @@ pub async fn run(cli: Cli) -> u8 {
         }
     } else {
         tx.send(Event::PassthroughSkipped {
-            reason: "no --contest-id".into(),
+            reason: if uses_existing_contest_for_load {
+                "contest already used as load target".into()
+            } else {
+                "no --contest-id".into()
+            },
         })
         .ok();
         summary.passthrough = PassthroughSummary::NotRun;
     }
 
-    if cli.keep_fixtures {
+    if cli.keep_fixtures && state.owns_fixtures {
         for (scenario_id, problem_id) in &state.problem_ids_by_scenario {
             summary.cleanup_warnings.push(format!(
                 "kept (--keep-fixtures): problem {problem_id} for scenario {scenario_id}"
             ));
         }
+    } else if !state.owns_fixtures {
+        let _ = state_holder.lock().await.take();
     } else {
         tx.send(Event::PhaseStarted {
             phase: Phase::Cleanup,

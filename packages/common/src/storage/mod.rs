@@ -1,5 +1,6 @@
 mod error;
 mod hash;
+mod instrumented;
 mod traits;
 
 pub mod filesystem;
@@ -15,4 +16,5 @@ pub mod config;
 
 pub use error::StorageError;
 pub use hash::ContentHash;
+pub use instrumented::InstrumentedBlobStore;
 pub use traits::{BlobStore, BoxReader};

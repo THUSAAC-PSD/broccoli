@@ -34,6 +34,8 @@ export interface DlqStats {
   unresolved_by_message_type: {
     operation_task: number;
     stuck_submission: number;
+    stuck_code_run: number;
+    stuck_submission_judgement: number;
   };
   unresolved_by_error_code: Record<string, number>;
 }

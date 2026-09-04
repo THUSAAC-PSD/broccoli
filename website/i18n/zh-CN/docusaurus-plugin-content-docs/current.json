@@ -7,6 +7,14 @@
     "message": "使用 Broccoli",
     "description": "The label for category 'Using Broccoli' in sidebar 'docs'"
   },
+  "sidebar.docs.category.Running contests": {
+    "message": "举办比赛",
+    "description": "The label for category 'Running contests' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.Contest formats": {
+    "message": "比赛赛制",
+    "description": "The label for category 'Contest formats' in sidebar 'docs'"
+  },
   "sidebar.docs.category.Building plugins": {
     "message": "开发插件",
     "description": "The label for category 'Building plugins' in sidebar 'docs'"

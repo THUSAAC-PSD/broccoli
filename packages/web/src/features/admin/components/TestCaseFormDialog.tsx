@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
@@ -20,7 +20,6 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SwitchField } from '@/features/admin/components/SwitchField';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 interface TestCaseFormDialogProps {
   problemId: number;
@@ -162,7 +161,7 @@ export function TestCaseFormDialog({
     setLoading(false);
     if (result.error) {
       toast.error(
-        extractErrorMessage(
+        getErrorMessage(
           result.error,
           isEdit ? t('admin.editError') : t('admin.createError'),
         ),
@@ -322,12 +321,13 @@ export function TestCaseFormDialog({
                 <Label htmlFor="tc-description">
                   {t('admin.testCases.field.description')}
                 </Label>
-                <Input
+                <Textarea
                   id="tc-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  maxLength={256}
-                  placeholder="Basic case"
+                  maxLength={4096}
+                  rows={3}
+                  placeholder="Explains this sample (markdown supported)"
                 />
               </div>
             </div>

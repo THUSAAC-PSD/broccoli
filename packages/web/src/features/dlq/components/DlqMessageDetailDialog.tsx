@@ -1,4 +1,4 @@
-import { useApiFetch } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiFetch } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Badge,
@@ -43,10 +43,8 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
         method: 'POST',
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          message?: string;
-        } | null;
-        toast.error(body?.message ?? t('dlq.detail.retryError'));
+        const body: unknown = await res.json().catch(() => null);
+        toast.error(getErrorMessage(body, t('dlq.detail.retryError')));
         return;
       }
       toast.success(t('dlq.detail.retrySuccess'));
@@ -66,10 +64,8 @@ export function DlqMessageDetailDialog({ messageId, onOpenChange }: Props) {
         method: 'DELETE',
       });
       if (!res.ok && res.status !== 204) {
-        const body = (await res.json().catch(() => null)) as {
-          message?: string;
-        } | null;
-        toast.error(body?.message ?? t('dlq.detail.deleteError'));
+        const body: unknown = await res.json().catch(() => null);
+        toast.error(getErrorMessage(body, t('dlq.detail.deleteError')));
         return;
       }
       toast.success(t('dlq.detail.deleteSuccess'));

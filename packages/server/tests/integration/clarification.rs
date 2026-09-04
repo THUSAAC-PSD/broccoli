@@ -378,3 +378,100 @@ mod clarification_actions {
         assert_eq!(res_res.status, 403);
     }
 }
+
+mod clarification_reply_publishing {
+    use super::*;
+
+    /// An admin replying with `is_public: true` publishes the reply in one call -
+    /// no separate toggle-public round-trip. The per-reply flag and the parent
+    /// `reply_is_public` aggregate must both reflect it immediately.
+    #[tokio::test]
+    async fn admin_reply_publishes_without_a_separate_toggle() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let u1 = app
+            .create_user_with_role("u1", "pass1234", "contestant")
+            .await;
+        let cid = app.create_contest(&admin, "C1", true, false).await;
+        app.register_for_contest(cid, &u1).await;
+
+        let q_res = app
+            .post_with_token(
+                &routes::contest_clarifications(cid),
+                &json!({
+                    "content": "Time limit?",
+                    "clarification_type": "question"
+                }),
+                &u1,
+            )
+            .await;
+        let clar_id = q_res.id();
+
+        let rep_res = app
+            .post_with_token(
+                &routes::contest_clarification_reply(cid, clar_id),
+                &json!({
+                    "content": "2 seconds.",
+                    "is_public": true
+                }),
+                &admin,
+            )
+            .await;
+        assert_eq!(rep_res.status, 200);
+        assert_eq!(
+            rep_res.body["replies"][0]["is_public"], true,
+            "admin reply with is_public:true must be public at reply time"
+        );
+        assert_eq!(
+            rep_res.body["reply_is_public"], true,
+            "parent aggregate must reflect the now-public reply"
+        );
+    }
+
+    /// A non-admin (here the question's own author) may reply, but their
+    /// `is_public: true` is forced false - only admins can broadcast a reply to
+    /// every participant, the same gate the create path and toggle enforce.
+    #[tokio::test]
+    async fn non_admin_reply_cannot_publish() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin1", "pass1234", "admin")
+            .await;
+        let u1 = app
+            .create_user_with_role("u1", "pass1234", "contestant")
+            .await;
+        let cid = app.create_contest(&admin, "C1", true, false).await;
+        app.register_for_contest(cid, &u1).await;
+
+        let q_res = app
+            .post_with_token(
+                &routes::contest_clarifications(cid),
+                &json!({
+                    "content": "Can I get a hint?",
+                    "clarification_type": "question"
+                }),
+                &u1,
+            )
+            .await;
+        let clar_id = q_res.id();
+
+        let rep_res = app
+            .post_with_token(
+                &routes::contest_clarification_reply(cid, clar_id),
+                &json!({
+                    "content": "Publishing this to everyone!",
+                    "is_public": true
+                }),
+                &u1,
+            )
+            .await;
+        assert_eq!(rep_res.status, 200);
+        assert_eq!(
+            rep_res.body["replies"][0]["is_public"], false,
+            "a non-admin's reply is_public:true must be forced private"
+        );
+        assert_eq!(rep_res.body["reply_is_public"], false);
+    }
+}

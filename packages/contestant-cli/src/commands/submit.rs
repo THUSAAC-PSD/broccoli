@@ -2,6 +2,7 @@ use super::context;
 use anyhow::Context;
 use broccoli_cli_core::client::{Client, SubmissionFileDto};
 use broccoli_cli_core::config::{self, load_user_config};
+use broccoli_cli_core::fmt;
 use broccoli_cli_core::resolve;
 use clap::Args;
 use console::style;
@@ -192,9 +193,9 @@ fn watch_verdict(client: &Client, submission_id: i32) -> anyhow::Result<()> {
                 if accepted {
                     if let Some(s) = score {
                         println!(
-                            "{}  Accepted — {}/100 points! ({:.1}s)",
+                            "{}  Accepted — {} points! ({:.1}s)",
                             style("✓").green().bold(),
-                            s,
+                            fmt::score(s),
                             elapsed.as_secs_f64()
                         );
                     } else {
@@ -208,10 +209,10 @@ fn watch_verdict(client: &Client, submission_id: i32) -> anyhow::Result<()> {
                     let sym = style("✗").red().bold();
                     if let Some(s) = score {
                         println!(
-                            "{}  {} — {}/100 points ({:.1}s)",
+                            "{}  {} — {} points ({:.1}s)",
                             sym,
                             label,
-                            s,
+                            fmt::score(s),
                             elapsed.as_secs_f64()
                         );
                     } else {

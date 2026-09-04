@@ -29,11 +29,12 @@ mod list_users {
         assert!(admin["roles"].as_array().unwrap().contains(&json!("admin")));
         assert!(admin["id"].is_number());
         assert!(admin["created_at"].is_string());
-        let admin_password = admin["password"]
-            .as_str()
-            .expect("password should be string");
-        assert_ne!(admin_password, "securepass");
-        assert!(admin_password.len() > 20);
+        // The user API must never expose the stored password hash (or any
+        // password material) to clients.
+        assert!(
+            admin.get("password").is_none(),
+            "user response must not include a password field"
+        );
 
         let alice = users
             .iter()

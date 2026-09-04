@@ -1,4 +1,5 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
+import type { ContestProblem } from '@broccoli/web-sdk/contest';
 import { useIdempotencyKey } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import type { ProblemSummary } from '@broccoli/web-sdk/problem';
@@ -52,16 +53,38 @@ import {
 } from '@/features/problem/api/attachments';
 import { fetchProblems } from '@/features/problem/api/fetch-problems';
 import { useTableSearchParams } from '@/hooks/use-table-search-params';
-import { extractErrorMessage } from '@/lib/extract-error';
 
-// ── Problem Form Dialog ──
+// -- Helpers --
+
+// A-Z, then AA-AZ, BA-BZ, ..., ZZ (max 702)
+function nextProblemLabel(usedLabels: Set<string>): string {
+  for (let i = 0; i < 26; i++) {
+    const label = String.fromCharCode(65 + i);
+    if (!usedLabels.has(label)) return label;
+  }
+  for (let i = 0; i < 26; i++) {
+    for (let j = 0; j < 26; j++) {
+      const label = String.fromCharCode(65 + i) + String.fromCharCode(65 + j);
+      if (!usedLabels.has(label)) return label;
+    }
+  }
+  return '';
+}
+
+// -- Problem Form Dialog --
 
 export function ProblemFormDialog({
   problem,
+  contestId,
   open,
   onOpenChange,
 }: {
   problem?: ProblemSummary;
+  /**
+   * When set, a newly created problem is also attached to this contest (with
+   * the next free label) so it shows up in the contest-scoped problem list.
+   */
+  contestId?: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -77,6 +100,7 @@ export function ProblemFormDialog({
   const [checkerFormat, setCheckerFormat] = useState('exact');
   const [defaultContestType, setDefaultContestType] = useState('standard');
   const [showTestDetails, setShowTestDetails] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
   const [submissionFormat, setSubmissionFormat] = useState<
     Record<string, string[]>
   >({});
@@ -100,6 +124,7 @@ export function ProblemFormDialog({
     checkerFormat,
     defaultContestType,
     showTestDetails,
+    isPublic,
     submissionFormat,
   };
 
@@ -112,6 +137,7 @@ export function ProblemFormDialog({
     setCheckerFormat(data.checkerFormat);
     setDefaultContestType(data.defaultContestType);
     setShowTestDetails(data.showTestDetails);
+    setIsPublic(data.isPublic);
     setSubmissionFormat(data.submissionFormat);
   };
 
@@ -132,6 +158,7 @@ export function ProblemFormDialog({
           setCheckerFormat(data.checker_format);
           setDefaultContestType(data.default_contest_type);
           setShowTestDetails(data.show_test_details);
+          setIsPublic(data.is_public);
           setSubmissionFormat(data.submission_format ?? {});
         });
     } else {
@@ -143,9 +170,31 @@ export function ProblemFormDialog({
       setCheckerFormat('exact');
       setDefaultContestType('standard');
       setShowTestDetails(false);
+      setIsPublic(false);
       setSubmissionFormat({});
     }
   }, [apiClient, open, problem]);
+
+  async function attachToContest(problemId: number): Promise<boolean> {
+    if (!contestId) return false;
+    const { data: existing, error: listError } = await apiClient.GET(
+      '/contests/{id}/problems',
+      { params: { path: { id: contestId } } },
+    );
+    if (listError || !existing) return false;
+    const label = nextProblemLabel(
+      new Set(existing.map((p: ContestProblem) => p.label)),
+    );
+    if (!label) return false;
+    const { error } = await apiClient.POST('/contests/{id}/problems', {
+      headers: { 'Idempotency-Key': getKey() },
+      params: { path: { id: contestId } },
+      body: { problem_id: problemId, label },
+    });
+    if (error) return false;
+    resetKey();
+    return true;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -170,6 +219,7 @@ export function ProblemFormDialog({
       checker_format: checkerFormat,
       default_contest_type: defaultContestType,
       show_test_details: showTestDetails,
+      is_public: isPublic,
       submission_format:
         Object.keys(submissionFormat).length > 0 ? submissionFormat : null,
     };
@@ -184,22 +234,39 @@ export function ProblemFormDialog({
           body,
         });
 
-    setLoading(false);
     if (result.error) {
+      setLoading(false);
       toast.error(
-        extractErrorMessage(
+        getErrorMessage(
           result.error,
           isEdit ? t('admin.editError') : t('admin.createError'),
         ),
       );
+      return;
+    }
+
+    if (!isEdit) resetKey();
+
+    let attachFailed = false;
+    if (!isEdit && contestId && result.data) {
+      attachFailed = !(await attachToContest(result.data.id));
+    }
+    setLoading(false);
+
+    if (attachFailed) {
+      toast.warning(t('toast.problem.createdNotAttached'));
     } else {
-      if (!isEdit) resetKey();
       toast.success(
         isEdit ? t('toast.problem.updated') : t('toast.problem.created'),
       );
-      queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
-      onOpenChange(false);
     }
+    queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
+    if (contestId) {
+      queryClient.invalidateQueries({
+        queryKey: ['contest-problems', contestId],
+      });
+    }
+    onOpenChange(false);
   }
 
   return (
@@ -210,7 +277,11 @@ export function ProblemFormDialog({
             {isEdit ? t('admin.editProblem') : t('admin.createProblem')}
           </DialogTitle>
           <DialogDescription>
-            {isEdit ? '' : t('admin.createProblemDesc')}
+            {isEdit
+              ? ''
+              : contestId
+                ? t('admin.createProblemInContestDesc')
+                : t('admin.createProblemDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -242,7 +313,74 @@ export function ProblemFormDialog({
   );
 }
 
-// ── Column hook ──
+// -- Row actions menu (shared between global and contest column sets) --
+
+function ProblemActionsMenu({
+  onManageTestCases,
+  onManageAdditionalFiles,
+  onManageCheckerSource,
+  onManageAttachments,
+  onConfigure,
+  onEdit,
+  destructiveLabel,
+  onDestructive,
+}: {
+  onManageTestCases: () => void;
+  onManageAdditionalFiles: () => void;
+  onManageCheckerSource: () => void;
+  onManageAttachments: () => void;
+  onConfigure: () => void;
+  onEdit: () => void;
+  destructiveLabel: string;
+  onDestructive: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-7 w-7">
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={onManageTestCases}>
+          <List className="h-4 w-4" />
+          {t('admin.manageTestCases')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onManageAdditionalFiles}>
+          <Paperclip className="h-4 w-4" />
+          {t('admin.manageAdditionalFiles')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onManageCheckerSource}>
+          <FileCode className="h-4 w-4" />
+          {t('admin.manageCheckerSource')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onManageAttachments}>
+          <Image className="h-4 w-4" />
+          {t('admin.manageAttachments')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onConfigure}>
+          <Settings className="h-4 w-4" />
+          {t('admin.configure')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onEdit}>
+          <Pencil className="h-4 w-4" />
+          {t('admin.edit')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={onDestructive}
+        >
+          <Trash2 className="h-4 w-4" />
+          {destructiveLabel}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// -- Column hook --
 
 function useProblemColumns({
   onEdit,
@@ -331,57 +469,91 @@ function useProblemColumns({
       header: '',
       size: 50,
       cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-7 w-7">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onManageTestCases(row.original)}>
-              <List className="h-4 w-4" />
-              {t('admin.manageTestCases')}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onManageAdditionalFiles(row.original)}
-            >
-              <Paperclip className="h-4 w-4" />
-              {t('admin.manageAdditionalFiles')}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onManageCheckerSource(row.original)}
-            >
-              <FileCode className="h-4 w-4" />
-              {t('admin.manageCheckerSource')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onManageAttachments(row.original)}>
-              <Image className="h-4 w-4" />
-              {t('admin.manageAttachments')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onConfigure(row.original)}>
-              <Settings className="h-4 w-4" />
-              {t('admin.configure')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onEdit(row.original)}>
-              <Pencil className="h-4 w-4" />
-              {t('admin.edit')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => onDelete(row.original)}
-            >
-              <Trash2 className="h-4 w-4" />
-              {t('admin.delete')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <ProblemActionsMenu
+          onManageTestCases={() => onManageTestCases(row.original)}
+          onManageAdditionalFiles={() => onManageAdditionalFiles(row.original)}
+          onManageCheckerSource={() => onManageCheckerSource(row.original)}
+          onManageAttachments={() => onManageAttachments(row.original)}
+          onConfigure={() => onConfigure(row.original)}
+          onEdit={() => onEdit(row.original)}
+          destructiveLabel={t('admin.delete')}
+          onDestructive={() => onDelete(row.original)}
+        />
       ),
     },
   ];
 }
 
-// ── Problems Tab ──
+// -- Contest-scoped column hook --
+//
+// Contest rows are ContestProblem relationship records (label, position,
+// problem_id, problem_title), not full ProblemSummary objects, so they get
+// their own column set. The destructive action detaches the problem from the
+// contest instead of deleting it platform-wide.
+
+function useContestProblemColumns({
+  contestId,
+  onEdit,
+  onDetach,
+  onManageTestCases,
+  onManageAdditionalFiles,
+  onManageAttachments,
+  onManageCheckerSource,
+  onConfigure,
+}: {
+  contestId: number;
+  onEdit: (row: ContestProblem) => void;
+  onDetach: (row: ContestProblem) => void;
+  onManageTestCases: (row: ContestProblem) => void;
+  onManageAdditionalFiles: (row: ContestProblem) => void;
+  onManageAttachments: (row: ContestProblem) => void;
+  onManageCheckerSource: (row: ContestProblem) => void;
+  onConfigure: (row: ContestProblem) => void;
+}): DataTableColumn<ContestProblem>[] {
+  const { t } = useTranslation();
+  return [
+    {
+      accessorKey: 'label',
+      header: t('admin.field.label'),
+      size: 60,
+      cell: ({ row }) => (
+        <span className="font-medium">{row.original.label}</span>
+      ),
+    },
+    { accessorKey: 'problem_id', header: '#', size: 60 },
+    {
+      accessorKey: 'problem_title',
+      header: t('admin.field.title'),
+      cell: ({ row }) => (
+        <Link
+          to={`/contests/${contestId}/problems/${row.original.problem_id}`}
+          className="font-medium hover:text-primary hover:underline"
+        >
+          {row.original.problem_title}
+        </Link>
+      ),
+    },
+    {
+      id: 'actions',
+      header: '',
+      size: 50,
+      cell: ({ row }) => (
+        <ProblemActionsMenu
+          onManageTestCases={() => onManageTestCases(row.original)}
+          onManageAdditionalFiles={() => onManageAdditionalFiles(row.original)}
+          onManageCheckerSource={() => onManageCheckerSource(row.original)}
+          onManageAttachments={() => onManageAttachments(row.original)}
+          onConfigure={() => onConfigure(row.original)}
+          onEdit={() => onEdit(row.original)}
+          destructiveLabel={t('admin.removeFromContest')}
+          onDestructive={() => onDetach(row.original)}
+        />
+      ),
+    },
+  ];
+}
+
+// -- Problems Tab --
 
 export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const { t } = useTranslation();
@@ -417,6 +589,15 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
   const [configProblem, setConfigProblem] = useState<
     ProblemSummary | undefined
   >();
+  const [configContestProblem, setConfigContestProblem] = useState<
+    ContestProblem | undefined
+  >();
+
+  // The cache key must include every input of the fetch: the global list and
+  // each contest's list are different datasets and must never share an entry.
+  const problemsQueryKey = contestId
+    ? ['admin-problems', 'contest', String(contestId)]
+    : ['admin-problems'];
 
   function handleCreateProblem() {
     setEditingProblem(undefined);
@@ -459,11 +640,61 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
       params: { path: { id: problem.id } },
     });
     if (error) {
-      toast.error(extractErrorMessage(error, t('toast.problem.deleteError')));
+      toast.error(getErrorMessage(error, t('toast.problem.deleteError')));
     } else {
       toast.success(t('toast.problem.deleted'));
+      // Prefix invalidation: refreshes the global list and every
+      // contest-scoped list, since the problem may appear in any of them.
       queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
     }
+  }
+
+  // In contest mode rows only carry the contest relationship; the management
+  // dialogs need a full ProblemSummary, so resolve it on demand.
+  async function resolveProblem(
+    problemId: number,
+  ): Promise<ProblemSummary | undefined> {
+    const { data, error } = await apiClient.GET('/problems/{id}', {
+      params: { path: { id: problemId } },
+    });
+    if (error || !data) {
+      toast.error(getErrorMessage(error, t('toast.problem.loadError')));
+      return undefined;
+    }
+    return data;
+  }
+
+  function forContestRow(open: (problem: ProblemSummary) => void) {
+    return async (row: ContestProblem) => {
+      const problem = await resolveProblem(row.problem_id);
+      if (problem) open(problem);
+    };
+  }
+
+  // Detach the problem from this contest; never deletes the problem itself.
+  async function handleDetachProblem(row: ContestProblem) {
+    if (!contestId) return;
+    if (!window.confirm(t('admin.removeFromContestConfirm'))) return;
+    const { error } = await apiClient.DELETE(
+      '/contests/{id}/problems/{problem_id}',
+      {
+        params: { path: { id: contestId, problem_id: row.problem_id } },
+      },
+    );
+    if (error) {
+      toast.error(getErrorMessage(error, t('toast.problem.removeError')));
+    } else {
+      toast.success(t('toast.problem.removed'));
+      queryClient.invalidateQueries({ queryKey: problemsQueryKey });
+      queryClient.invalidateQueries({
+        queryKey: ['contest-problems', contestId],
+      });
+    }
+  }
+
+  function handleConfigureContestProblem(row: ContestProblem) {
+    setConfigContestProblem(row);
+    setConfigDialogOpen(true);
   }
 
   const columns = useProblemColumns({
@@ -476,36 +707,64 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
     onConfigure: handleConfigure,
   });
 
+  const contestColumns = useContestProblemColumns({
+    contestId: contestId ?? 0,
+    onEdit: forContestRow(handleEditProblem),
+    onDetach: handleDetachProblem,
+    onManageTestCases: forContestRow(handleManageTestCases),
+    onManageAdditionalFiles: forContestRow(handleManageAdditionalFiles),
+    onManageAttachments: forContestRow(handleManageAttachments),
+    onManageCheckerSource: forContestRow(handleManageCheckerSource),
+    onConfigure: handleConfigureContestProblem,
+  });
+
+  const createButton = (
+    <Button size="sm" onClick={handleCreateProblem}>
+      <Plus className="h-4 w-4 mr-1" />
+      {t('admin.createProblem')}
+    </Button>
+  );
+
   return (
     <>
-      <DataTable
-        columns={columns}
-        queryKey={['admin-problems']}
-        fetchFn={(api, params) => {
-          if (contestId) {
-            return fetchContestProblems(api, { ...params, contestId });
+      {contestId ? (
+        <DataTable
+          columns={contestColumns}
+          queryKey={problemsQueryKey}
+          fetchFn={(api, params) =>
+            fetchContestProblems(api, { ...params, contestId })
           }
-          return fetchProblems(api, params);
-        }}
-        searchable
-        searchPlaceholder={t('problems.searchPlaceholder')}
-        defaultPerPage={20}
-        defaultSortBy="created_at"
-        defaultSortOrder="desc"
-        emptyMessage={t('admin.noProblems')}
-        state={table.state}
-        onPageChange={table.setPage}
-        onSearchChange={table.setSearch}
-        onSortChange={table.setSort}
-        toolbar={
-          <Button size="sm" onClick={handleCreateProblem}>
-            <Plus className="h-4 w-4 mr-1" />
-            {t('admin.createProblem')}
-          </Button>
-        }
-      />
+          searchable
+          searchPlaceholder={t('problems.searchPlaceholder')}
+          defaultPerPage={20}
+          emptyMessage={t('admin.noProblems')}
+          state={table.state}
+          onPageChange={table.setPage}
+          onSearchChange={table.setSearch}
+          onSortChange={table.setSort}
+          toolbar={createButton}
+        />
+      ) : (
+        <DataTable
+          columns={columns}
+          queryKey={problemsQueryKey}
+          fetchFn={fetchProblems}
+          searchable
+          searchPlaceholder={t('problems.searchPlaceholder')}
+          defaultPerPage={20}
+          defaultSortBy="created_at"
+          defaultSortOrder="desc"
+          emptyMessage={t('admin.noProblems')}
+          state={table.state}
+          onPageChange={table.setPage}
+          onSearchChange={table.setSearch}
+          onSortChange={table.setSort}
+          toolbar={createButton}
+        />
+      )}
       <ProblemFormDialog
         problem={editingProblem}
+        contestId={contestId}
         open={problemDialogOpen}
         onOpenChange={setProblemDialogOpen}
       />
@@ -541,6 +800,18 @@ export function AdminProblemsTab({ contestId }: { contestId?: number }) {
         <ResourceConfigDialog
           scope={{ scope: 'problem', problemId: configProblem.id }}
           resourceLabel={configProblem.title}
+          open={configDialogOpen}
+          onOpenChange={setConfigDialogOpen}
+        />
+      )}
+      {contestId && configContestProblem && (
+        <ResourceConfigDialog
+          scope={{
+            scope: 'contest_problem',
+            contestId,
+            problemId: configContestProblem.problem_id,
+          }}
+          resourceLabel={configContestProblem.problem_title}
           open={configDialogOpen}
           onOpenChange={setConfigDialogOpen}
         />

@@ -2,11 +2,12 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use broccoli_server_sdk::permissions as perm;
 use sea_orm::*;
 
-use crate::entity::{role, role_permission};
+use crate::entity::{role, role_permission, user};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::user::PermissionGrantRequest;
@@ -30,7 +31,7 @@ pub async fn list_roles(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("role:manage")?;
+    auth_user.require_permission(perm::ROLE_MANAGE)?;
 
     let roles: Vec<String> = role::Entity::find()
         .all(&state.db)
@@ -62,7 +63,7 @@ pub async fn list_role_permissions(
     State(state): State<AppState>,
     AppPath(role_name): AppPath<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("role:manage")?;
+    auth_user.require_permission(perm::ROLE_MANAGE)?;
 
     let permissions: Vec<String> = role_permission::Entity::find()
         .filter(role_permission::Column::Role.eq(role_name))
@@ -85,7 +86,7 @@ pub async fn list_role_permissions(
     params(("role" = String, Path, description = "Role name")),
     request_body = PermissionGrantRequest,
     responses(
-        (status = 200, description = "Permission granted successfully"),
+        (status = 201, description = "Permission granted successfully"),
         (status = 400, description = "Validation error", body = ErrorBody),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
@@ -93,12 +94,12 @@ pub async fn list_role_permissions(
     security(("jwt" = [])),
 )]
 pub async fn grant_permission_to_role(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(role_name): AppPath<String>,
     AppJson(req): AppJson<PermissionGrantRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("role:manage")?;
+    auth_user.require_permission(perm::ROLE_MANAGE)?;
 
     let existing = role_permission::Entity::find_by_id((role_name.clone(), req.permission.clone()))
         .one(&state.db)
@@ -110,10 +111,16 @@ pub async fn grant_permission_to_role(
     }
 
     let new_grant = role_permission::ActiveModel {
-        role: Set(role_name),
+        role: Set(role_name.clone()),
         permission: Set(req.permission),
     };
-    new_grant.insert(&state.db).await?;
+    // Grant + invalidate the in-flight access tokens of everyone holding this
+    // role in one transaction, so the new permission cannot be exercised by a
+    // stale token from before the grant.
+    let txn = state.db.begin().await?;
+    new_grant.insert(&txn).await?;
+    user::Entity::touch_credentials_changed_for_role(&txn, &role_name).await?;
+    txn.commit().await?;
 
     Ok(StatusCode::CREATED)
 }
@@ -130,7 +137,7 @@ pub async fn grant_permission_to_role(
         ("permission" = String, Path, description = "Permission name")
     ),
     responses(
-        (status = 200, description = "Permission revoked successfully"),
+        (status = 204, description = "Permission revoked successfully"),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
         (status = 404, description = "Role permission not found (NOT_FOUND)", body = ErrorBody),
@@ -138,11 +145,11 @@ pub async fn grant_permission_to_role(
     security(("jwt" = [])),
 )]
 pub async fn revoke_permission_from_role(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((role_name, permission_name)): AppPath<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("role:manage")?;
+    auth_user.require_permission(perm::ROLE_MANAGE)?;
 
     let existing =
         role_permission::Entity::find_by_id((role_name.clone(), permission_name.clone()))
@@ -152,9 +159,15 @@ pub async fn revoke_permission_from_role(
         return Err(AppError::NotFound("Role permission not found".into()));
     }
 
-    role_permission::Entity::delete_by_id((role_name, permission_name))
-        .exec(&state.db)
+    // Revoke + invalidate the in-flight access tokens of everyone holding this
+    // role in one transaction, so a stale token cannot keep exercising the
+    // permission that was just removed.
+    let txn = state.db.begin().await?;
+    role_permission::Entity::delete_by_id((role_name.clone(), permission_name))
+        .exec(&txn)
         .await?;
+    user::Entity::touch_credentials_changed_for_role(&txn, &role_name).await?;
+    txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,6 +1,7 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { PLUGIN_MANAGE } from '@broccoli/web-sdk/permissions';
 import type { PluginDetail } from '@broccoli/web-sdk/plugin';
 import { usePluginRegistry } from '@broccoli/web-sdk/plugin';
 import {
@@ -51,12 +52,18 @@ export default function PluginsPage() {
     [searchParams, setSearchParams],
   );
 
+  // Gate the fetch on the same permission as the render guard below: the hook
+  // runs before the early Unauthorized return, so without this an unauthorized
+  // viewer would 403 on /admin/plugins.
+  const canManagePlugins = !!user?.permissions.includes(PLUGIN_MANAGE);
+
   const {
     data: plugins,
     isLoading,
     error,
   } = useQuery({
     queryKey: ['admin-plugins'],
+    enabled: canManagePlugins,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/admin/plugins');
       if (error) throw error;
@@ -77,11 +84,9 @@ export default function PluginsPage() {
         });
 
         if (error) {
-          const msg =
-            error && typeof error === 'object' && 'message' in error
-              ? (error as { message?: string }).message
-              : undefined;
-          toast.error(msg || t('validation.pluginToggleError'));
+          toast.error(
+            getErrorMessage(error, t('validation.pluginToggleError')),
+          );
         } else {
           queryClient.invalidateQueries({ queryKey: ['admin-plugins'] });
           queryClient.invalidateQueries({ queryKey: ['i18n'] });
@@ -142,7 +147,7 @@ export default function PluginsPage() {
     }
   }, [apiClient, queryClient, reloadAllPlugins]);
 
-  if (!user || !user.permissions.includes('plugin:manage')) {
+  if (!canManagePlugins) {
     return <Unauthorized />;
   }
 

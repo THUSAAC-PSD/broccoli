@@ -1,32 +1,59 @@
-use std::cell::RefCell;
-
 use anyhow::{Context, bail};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{Credentials, save_credentials_full};
+use crate::config::{Credentials, save_credentials, save_credentials_full};
 use crate::model::{SubmissionStatus, Verdict};
+use crate::tokenstore::{TokenStore, Tokens};
 
 /// Shared API client; refreshes the access token and retries once on 401.
+///
+/// The token pair lives in a [`TokenStore`] rather than the client, so the
+/// client is `Send + Sync` and several clients (or threads) can share one token
+/// rotation instead of each wrapping the whole client in `Arc<Mutex<Client>>`.
 pub struct Client {
     server: String,
-    token: RefCell<String>,
-    refresh_token: RefCell<Option<String>>,
+    tokens: TokenStore,
     agent: ureq::Agent,
 }
 
 impl Client {
+    /// Build a client that persists refreshed tokens back to the credentials
+    /// file (the default for a stand-alone CLI process).
     pub fn new(creds: Credentials) -> Self {
+        let server = creds.server;
+        let persist_server = server.clone();
+        let tokens = TokenStore::new(
+            Tokens {
+                token: creds.token,
+                refresh_token: creds.refresh_token,
+            },
+            move |t| {
+                let _ =
+                    save_credentials_full(&persist_server, &t.token, t.refresh_token.as_deref());
+            },
+        );
+        Self::with_token_store(server, tokens)
+    }
+
+    /// Build a client over an externally-owned [`TokenStore`], so multiple
+    /// clients can share one token rotation (and one persistence policy).
+    pub fn with_token_store(server: String, tokens: TokenStore) -> Self {
         let agent = crate::tls::build_agent(
             Some(std::time::Duration::from_secs(10)),
             Some(std::time::Duration::from_secs(30)),
         );
         Self {
-            server: creds.server,
-            token: RefCell::new(creds.token),
-            refresh_token: RefCell::new(creds.refresh_token),
+            server,
+            tokens,
             agent,
         }
+    }
+
+    /// The shared token store, for constructing sibling clients that share this
+    /// client's token rotation.
+    pub fn token_store(&self) -> TokenStore {
+        self.tokens.clone()
     }
 
     pub fn server(&self) -> &str {
@@ -39,54 +66,127 @@ impl Client {
     }
 
     fn bearer(&self) -> String {
-        format!("Bearer {}", self.token.borrow())
+        format!("Bearer {}", self.tokens.access_token())
     }
 
-    /// Exchange the refresh token for fresh tokens, persisting them.
-    fn refresh_access_token(&self) -> anyhow::Result<()> {
-        let refresh_token = self
-            .refresh_token
-            .borrow()
-            .clone()
-            .context("No refresh token available")?;
+    /// Upload a packaged plugin archive to the admin plugin-upload endpoint as
+    /// `multipart/form-data`, refreshing the access token on 401 and retrying
+    /// transient 5xx failures with exponential backoff. Routing this through the
+    /// client (instead of a raw HTTP call) means a token that expires mid
+    /// `plugin watch` session is refreshed rather than failing the upload.
+    pub fn upload_plugin(&self, archive: &[u8]) -> anyhow::Result<()> {
+        const MAX_RETRIES: u32 = 3;
+        const INITIAL_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
-        let resp = self
-            .agent
-            .post(&format!("{}/api/v1/auth/cli-refresh", self.server))
-            .send_json(serde_json::json!({ "refresh_token": refresh_token }))
-            .with_context(|| {
-                format!(
-                    "Could not reach {} — check your network connection.",
-                    self.server
-                )
-            })?;
+        let boundary = "----broccolicli7MA4YWxkTrZu0gWupload";
+        let mut body = Vec::with_capacity(archive.len() + 256);
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"plugin\"; filename=\"plugin.tar.gz\"\r\n",
+        );
+        body.extend_from_slice(b"Content-Type: application/gzip\r\n\r\n");
+        body.extend_from_slice(archive);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        let content_type = format!("multipart/form-data; boundary={boundary}");
+        let url = format!("{}/api/v1/admin/plugins/upload", self.server);
 
-        if resp.status().as_u16() != 200 {
-            bail!("Session expired. Run `broccoli login` to re-authenticate.");
+        let send = || {
+            self.agent
+                .post(&url)
+                .header("Authorization", &self.bearer())
+                .header("Content-Type", &content_type)
+                .send(&body[..])
+                .with_context(|| {
+                    format!(
+                        "Could not reach {} — check your network connection.",
+                        self.server
+                    )
+                })
+        };
+
+        let mut last_err: Option<String> = None;
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                std::thread::sleep(INITIAL_DELAY * 2u32.pow(attempt - 1));
+            }
+
+            let used = self.tokens.access_token();
+            let resp = match send() {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(e.to_string());
+                    continue;
+                }
+            };
+            let resp = self.with_refresh(&used, resp, send)?;
+
+            let status = resp.status().as_u16();
+            if (200..300).contains(&status) {
+                return Ok(());
+            }
+            let text = resp.into_body().read_to_string().unwrap_or_default();
+            if status == 401 {
+                bail!("Authentication failed (401). Run `broccoli login` to re-authenticate.");
+            }
+            if status >= 500 {
+                last_err = Some(format!("Upload failed ({status}): {text}"));
+                continue;
+            }
+            bail!("Upload failed ({status}): {text}");
         }
 
-        let body: CliTokenResponse = resp
-            .into_body()
-            .read_json()
-            .context("Failed to parse refresh response")?;
+        bail!(
+            "{}. Giving up after {} attempts",
+            last_err.unwrap_or_else(|| "Upload failed".into()),
+            MAX_RETRIES + 1
+        );
+    }
 
-        *self.token.borrow_mut() = body.token.clone();
-        *self.refresh_token.borrow_mut() = Some(body.refresh_token.clone());
-        let _ = save_credentials_full(&self.server, &body.token, Some(&body.refresh_token));
-        Ok(())
+    /// Refresh the access token, serialized and deduplicated across threads by
+    /// the token store. `used` is the access token the failed request carried.
+    fn refresh_on_401(&self, used: &str) -> anyhow::Result<()> {
+        self.tokens.refresh_if_current(used, |refresh_token| {
+            let resp = self
+                .agent
+                .post(&format!("{}/api/v1/auth/cli-refresh", self.server))
+                .send_json(serde_json::json!({ "refresh_token": refresh_token }))
+                .with_context(|| {
+                    format!(
+                        "Could not reach {} — check your network connection.",
+                        self.server
+                    )
+                })?;
+
+            if resp.status().as_u16() != 200 {
+                bail!("Session expired. Run `broccoli login` to re-authenticate.");
+            }
+
+            let body: CliTokenResponse = resp
+                .into_body()
+                .read_json()
+                .context("Failed to parse refresh response")?;
+
+            Ok(Tokens {
+                token: body.token,
+                refresh_token: Some(body.refresh_token),
+            })
+        })
     }
 
     /// On 401 with a refresh token, refresh and re-run `retry`; else return `resp`.
+    /// `used` is the access token `retry`'s failed attempt carried, so a racing
+    /// refresh by another thread is detected and not repeated.
     fn with_refresh<F>(
         &self,
+        used: &str,
         resp: http::Response<ureq::Body>,
         retry: F,
     ) -> anyhow::Result<http::Response<ureq::Body>>
     where
         F: FnOnce() -> anyhow::Result<http::Response<ureq::Body>>,
     {
-        let needs_refresh = resp.status().as_u16() == 401 && self.refresh_token.borrow().is_some();
-        if needs_refresh && self.refresh_access_token().is_ok() {
+        let needs_refresh = resp.status().as_u16() == 401 && self.tokens.refresh_token().is_some();
+        if needs_refresh && self.refresh_on_401(used).is_ok() {
             return retry();
         }
         Ok(resp)
@@ -106,8 +206,9 @@ impl Client {
                     )
                 })
         };
+        let used = self.tokens.access_token();
         let resp = send()?;
-        self.with_refresh(resp, send)
+        self.with_refresh(&used, resp, send)
     }
 
     fn post(
@@ -128,8 +229,9 @@ impl Client {
                     )
                 })
         };
+        let used = self.tokens.access_token();
         let resp = send()?;
-        self.with_refresh(resp, send)
+        self.with_refresh(&used, resp, send)
     }
 
     fn delete(&self, path: &str) -> anyhow::Result<http::Response<ureq::Body>> {
@@ -146,8 +248,9 @@ impl Client {
                     )
                 })
         };
+        let used = self.tokens.access_token();
         let resp = send()?;
-        self.with_refresh(resp, send)
+        self.with_refresh(&used, resp, send)
     }
 
     /// Bail on non-2xx with a clean message; return `resp` on success.
@@ -452,6 +555,25 @@ impl Client {
     }
 }
 
+/// Exchange the short-lived device-flow/callback access token for a fresh
+/// access token plus a long-lived refresh token, and store both so later
+/// commands can keep refreshing instead of dying when the access token
+/// expires. Older servers without `/auth/cli-token` fall back to storing the
+/// access token alone.
+pub fn persist_session(server: &str, access_token: &str) -> anyhow::Result<()> {
+    let client = Client::new(Credentials {
+        server: server.to_string(),
+        token: access_token.to_string(),
+        refresh_token: None,
+    });
+    match client.issue_cli_token() {
+        Ok(cli) => save_credentials_full(server, &cli.token, Some(&cli.refresh_token))
+            .context("Failed to save credentials")?,
+        Err(_) => save_credentials(server, access_token).context("Failed to save credentials")?,
+    }
+    Ok(())
+}
+
 /// Standard server error body (`{code, message, details}`).
 #[derive(Debug, Clone, Deserialize)]
 struct ServerError {
@@ -638,6 +760,9 @@ pub struct ContestProblemResponse {
 pub struct SampleCase {
     pub input: String,
     pub output: String,
+    /// Optional markdown note explaining this sample. Absent on older servers.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

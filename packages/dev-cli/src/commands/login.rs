@@ -5,9 +5,10 @@ use std::time::Duration;
 use anyhow::{Context, bail};
 use clap::Args;
 use console::style;
-use serde::Deserialize;
 
-use broccoli_cli_core::config;
+use broccoli_cli_core::client::{Client, DeviceCodeResponse, PollResponse, persist_session};
+use broccoli_cli_core::config::Credentials;
+use broccoli_cli_core::tls;
 
 #[derive(Args)]
 pub struct LoginArgs {
@@ -15,25 +16,11 @@ pub struct LoginArgs {
     pub server: String,
 }
 
-#[derive(Deserialize)]
-struct DeviceCodeResponse {
-    device_code: String,
-    user_code: String,
-    verification_url: String,
-    expires_in: u64,
-    interval: u64,
-}
-
-#[derive(Deserialize)]
-struct PollResponse {
-    #[serde(default)]
-    error: Option<String>,
-    #[serde(default)]
-    token: Option<String>,
-}
-
 pub fn run(args: LoginArgs) -> anyhow::Result<()> {
-    let agent = ureq::Agent::new_with_defaults();
+    // Non-2xx must come back as Ok so we can read the RFC-8628-style poll
+    // errors (authorization_pending / slow_down / expired_token) the server
+    // sends with HTTP 400; tls::build_agent also disables status-as-error.
+    let agent = tls::build_agent(Some(Duration::from_secs(10)), Some(Duration::from_secs(30)));
 
     println!(
         "{}  Requesting device code from {}...",
@@ -41,24 +28,15 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
         style(&args.server).cyan()
     );
 
-    let resp = agent
-        .post(&format!("{}/api/v1/auth/device-code", args.server))
-        .send_json(serde_json::json!({}))
+    let client = Client::new(Credentials {
+        server: args.server.to_string(),
+        token: String::new(),
+        refresh_token: None,
+    });
+
+    let device_code_resp: DeviceCodeResponse = client
+        .request_device_code()
         .context("Failed to connect to server. Is it running?")?;
-
-    if resp.status() != 200 {
-        let status = resp.status();
-        let body = resp
-            .into_body()
-            .read_to_string()
-            .unwrap_or_else(|_| "(unreadable)".into());
-        bail!("Server returned {}: {}", status, body);
-    }
-
-    let device_code_resp: DeviceCodeResponse = resp
-        .into_body()
-        .read_json()
-        .context("Failed to parse device code response")?;
 
     println!();
     println!(
@@ -107,7 +85,7 @@ pub fn run(args: LoginArgs) -> anyhow::Result<()> {
             println!();
             println!();
 
-            config::save_credentials(&args.server, &token).context("Failed to save credentials")?;
+            persist_session(&args.server, &token)?;
 
             println!("{}  Logged in successfully!", style("✓").green().bold());
             println!(

@@ -181,10 +181,22 @@ impl SandboxConfig {
         }
     }
 
-    pub fn manager_limits(&self, time_limit_s: f64, memory_limit_kb: u32) -> ResourceLimits {
+    pub fn manager_limits(
+        &self,
+        time_limit_s: f64,
+        memory_limit_kb: u32,
+        num_processes: u32,
+    ) -> ResourceLimits {
         // Manager gets generous wall-time (many FIFO I/O waits) and single-process.
-        // Uses exec open_files_limit (not compile) — the manager is a runtime process
-        // that opens 2*N FIFOs plus stdin/stdout/stderr.
+        // Uses exec open_files_limit (not compile) - the manager is a runtime process
+        // that opens 2 FIFOs per contestant process plus stdin/stdout/stderr.
+        //
+        // The fd limit MUST scale with num_processes: the manager wires 2*N FIFOs
+        // (m_to_c / c_to_m) plus a handful of standard/input fds, so a fixed floor
+        // (64) exhausts once num_processes exceeds ~30 (max_processes defaults to
+        // 64), and open() returns EMFILE -> the manager errors -> every submission
+        // on that problem is a SystemError.
+        let fd_floor = 2 * num_processes + 8;
         ResourceLimits {
             time_limit: Some(time_limit_s),
             wall_time_limit: Some(time_limit_s * self.exec_wall_time_multiplier),
@@ -195,7 +207,7 @@ impl SandboxConfig {
             },
             memory_limit: Some(memory_limit_kb),
             process_limit: Some(1),
-            open_files_limit: Some(self.exec_open_files_limit.max(64)),
+            open_files_limit: Some(self.exec_open_files_limit.max(fd_floor).max(64)),
             file_size_limit: Some(self.exec_file_size_limit_kb),
             ..Default::default()
         }

@@ -13,6 +13,7 @@ use notify::{Event, RecursiveMode, Watcher};
 use serde::Deserialize;
 
 use crate::dev_config::{self, FileKind, ResolvedDevConfig};
+use broccoli_cli_core::client::Client;
 use broccoli_cli_core::config;
 
 use super::wasm::copy_wasm_artifact;
@@ -81,6 +82,9 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
     }
 
     let creds = config::resolve_credentials(args.server.as_deref(), args.token.as_deref())?;
+    // One shared client so plugin uploads refresh the token on 401 (and persist
+    // the rotation) instead of failing mid-session with a stale token.
+    let client = Client::new(creds);
 
     let manifest = read_manifest(&manifest_path)?;
     let plugin_name = manifest.name.as_deref().unwrap_or("plugin");
@@ -90,7 +94,7 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
         style("→").blue().bold(),
         style(plugin_name).cyan()
     );
-    println!("   Server: {}", style(&creds.server).dim());
+    println!("   Server: {}", style(client.server()).dim());
 
     let web_root_str = manifest.web.as_ref().map(|w| w.root.as_str());
     let dev = dev_config::resolve(&plugin_dir, web_root_str);
@@ -189,7 +193,7 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
     if let Err(e) = initial_build_and_upload(
         &plugin_dir,
         &manifest_path,
-        &creds,
+        &client,
         &dev,
         args.release,
         &mut last_uploaded_archive_fingerprint,
@@ -260,7 +264,7 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
                 if let Err(e) = backend_build_and_upload(
                     &plugin_dir,
                     &manifest_path,
-                    &creds,
+                    &client,
                     args.release,
                     &mut last_uploaded_archive_fingerprint,
                 ) {
@@ -286,7 +290,7 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
                 if let Err(e) = backend_build_and_upload(
                     &plugin_dir,
                     &manifest_path,
-                    &creds,
+                    &client,
                     args.release,
                     &mut last_uploaded_archive_fingerprint,
                 ) {
@@ -303,7 +307,7 @@ pub fn run(args: WatchPluginArgs) -> anyhow::Result<()> {
                 if let Err(e) = package_and_upload(
                     &plugin_dir,
                     &manifest_path,
-                    &creds,
+                    &client,
                     &mut last_uploaded_archive_fingerprint,
                 ) {
                     eprintln!("{}  Upload failed: {}", style("✗").red().bold(), e);
@@ -422,7 +426,7 @@ fn spawn_frontend_dev(dev: &ResolvedDevConfig, _plugin_dir: &Path) -> anyhow::Re
 fn initial_build_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
-    creds: &config::Credentials,
+    client: &Client,
     dev: &ResolvedDevConfig,
     release: bool,
     last_uploaded_archive_fingerprint: &mut Option<u64>,
@@ -442,7 +446,7 @@ fn initial_build_and_upload(
     }
 
     let archive = package_plugin(plugin_dir, &manifest)?;
-    upload_plugin(&archive, creds, last_uploaded_archive_fingerprint)?;
+    upload_plugin(&archive, client, last_uploaded_archive_fingerprint)?;
 
     println!("{}  Plugin uploaded to server", style("✓").green().bold());
 
@@ -452,7 +456,7 @@ fn initial_build_and_upload(
 fn backend_build_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
-    creds: &config::Credentials,
+    client: &Client,
     release: bool,
     last_uploaded_archive_fingerprint: &mut Option<u64>,
 ) -> anyhow::Result<()> {
@@ -467,7 +471,7 @@ fn backend_build_and_upload(
     }
 
     let archive = package_plugin(plugin_dir, &manifest)?;
-    upload_plugin(&archive, creds, last_uploaded_archive_fingerprint)?;
+    upload_plugin(&archive, client, last_uploaded_archive_fingerprint)?;
 
     println!("{}  Plugin reloaded on server", style("✓").green().bold());
 
@@ -477,12 +481,12 @@ fn backend_build_and_upload(
 fn package_and_upload(
     plugin_dir: &Path,
     manifest_path: &Path,
-    creds: &config::Credentials,
+    client: &Client,
     last_uploaded_archive_fingerprint: &mut Option<u64>,
 ) -> anyhow::Result<()> {
     let manifest = read_manifest(manifest_path)?;
     let archive = package_plugin(plugin_dir, &manifest)?;
-    upload_plugin(&archive, creds, last_uploaded_archive_fingerprint)?;
+    upload_plugin(&archive, client, last_uploaded_archive_fingerprint)?;
 
     println!("{}  Plugin reloaded on server", style("✓").green().bold());
 
@@ -629,13 +633,9 @@ fn fingerprint_bytes(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
-const MAX_UPLOAD_RETRIES: u32 = 3;
-
-const INITIAL_RETRY_DELAY: Duration = Duration::from_secs(2);
-
 fn upload_plugin(
     archive: &[u8],
-    creds: &config::Credentials,
+    client: &Client,
     last_uploaded_archive_fingerprint: &mut Option<u64>,
 ) -> anyhow::Result<()> {
     let fingerprint = fingerprint_bytes(archive);
@@ -647,67 +647,10 @@ fn upload_plugin(
         return Ok(());
     }
 
-    let client = reqwest::blocking::Client::new();
-    let mut last_err = None;
-
-    for attempt in 0..=MAX_UPLOAD_RETRIES {
-        if attempt > 0 {
-            let delay = INITIAL_RETRY_DELAY * 2u32.pow(attempt - 1);
-            eprintln!(
-                "   Retrying upload in {}s (attempt {}/{})...",
-                delay.as_secs(),
-                attempt + 1,
-                MAX_UPLOAD_RETRIES + 1
-            );
-            std::thread::sleep(delay);
-        }
-
-        let form = reqwest::blocking::multipart::Form::new().part(
-            "plugin",
-            reqwest::blocking::multipart::Part::bytes(archive.to_vec())
-                .file_name("plugin.tar.gz")
-                .mime_str("application/gzip")?,
-        );
-
-        let resp = match client
-            .post(format!("{}/api/v1/admin/plugins/upload", creds.server))
-            .bearer_auth(&creds.token)
-            .multipart(form)
-            .send()
-        {
-            Ok(r) => r,
-            Err(e) => {
-                last_err = Some(format!("Connection error: {e}"));
-                continue;
-            }
-        };
-
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            bail!(
-                "Authentication failed (401). Your token may have expired.\n\
-                 Run `broccoli login` again to refresh your credentials."
-            );
-        }
-
-        if resp.status().is_success() {
-            *last_uploaded_archive_fingerprint = Some(fingerprint);
-            return Ok(());
-        }
-
-        let status = resp.status();
-        let body = resp.text().unwrap_or_default();
-
-        if status.is_server_error() {
-            last_err = Some(format!("Upload failed ({status}): {body}"));
-            continue;
-        }
-
-        bail!("Upload failed ({}): {}", status, body);
-    }
-
-    bail!(
-        "{}. Giving up after {} attempts",
-        last_err.unwrap_or_else(|| "Upload failed".into()),
-        MAX_UPLOAD_RETRIES + 1
-    );
+    // Routed through cli-core so a token that expires mid-session is refreshed
+    // and retried instead of failing the upload with a 401 (the old raw-reqwest
+    // path had no refresh). Transient 5xx retries live in the client too.
+    client.upload_plugin(archive)?;
+    *last_uploaded_archive_fingerprint = Some(fingerprint);
+    Ok(())
 }

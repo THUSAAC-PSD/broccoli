@@ -9,6 +9,7 @@ use console::style;
 
 use broccoli_cli_core::client::{Client, CustomTestCaseInput, SubmissionFileDto};
 use broccoli_cli_core::config::{self, load_user_config};
+use broccoli_cli_core::model::SubmissionStatus;
 use broccoli_cli_core::resolve;
 
 use super::context;
@@ -131,12 +132,28 @@ pub fn run(args: TestArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Server hard-caps custom_test_cases at 10 (code_run.rs); cap the remote path
+    // to match and warn. `--local` (above) runs all samples.
+    const MAX_REMOTE_SAMPLES: usize = 10;
+    let selected: &[_] = if samples.len() > MAX_REMOTE_SAMPLES {
+        println!(
+            "{}  This problem has {} samples; the server accepts at most {} per remote run. Testing the first {} — use --local to run all.",
+            style("!").yellow().bold(),
+            samples.len(),
+            MAX_REMOTE_SAMPLES,
+            MAX_REMOTE_SAMPLES
+        );
+        &samples[..MAX_REMOTE_SAMPLES]
+    } else {
+        &samples
+    };
+
     println!(
         "{}  Running {} sample(s) on the server...",
         style("→").blue().bold(),
-        samples.len()
+        selected.len()
     );
-    let custom: Vec<CustomTestCaseInput> = samples
+    let custom: Vec<CustomTestCaseInput> = selected
         .iter()
         .map(|s| CustomTestCaseInput {
             input: s.input.clone(),
@@ -169,7 +186,12 @@ fn load_cached_samples(
         let out_path = samples_dir.join(format!("{}.out", i));
         match (fs::read_to_string(&in_path), fs::read_to_string(&out_path)) {
             (Ok(input), Ok(output)) => {
-                cases.push(broccoli_cli_core::client::SampleCase { input, output })
+                let description = fs::read_to_string(samples_dir.join(format!("{}.md", i))).ok();
+                cases.push(broccoli_cli_core::client::SampleCase {
+                    input,
+                    output,
+                    description,
+                })
             }
             _ => break,
         }
@@ -185,9 +207,10 @@ fn poll_code_run(client: &Client, run_id: i64) -> anyhow::Result<serde_json::Val
 
     loop {
         let cr = client.get_code_run(run_id)?;
-        let status = cr["status"].as_str().unwrap_or("");
-        let terminal = !matches!(status, "Pending" | "Compiling" | "Running" | "");
-        if terminal {
+        // Reuse the shared status model so pre-judging states (Queued, Judging, ...)
+        // keep polling; unknown statuses stop, like `submit -w`.
+        let status: SubmissionStatus = cr["status"].as_str().unwrap_or("").parse().unwrap(); // Infallible
+        if !status.is_in_progress() {
             eprint!("\r\x1b[K");
             std::io::stderr().flush().ok();
             return Ok(cr);
@@ -423,6 +446,7 @@ fn default_runtime(lang: &str) -> String {
 }
 
 fn print_remote_result(result: &serde_json::Value) -> anyhow::Result<()> {
+    let status: SubmissionStatus = result["status"].as_str().unwrap_or("").parse().unwrap(); // Infallible
     let judge = &result["result"];
 
     if let Some(compile) = judge["compile_output"].as_str() {
@@ -434,11 +458,16 @@ fn print_remote_result(result: &serde_json::Value) -> anyhow::Result<()> {
         }
     }
 
+    if status == SubmissionStatus::CompilationError {
+        bail!("Compilation failed.");
+    }
+
     if let Some(cases) = judge["test_case_results"].as_array() {
         if cases.is_empty() {
-            let status = result["status"].as_str().unwrap_or("?");
-            println!("  No test results (status: {}).", status);
-            return Ok(());
+            bail!(
+                "The server returned no test results (status: {}).",
+                status.human()
+            );
         }
         let mut passed = 0usize;
         for (i, case) in cases.iter().enumerate() {
@@ -458,8 +487,12 @@ fn print_remote_result(result: &serde_json::Value) -> anyhow::Result<()> {
         }
         println!("  {}/{} passed.", passed, cases.len());
     } else {
-        let status = result["status"].as_str().unwrap_or("?");
-        println!("  Code run finished with status: {}", status);
+        // A run that stopped without producing results is an error, not a success:
+        // exiting 0 here would tell the contestant "finished" with zero information.
+        bail!(
+            "Code run ended with status {} but returned no results.",
+            status.human()
+        );
     }
 
     Ok(())

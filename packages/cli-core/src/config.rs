@@ -42,19 +42,26 @@ pub fn problem_cache_dir(contest_id: &str, problem_id: &str) -> PathBuf {
     config_dir().join("cache").join(contest_id).join(problem_id)
 }
 
-/// Resolve credentials: CLI args, then `BROCCOLI_URL`/`BROCCOLI_TOKEN`, then `credentials.json`.
+/// Resolve credentials: CLI args, then `BROCCOLI_URL`/`BROCCOLI_TOKEN`, then the
+/// `server` key from `config.toml`, then `credentials.json`.
 pub fn resolve_credentials(
     server: Option<&str>,
     token: Option<&str>,
 ) -> anyhow::Result<Credentials> {
-    resolve_credentials_from_sources(server, token, |name| std::env::var(name).ok())
+    resolve_credentials_from_sources(
+        server,
+        token,
+        |name| std::env::var(name).ok(),
+        load_user_config().server,
+    )
 }
 
-/// [`resolve_credentials`] with an injectable env lookup, for testing.
+/// [`resolve_credentials`] with injectable env lookup and config-file server, for testing.
 fn resolve_credentials_from_sources(
     server: Option<&str>,
     token: Option<&str>,
     env_lookup: impl Fn(&str) -> Option<String>,
+    config_server: Option<String>,
 ) -> anyhow::Result<Credentials> {
     if let (Some(s), Some(t)) = (server, token) {
         return Ok(Credentials {
@@ -67,7 +74,8 @@ fn resolve_credentials_from_sources(
     let env_server = env_lookup("BROCCOLI_URL");
     let env_token = env_lookup("BROCCOLI_TOKEN");
 
-    let resolved_server = server.map(String::from).or(env_server);
+    // Precedence: CLI flag > env var > config.toml `server` > credentials.json.
+    let resolved_server = server.map(String::from).or(env_server).or(config_server);
     let resolved_token = token.map(String::from).or(env_token);
 
     if let (Some(s), Some(t)) = (resolved_server.as_ref(), resolved_token.as_ref()) {
@@ -122,8 +130,14 @@ pub fn save_credentials_full(
     let creds_path = credentials_path();
 
     let mut file = if creds_path.exists() {
-        let content = std::fs::read_to_string(&creds_path).unwrap_or_default();
-        serde_json::from_str::<CredentialsFile>(&content).unwrap_or_default()
+        // Propagate read/parse errors instead of unwrap_or_default(): a corrupt or
+        // unreadable file previously collapsed to an empty CredentialsFile, so the
+        // write below would silently drop every OTHER server's saved token. Fail
+        // loudly (matching the read path) rather than destroying credentials.
+        let content =
+            std::fs::read_to_string(&creds_path).context("Failed to read credentials file")?;
+        serde_json::from_str::<CredentialsFile>(&content)
+            .context("Failed to parse credentials file")?
     } else {
         CredentialsFile::default()
     };
@@ -152,13 +166,33 @@ pub fn save_credentials_full(
     }
 
     let content = serde_json::to_string_pretty(&file)?;
-    std::fs::write(&creds_path, &content).context("Failed to write credentials file")?;
 
+    // Create the file 0600 from the start so the bearer/refresh tokens are never
+    // even briefly world-readable. `std::fs::write` would create with the default
+    // umask (typically 0644) and only tighten afterwards, leaving a window in
+    // which another local user could read the credentials.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&creds_path, perms)?;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&creds_path)
+            .context("Failed to open credentials file")?;
+        // Normalize perms too, in case the file predates this and is still 0644.
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(content.as_bytes())
+            .context("Failed to write credentials file")?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&creds_path, &content).context("Failed to write credentials file")?;
     }
 
     Ok(())
@@ -173,7 +207,8 @@ pub struct UserConfig {
     #[serde(default)]
     pub language: Option<String>,
 
-    /// Overrides credentials file or env var.
+    /// Default server URL used when neither a command flag nor $BROCCOLI_URL is
+    /// set. Flags and the environment variable take precedence over this value.
     #[serde(default)]
     pub server: Option<String>,
 
@@ -332,12 +367,61 @@ mod tests {
         ]
         .into();
 
-        let creds = resolve_credentials_from_sources(None, None, |name| {
-            env.get(name).copied().map(String::from)
-        })
+        let creds = resolve_credentials_from_sources(
+            None,
+            None,
+            |name| env.get(name).copied().map(String::from),
+            None,
+        )
         .unwrap();
         assert_eq!(creds.server, "https://env.example.com");
         assert_eq!(creds.token, "env-token");
+    }
+
+    #[test]
+    fn test_config_server_used_when_no_flag_or_env_server() {
+        let env: HashMap<&str, &str> = [("BROCCOLI_TOKEN", "env-token")].into();
+
+        let creds = resolve_credentials_from_sources(
+            None,
+            None,
+            |name| env.get(name).copied().map(String::from),
+            Some("https://config.example.com".into()),
+        )
+        .unwrap();
+        assert_eq!(creds.server, "https://config.example.com");
+        assert_eq!(creds.token, "env-token");
+    }
+
+    #[test]
+    fn test_env_server_beats_config_server() {
+        let env: HashMap<&str, &str> = [
+            ("BROCCOLI_URL", "https://env.example.com"),
+            ("BROCCOLI_TOKEN", "env-token"),
+        ]
+        .into();
+
+        let creds = resolve_credentials_from_sources(
+            None,
+            None,
+            |name| env.get(name).copied().map(String::from),
+            Some("https://config.example.com".into()),
+        )
+        .unwrap();
+        assert_eq!(creds.server, "https://env.example.com");
+    }
+
+    #[test]
+    fn test_flag_server_beats_config_server() {
+        let creds = resolve_credentials_from_sources(
+            Some("https://arg.example.com"),
+            Some("arg-token"),
+            |_| None,
+            Some("https://config.example.com".into()),
+        )
+        .unwrap();
+        assert_eq!(creds.server, "https://arg.example.com");
+        assert_eq!(creds.token, "arg-token");
     }
 
     #[test]

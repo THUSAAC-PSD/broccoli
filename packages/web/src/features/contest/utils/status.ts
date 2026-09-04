@@ -1,8 +1,10 @@
+import type { BadgeProps } from '@broccoli/web-sdk/ui';
+
 export function getContestStatus(
   startTime: string,
   endTime: string,
   t: (key: string) => string,
-): { label: string; variant: 'default' | 'secondary' | 'outline-solid' } {
+): { label: string; variant: NonNullable<BadgeProps['variant']> } {
   const now = new Date();
   const start = new Date(startTime);
   const end = new Date(endTime);

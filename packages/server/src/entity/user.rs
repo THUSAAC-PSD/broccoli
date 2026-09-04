@@ -24,6 +24,13 @@ pub struct Model {
 
     pub created_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,
+
+    /// When this user's credentials/authorization last changed (password reset,
+    /// role grant/revoke, deactivation). Access tokens minted before this
+    /// instant are rejected by the `FreshAuthUser` extractor, so a downgraded or
+    /// deactivated user cannot keep using a still-unexpired access token on
+    /// high-value mutations.
+    pub credentials_changed_at: DateTimeUtc,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
@@ -45,6 +52,44 @@ impl Model {
             role: Set(role_name),
         }
         .insert(db)
+        .await?;
+        Ok(())
+    }
+}
+
+impl Entity {
+    /// Stamp a single user's `credentials_changed_at` to now, invalidating any
+    /// access token minted before this instant on the `FreshAuthUser` path.
+    /// Call inside the same transaction as the credential/authorization change.
+    pub async fn touch_credentials_changed<C>(db: &C, user_id: i32) -> Result<(), sea_orm::DbErr>
+    where
+        C: ConnectionTrait,
+    {
+        db.execute_raw(sea_orm::Statement::from_sql_and_values(
+            db.get_database_backend(),
+            r#"UPDATE "user" SET credentials_changed_at = now() WHERE id = $1"#,
+            [user_id.into()],
+        ))
+        .await?;
+        Ok(())
+    }
+
+    /// Stamp `credentials_changed_at` for every user holding `role_name`, so a
+    /// change to that role's permission set invalidates the in-flight access
+    /// tokens of everyone who currently has it.
+    pub async fn touch_credentials_changed_for_role<C>(
+        db: &C,
+        role_name: &str,
+    ) -> Result<(), sea_orm::DbErr>
+    where
+        C: ConnectionTrait,
+    {
+        db.execute_raw(sea_orm::Statement::from_sql_and_values(
+            db.get_database_backend(),
+            r#"UPDATE "user" SET credentials_changed_at = now()
+               WHERE id IN (SELECT user_id FROM user_role WHERE role = $1)"#,
+            [role_name.into()],
+        ))
         .await?;
         Ok(())
     }

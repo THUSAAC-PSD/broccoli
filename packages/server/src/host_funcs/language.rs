@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use extism::{Function, UserData, Val, ValType};
-use plugin_core::traits::PluginManager;
+use plugin_core::traits::PluginInvoker;
 
 use crate::registry::LanguageResolverRegistry;
 
@@ -10,13 +10,13 @@ use broccoli_server_sdk::types::{ResolveLanguageInput, ResolveLanguageOutput};
 struct ResolveLanguageContext {
     caller_plugin_id: String,
     resolver_registry: LanguageResolverRegistry,
-    plugin_manager: Arc<dyn PluginManager>,
+    plugin_manager: Arc<dyn PluginInvoker>,
 }
 
 pub fn create_resolve_language_function(
     plugin_id: String,
     resolver_registry: LanguageResolverRegistry,
-    plugin_manager: Arc<dyn PluginManager>,
+    plugin_manager: Arc<dyn PluginInvoker>,
 ) -> Function {
     let user_data: UserData<ResolveLanguageContext> = UserData::new(ResolveLanguageContext {
         caller_plugin_id: plugin_id,
@@ -47,12 +47,12 @@ fn resolve_language_fn(
     let ctx = guard
         .lock()
         .map_err(|_| extism::Error::msg("Lock poisoned"))?;
+    let span = super::host_fn_span("resolve_language", &ctx.caller_plugin_id);
+    let _enter = span.enter();
 
-    let resolver = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let registry = ctx.resolver_registry.read().await;
-            registry.get(&input.language_id).cloned()
-        })
+    let resolver = tokio::runtime::Handle::current().block_on(async {
+        let registry = ctx.resolver_registry.read().await;
+        registry.get(&input.language_id).cloned()
     });
 
     let handler = resolver.ok_or_else(|| {
@@ -78,14 +78,13 @@ fn resolve_language_fn(
     let input_bytes = serde_json::to_vec(&input)
         .map_err(|e| extism::Error::msg(format!("Failed to serialize resolver input: {}", e)))?;
 
-    let output_bytes = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    let output_bytes = tokio::runtime::Handle::current()
+        .block_on(async {
             ctx.plugin_manager
                 .call_raw(&handler.plugin_id, &handler.function_name, input_bytes)
                 .await
         })
-    })
-    .map_err(|e| extism::Error::msg(format!("Language resolver plugin error: {}", e)))?;
+        .map_err(|e| extism::Error::msg(format!("Language resolver plugin error: {}", e)))?;
 
     let result: ResolveLanguageOutput = serde_json::from_slice(&output_bytes)
         .map_err(|e| extism::Error::msg(format!("Failed to deserialize resolver output: {}", e)))?;

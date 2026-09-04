@@ -52,7 +52,21 @@ export function AuthImage({
   }, [src, needsAuth, apiFetch]);
 
   if (!needsAuth) {
-    return <img src={src} alt={alt} className={className} />;
+    // External (non-/api/) image from author-controlled markdown. `no-referrer`
+    // keeps the current problem/contest URL out of the outbound request, so an
+    // embedded tracking pixel cannot learn which page a contestant is viewing.
+    // The request still discloses the contestant's IP/User-Agent to the host,
+    // which is inherent to loading any external image - blocking or proxying
+    // external images entirely is a separate policy decision (it would restrict a
+    // legitimate authoring feature).
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        referrerPolicy="no-referrer"
+      />
+    );
   }
 
   if (!blobUrl) {

@@ -33,6 +33,7 @@ pub struct LoadConfig {
     pub per_job_timeout: Duration,
     pub p95_budget_ms: u64,
     pub seed: u64,
+    pub validate_expected_verdicts: bool,
 }
 
 #[derive(Debug)]
@@ -168,6 +169,10 @@ fn scenario_passes(
     true
 }
 
+fn terminal_status_passes(actual_status: SubmissionStatus) -> bool {
+    actual_status != SubmissionStatus::SystemError
+}
+
 async fn poll_until_terminal(
     client: &Client,
     submission_id: i32,
@@ -294,6 +299,7 @@ pub async fn run(
         let per_job_timeout = config.per_job_timeout;
         let expected_status = scenario.expected_status;
         let expected_verdict = scenario.expected_verdict.clone();
+        let validate_expected_verdicts = config.validate_expected_verdicts;
 
         join_set.spawn(async move {
             let _permit = permit;
@@ -341,11 +347,11 @@ pub async fn run(
                         .as_ref()
                         .and_then(|r| r.verdict.as_ref())
                         .cloned();
-                    let ok = scenario_passes(
-                        &scenario_clone,
-                        actual_status,
-                        actual_verdict.as_ref(),
-                    );
+                    let ok = if validate_expected_verdicts {
+                        scenario_passes(&scenario_clone, actual_status, actual_verdict.as_ref())
+                    } else {
+                        terminal_status_passes(actual_status)
+                    };
                     let latency_ms = started.elapsed().as_millis() as u64;
 
                     *completed.lock().await += 1;
@@ -355,7 +361,7 @@ pub async fn run(
                         let mut h = histogram.lock().await;
                         let v = latency_ms.clamp(HISTOGRAM_LOW, HISTOGRAM_HIGH);
                         let _ = h.record(v);
-                    } else {
+                    } else if validate_expected_verdicts {
                         let msg = format!(
                             "submission #{}: scenario `{}`: expected ({:?}, {:?}), actual ({:?}, {:?})",
                             sequence,
@@ -369,6 +375,17 @@ pub async fn run(
                             sequence,
                             scenario_id = scenario_clone.id,
                             "load submission verdict mismatch",
+                        );
+                        errors.lock().await.push((sequence, msg));
+                    } else {
+                        let msg = format!(
+                            "submission #{}: scenario `{}` reached terminal system error",
+                            sequence, scenario_clone.id,
+                        );
+                        warn!(
+                            sequence,
+                            scenario_id = scenario_clone.id,
+                            "load submission reached system error",
                         );
                         errors.lock().await.push((sequence, msg));
                     }
@@ -521,6 +538,7 @@ mod tests {
                 .enumerate()
                 .map(|(i, s)| (s.id, 100 + i as i32))
                 .collect(),
+            owns_fixtures: true,
         }
     }
 
@@ -563,18 +581,21 @@ mod tests {
             Verdict::RuntimeError => "RuntimeError",
             Verdict::SystemError => "SystemError",
             Verdict::Skipped => "Skipped",
+            Verdict::Cancelled => "Cancelled",
             Verdict::Other(_) => "Other",
         }
     }
 
     fn submission_status_wire(s: SubmissionStatus) -> &'static str {
         match s {
+            SubmissionStatus::Queued => "Queued",
             SubmissionStatus::Pending => "Pending",
             SubmissionStatus::Compiling => "Compiling",
             SubmissionStatus::Running => "Running",
             SubmissionStatus::Judged => "Judged",
             SubmissionStatus::CompilationError => "CompilationError",
             SubmissionStatus::SystemError => "SystemError",
+            SubmissionStatus::Unknown => "Unknown",
         }
     }
 
@@ -739,6 +760,7 @@ mod tests {
             per_job_timeout: Duration::from_secs(5),
             p95_budget_ms: 10_000,
             seed: 7,
+            validate_expected_verdicts: true,
         };
 
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -783,6 +805,40 @@ mod tests {
                 ok: true
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn terminal_only_mode_does_not_require_builtin_expected_verdicts() {
+        let server = MockServer::start().await;
+        let client = build_client_with_login(&server, "tok").await;
+        let state = make_state();
+
+        let outcomes: HashMap<&'static str, (SubmissionStatus, Option<Verdict>)> = SCENARIOS
+            .iter()
+            .map(|s| (s.id, (SubmissionStatus::Judged, Some(Verdict::WrongAnswer))))
+            .collect();
+        let _submissions =
+            mount_distinct_submission_mocks(&server, &state, &outcomes, Duration::ZERO, &[]).await;
+
+        let cfg = LoadConfig {
+            total: 20,
+            rate: 50,
+            concurrency: 5,
+            per_job_timeout: Duration::from_secs(5),
+            p95_budget_ms: 10_000,
+            seed: 7,
+            validate_expected_verdicts: false,
+        };
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let outcome = run(&client, &state, SCENARIOS, &cfg, &tx).await;
+        drop(tx);
+        let _ = drain(&mut rx);
+
+        assert_eq!(outcome.completed, 20);
+        assert_eq!(outcome.passed, 20);
+        assert!(outcome.errors.is_empty(), "no errors: {:?}", outcome.errors);
+        assert!(outcome.passed_overall);
     }
 
     #[tokio::test]
@@ -851,6 +907,7 @@ mod tests {
             per_job_timeout: Duration::from_secs(5),
             p95_budget_ms: 10_000,
             seed: 1,
+            validate_expected_verdicts: true,
         };
 
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -909,6 +966,7 @@ mod tests {
             per_job_timeout: Duration::from_secs(5),
             p95_budget_ms: 50,
             seed: 99,
+            validate_expected_verdicts: true,
         };
 
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -955,6 +1013,7 @@ mod tests {
             per_job_timeout: Duration::from_secs(2),
             p95_budget_ms: 60_000,
             seed: 1,
+            validate_expected_verdicts: true,
         };
 
         let (tx, mut rx) = mpsc::unbounded_channel();

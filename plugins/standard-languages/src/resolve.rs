@@ -46,6 +46,29 @@ pub const LANGUAGES: &[LanguageMeta] = &[
 
 pub const LANGUAGE_IDS: &[&str] = &["c", "cpp", "python3", "java"];
 
+/// Minimum process/thread count the JVM needs to start. openjdk spawns a fixed
+/// set of helper threads at boot (VM thread, reference handler, finalizer,
+/// signal dispatcher) plus GC/JIT worker pools. 64 clears the fixed threads with
+/// headroom while staying bounded (memory and time remain capped by the problem's
+/// limits via the sandbox cgroup). This is a floor, not the real fix for thread
+/// blow-up: see `JAVA_ACTIVE_PROCESSORS`.
+const JAVA_MIN_PROCESS_LIMIT: u32 = 64;
+
+/// Number of processors the JVM is told to size its thread pools against, via
+/// `-XX:ActiveProcessorCount`. Without this the JVM sizes ParallelGCThreads,
+/// JIT compiler threads and the ForkJoinPool common pool to the *host* CPU count,
+/// not the sandbox. On a large judge host (e.g. 96 cores) a single default
+/// `java` wants ~74 threads (ParallelGCThreads alone is ~63), which overruns the
+/// per-box process cap and every run fails with EAGAIN ("unable to create native
+/// thread") under load - independent of how much real work the solution does.
+/// Pinning the JVM's processor view to a small constant decouples thread count
+/// from host size: the VM then needs ~12 threads and comfortably fits the cap.
+/// 1 matches the conventional single-core competitive-judge execution model
+/// (isolate accounts CPU time, and contest solutions are single-threaded), which
+/// also selects SerialGC and a single compiler thread - the minimal, most
+/// deterministic footprint. Flag is JDK-version stable (present since JDK 10).
+const JAVA_ACTIVE_PROCESSORS: u32 = 1;
+
 fn default_source(lang: &str) -> &str {
     match lang {
         "c" => "solution.c",
@@ -120,10 +143,14 @@ fn resolve_compiled(
     let mut command = vec![compiler.to_string()];
     command.extend(flags.iter().cloned());
     command.extend(extra_compile_flags.iter().cloned());
-    command.push(primary.to_string());
+    // Prefix source filenames with `./` so a name like `-DNDEBUG` is passed as a
+    // PATH, never parsed as a compiler flag (argument injection into a trusted
+    // co-compiled grader). Defense in depth: `validate_flat_filename` already
+    // rejects a leading `-` at upload, but the plugin should not trust that.
+    command.push(format!("./{primary}"));
     for f in &all_files {
         if *f != primary {
-            command.push(f.to_string());
+            command.push(format!("./{f}"));
         }
     }
     command.push("-o".into());
@@ -142,6 +169,7 @@ fn resolve_compiled(
         run: RunSpec {
             command: vec![format!("./{basename}")],
             extra_files: vec![],
+            min_process_limit: None,
         },
     }
 }
@@ -196,6 +224,7 @@ pub fn resolve_python3(
         run: RunSpec {
             command: vec![interpreter.to_string(), primary.to_string()],
             extra_files: all_files.iter().map(|s| s.to_string()).collect(),
+            min_process_limit: None,
         },
     }
 }
@@ -213,12 +242,30 @@ pub fn resolve_java(
     let (primary, basename) = resolve_primary("java", &all_files, ep);
 
     let mut command = vec![compiler.to_string()];
+    // `javac` is itself a JVM: without pinning it also sizes its GC/JIT thread
+    // pools to the host CPU count and can EAGAIN under load, exactly like the run
+    // step. `-J<opt>` forwards an option to javac's own VM, so mirror the run
+    // step's `-XX:ActiveProcessorCount` on the compile path. See the run command
+    // and `JAVA_ACTIVE_PROCESSORS`.
+    command.push(format!(
+        "-J-XX:ActiveProcessorCount={JAVA_ACTIVE_PROCESSORS}"
+    ));
     command.extend(flags.iter().cloned());
     command.extend(extra_compile_flags.iter().cloned());
-    command.push(primary.to_string());
+    // Prefix source filenames with `./` so an uploaded name is passed as a PATH,
+    // never parsed as a javac directive. `javac` treats any argv token starting
+    // with `@` as an ARGFILE (`@file` = read compiler options from `file`), which
+    // would let a contestant inject javac flags -- e.g. `-processorpath`/
+    // `-processor` = arbitrary code execution during the trusted grader compile.
+    // `validate_flat_filename` rejects a leading `-` at upload but NOT a leading
+    // `@`, so the plugin must not trust the raw name. `./Main.java` still compiles
+    // to `Main.class` (javac derives the class from source content, not the path),
+    // so the run step's class name (`basename`) is unaffected. Mirrors the
+    // `resolve_compiled` `./` defense.
+    command.push(format!("./{primary}"));
     for f in &all_files {
         if *f != primary {
-            command.push(f.to_string());
+            command.push(format!("./{f}"));
         }
     }
 
@@ -233,8 +280,15 @@ pub fn resolve_java(
             resource_limits: None,
         }),
         run: RunSpec {
-            command: vec![runner.to_string(), "-cp".into(), ".".into(), basename],
+            command: vec![
+                runner.to_string(),
+                format!("-XX:ActiveProcessorCount={JAVA_ACTIVE_PROCESSORS}"),
+                "-cp".into(),
+                ".".into(),
+                basename,
+            ],
             extra_files: vec![],
+            min_process_limit: Some(JAVA_MIN_PROCESS_LIMIT),
         },
     }
 }

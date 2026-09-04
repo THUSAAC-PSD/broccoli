@@ -1,6 +1,10 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import {
+  SUBMISSION_REJUDGE,
+  SYSTEM_ADMIN,
+} from '@broccoli/web-sdk/permissions';
 import type { SubmissionJudgement } from '@broccoli/web-sdk/submission';
 import { Badge, Button } from '@broccoli/web-sdk/ui';
 import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
@@ -17,7 +21,6 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useSystemOverview } from '@/features/system/hooks/useSystemOverview';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 import { getVerdictBadge } from '../utils/verdict';
 import { TestCaseRow } from './TestCaseRow';
@@ -33,15 +36,21 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
   const { user } = useAuth();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
-  const canViewHistory = !!user;
-  const canRejudge = !!user?.permissions.includes('submission:rejudge');
-  const canPinWorker = !!user?.permissions.includes('system:admin');
+  const canRejudge = !!user?.permissions.includes(SUBMISSION_REJUDGE);
+  // Judgement version history (including pending regrade candidates) is a
+  // judging-operations view. Contestants must only ever see the current
+  // verdict, so the whole panel is gated behind the rejudge permission.
+  const canViewHistory = canRejudge;
+  const canPinWorker = !!user?.permissions.includes(SYSTEM_ADMIN);
   const [targetWorkerId, setTargetWorkerId] = useState(PRESERVE_TARGET_WORKER);
   const [expandedJudgementIds, setExpandedJudgementIds] = useState<Set<number>>(
     () => new Set(),
   );
 
-  const { data: systemOverview } = useSystemOverview();
+  // Worker list only feeds the admin worker-pin dropdown below, so only fetch
+  // (and poll) it for system admins. Without this gate the admin-only overview
+  // endpoint 403-loops for every contestant viewing a submission.
+  const { data: systemOverview } = useSystemOverview({ enabled: canPinWorker });
   const liveWorkers = useMemo(
     () => (systemOverview?.workers ?? []).filter((w) => !w.stale),
     [systemOverview],
@@ -111,9 +120,7 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
       await invalidate();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, t('submissionDetail.rejudgeError')),
-      );
+      toast.error(getErrorMessage(error, t('submissionDetail.rejudgeError')));
     },
   });
 
@@ -133,7 +140,7 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
       await invalidate();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, t('submissionDetail.applyError')));
+      toast.error(getErrorMessage(error, t('submissionDetail.applyError')));
     },
   });
 
@@ -152,9 +159,7 @@ export function SubmissionJudgementHistory({ submissionId }: Props) {
       await invalidate();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, t('submissionDetail.discardError')),
-      );
+      toast.error(getErrorMessage(error, t('submissionDetail.discardError')));
     },
   });
 

@@ -1,30 +1,45 @@
+// `#[async_trait]` stamps its own `#[must_use]` on each rewritten async method
+// even though the boxed future it returns is already `#[must_use]`, so clippy's
+// `double_must_use` fires on macro output we don't control. The hits are the
+// `services` async traits (`OperationTaskPublisher`, `WindowedSession`);
+// suppress crate-wide, matching common/plugin-core/worker/stress-test.
+#![allow(clippy::double_must_use)]
+
 mod client_ip;
 pub mod config;
 pub mod consumers;
 pub mod database;
+pub mod dispatcher;
 pub mod dlq;
 pub mod entity;
 pub mod error;
 pub mod extractors;
 pub mod handlers;
+pub mod healthz_runtime;
 pub mod hooks;
 pub mod host_funcs;
 pub mod manager;
 pub mod middleware;
+pub mod migration;
 pub mod models;
 pub mod registry;
 pub mod routes;
+pub mod runtime;
 pub mod seed;
 pub mod serve;
+pub mod services;
 pub mod state;
 pub mod upload_limits;
 pub mod utils;
 
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
+use axum::body::Body;
 use axum::extract::{MatchedPath, State};
-use axum::http::{HeaderValue, Request, Response, StatusCode, header};
-use axum::response::IntoResponse;
+use axum::http::{HeaderMap, HeaderValue, Request, Response as HttpResponse, StatusCode, header};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use opentelemetry::KeyValue;
 use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
@@ -37,6 +52,19 @@ use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
 
 use crate::state::AppState;
+
+const X_REQUEST_ID: &str = "x-request-id";
+const X_BROCCOLI_STRESS_RUN_ID: &str = "x-broccoli-stress-run-id";
+
+#[cfg(test)]
+pub(crate) static METRICS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn metrics_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    METRICS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(OpenApi)]
 #[openapi(
@@ -93,7 +121,7 @@ impl Modify for SecurityAddon {
     }
 }
 
-async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
+pub(crate) async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
     use prometheus::Encoder;
 
     let encoder = prometheus::TextEncoder::new();
@@ -113,7 +141,7 @@ async fn api_not_found() -> StatusCode {
     StatusCode::NOT_FOUND
 }
 
-fn normalize_javascript_content_type<B>(mut response: Response<B>) -> Response<B> {
+fn normalize_javascript_content_type<B>(mut response: HttpResponse<B>) -> HttpResponse<B> {
     if response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -124,6 +152,124 @@ fn normalize_javascript_content_type<B>(mut response: Response<B>) -> Response<B
             HeaderValue::from_static("application/javascript"),
         );
     }
+
+    response
+}
+
+fn request_id_from_headers(headers: &HeaderMap) -> String {
+    headers
+        .get(X_REQUEST_ID)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| Uuid::now_v7().to_string())
+}
+
+/// Low-cardinality `http.route` label for metrics: the matched route TEMPLATE
+/// (`/problems/{id}`), never the raw URI path. An unmatched request (a 404, or a
+/// path with no route) collapses to a single `"<unmatched>"` bucket instead of
+/// minting a fresh time series per distinct URI. Falling back to
+/// `request.uri().path()` let any scanner hitting `/random/1`, `/random/2`, ...
+/// mint unbounded `http.route` series and blow up metric cardinality. The raw
+/// path is still logged (a log line's cardinality is free), just not used as a
+/// metric attribute.
+fn route_label_for_request<B>(request: &Request<B>) -> String {
+    request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|mp| mp.as_str().to_owned())
+        .unwrap_or_else(|| "<unmatched>".to_owned())
+}
+
+fn stress_run_id_from_headers(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(X_BROCCOLI_STRESS_RUN_ID)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn content_length_from_headers(headers: &HeaderMap) -> Option<f64> {
+    headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(|n| n as f64)
+}
+
+async fn observability_middleware(
+    State(state): State<AppState>,
+    mut request: Request<Body>,
+    next: Next,
+) -> Response {
+    let request_id = request_id_from_headers(request.headers());
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        request.headers_mut().insert(X_REQUEST_ID, value);
+    }
+    let stress_run_id = stress_run_id_from_headers(request.headers());
+    let request_body_size = content_length_from_headers(request.headers());
+
+    let method = request.method().to_string();
+    let route = route_label_for_request(&request);
+    let path = request.uri().path().to_owned();
+    let started = Instant::now();
+    let in_flight_attrs = [
+        KeyValue::new("http.request.method", method.clone()),
+        KeyValue::new("http.route", route.clone()),
+    ];
+
+    state
+        .metrics
+        .http_requests_in_flight
+        .add(1, &in_flight_attrs);
+
+    let mut response = next.run(request).await;
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response.headers_mut().insert(X_REQUEST_ID, value);
+    }
+
+    let latency = started.elapsed();
+    let status = response.status().as_u16();
+    let response_body_size = content_length_from_headers(response.headers());
+    let attrs = [
+        KeyValue::new("http.request.method", method.clone()),
+        KeyValue::new("http.route", route.clone()),
+        KeyValue::new("http.response.status_code", status as i64),
+    ];
+
+    state
+        .metrics
+        .http_requests_in_flight
+        .add(-1, &in_flight_attrs);
+    state.metrics.http_requests_total.add(1, &attrs);
+    state
+        .metrics
+        .http_request_duration
+        .record(latency.as_secs_f64(), &attrs);
+    if let Some(size) = request_body_size {
+        state.metrics.http_request_body_size.record(size, &attrs);
+    }
+    if let Some(size) = response_body_size {
+        state.metrics.http_response_body_size.record(size, &attrs);
+    }
+
+    let trace_id = common::observability::current_trace_id();
+
+    info!(
+        method = %method,
+        path = %path,
+        route = %route,
+        request_id = %request_id,
+        run_id = stress_run_id.as_deref().unwrap_or(""),
+        trace_id = trace_id.as_deref().unwrap_or(""),
+        status,
+        latency_ms = latency.as_millis() as u64,
+        request_body_bytes = request_body_size.unwrap_or(0.0) as u64,
+        response_body_bytes = response_body_size.unwrap_or(0.0) as u64,
+        "response",
+    );
 
     response
 }
@@ -151,9 +297,9 @@ fn spa_fallback_service(frontend_dist: impl Into<PathBuf>) -> ServeDir<ServeFile
 }
 
 pub fn build_router(state: AppState) -> axum::Router {
-    let metrics = state.metrics.clone();
     let trusted_proxies =
         client_ip::parse_trusted_proxy_networks(&state.config.server.trusted_proxies);
+    let observability_state = state.clone();
 
     let (router, api) = routes::api_routes(&state.config, ApiDoc::openapi());
     let frontend_dist = state.config.server.frontend_dist.clone();
@@ -167,9 +313,6 @@ pub fn build_router(state: AppState) -> axum::Router {
         std::time::Duration::from_secs(60),
     ));
 
-    let metrics_on_request = metrics.clone();
-    let metrics_on_response = metrics;
-
     #[cfg(feature = "bundled-stress-test")]
     let state_for_downloads = state.clone();
 
@@ -180,6 +323,13 @@ pub fn build_router(state: AppState) -> axum::Router {
         )
         .fallback_service(frontend_assets_service(&frontend_dist));
 
+    // `/metrics` and `/healthz` are also served on a dedicated tokio runtime
+    // + listener when `server.healthz_listen` is configured - see UP#14e in
+    // `healthz_runtime`. Operators are encouraged to point load-balancer
+    // probes and Prometheus scrapes at the dedicated listener so main-runtime
+    // saturation (submission bursts, scheduler thrash) does not stall
+    // liveness signals. The endpoints remain on the main router unchanged so
+    // legacy probe configurations keep working.
     let app = axum::Router::new()
         .nest("/api", router.fallback(api_not_found))
         .route("/metrics", axum::routing::get(metrics_handler))
@@ -207,18 +357,17 @@ pub fn build_router(state: AppState) -> axum::Router {
                     .map(|mp| mp.as_str().to_owned())
                     .unwrap_or_else(|| request.uri().path().to_owned());
 
-                let request_id = request
-                    .headers()
-                    .get("x-request-id")
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.to_owned())
-                    .unwrap_or_else(|| Uuid::now_v7().to_string());
+                let request_id = request_id_from_headers(request.headers());
+                let stress_run_id = stress_run_id_from_headers(request.headers());
 
                 let span = info_span!(
                     "http_request",
                     method = %request.method(),
                     path,
                     request_id,
+                    stress_run_id = stress_run_id.as_deref().unwrap_or(""),
+                    status = tracing::field::Empty,
+                    latency_ms = tracing::field::Empty,
                 );
 
                 if request.headers().contains_key("traceparent") {
@@ -233,34 +382,19 @@ pub fn build_router(state: AppState) -> axum::Router {
 
                 span
             })
-            .on_request(
-                move |_request: &axum::http::Request<_>, _span: &tracing::Span| {
-                    metrics_on_request.http_requests_in_flight.add(1, &[]);
-                },
-            )
             .on_response(
                 move |response: &axum::http::Response<_>,
                       latency: std::time::Duration,
-                      _span: &tracing::Span| {
-                    let attrs = [KeyValue::new(
-                        "http.response.status_code",
-                        response.status().as_u16() as i64,
-                    )];
-
-                    metrics_on_response.http_requests_in_flight.add(-1, &[]);
-                    metrics_on_response.http_requests_total.add(1, &attrs);
-                    metrics_on_response
-                        .http_request_duration
-                        .record(latency.as_secs_f64(), &attrs);
-
-                    info!(
-                        status = response.status().as_u16(),
-                        latency_ms = latency.as_millis() as u64,
-                        "response",
-                    );
+                      span: &tracing::Span| {
+                    span.record("status", response.status().as_u16());
+                    span.record("latency_ms", latency.as_millis() as u64);
                 },
             ),
     )
+    .layer(axum::middleware::from_fn_with_state(
+        observability_state,
+        observability_middleware,
+    ))
 }
 
 #[cfg(test)]
@@ -272,6 +406,29 @@ mod tests {
     use axum::routing::get;
     use serde_json::json;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn request_id_from_headers_preserves_valid_value() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-request-id", HeaderValue::from_static("stress-run-1-42"));
+
+        assert_eq!(
+            request_id_from_headers(&headers),
+            "stress-run-1-42".to_string()
+        );
+    }
+
+    #[tokio::test]
+    async fn request_id_from_headers_generates_when_missing_or_invalid() {
+        let headers = axum::http::HeaderMap::new();
+        let generated = request_id_from_headers(&headers);
+        assert!(Uuid::parse_str(&generated).is_ok());
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-request-id", HeaderValue::from_static(""));
+        let generated = request_id_from_headers(&headers);
+        assert!(Uuid::parse_str(&generated).is_ok());
+    }
 
     #[tokio::test]
     async fn spa_fallback_serves_index_for_root_and_client_routes() {

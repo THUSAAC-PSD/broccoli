@@ -34,7 +34,7 @@ fn cpp_single_file() {
     );
     let compile = result.compile.unwrap();
     assert_eq!(compile.command[0], "/usr/bin/g++");
-    assert!(compile.command.contains(&"solution.cpp".to_string()));
+    assert!(compile.command.contains(&"./solution.cpp".to_string()));
     assert!(compile.command.contains(&"-o".to_string()));
     assert_eq!(result.run.command, vec!["./solution"]);
     assert!(result.run.extra_files.is_empty());
@@ -50,9 +50,9 @@ fn cpp_with_grader_stubs() {
         &[],
     );
     let compile = result.compile.unwrap();
-    assert!(compile.command.contains(&"solution.cpp".to_string()));
-    assert!(compile.command.contains(&"grader.cpp".to_string()));
-    assert!(compile.command.contains(&"grader.h".to_string()));
+    assert!(compile.command.contains(&"./solution.cpp".to_string()));
+    assert!(compile.command.contains(&"./grader.cpp".to_string()));
+    assert!(compile.command.contains(&"./grader.h".to_string()));
     assert_eq!(
         compile.cache_inputs,
         vec!["solution.cpp", "grader.cpp", "grader.h"]
@@ -134,7 +134,7 @@ fn c_compiles_with_gcc() {
     let source_pos = compile
         .command
         .iter()
-        .position(|a| a == "solution.c")
+        .position(|a| a == "./solution.c")
         .unwrap();
     assert!(lm_pos > source_pos, "-lm should be after source files");
 }
@@ -175,9 +175,45 @@ fn java_uses_glob_output() {
         &[],
     );
     let compile = result.compile.unwrap();
-    assert_eq!(compile.command, vec!["javac", "Solver.java"]);
+    assert_eq!(
+        compile.command,
+        vec!["javac", "-J-XX:ActiveProcessorCount=1", "./Solver.java"]
+    );
     assert_eq!(compile.outputs, vec![OutputSpec::Glob("*.class".into())]);
-    assert_eq!(result.run.command, vec!["java", "-cp", ".", "Solver"]);
+    assert_eq!(
+        result.run.command,
+        vec!["java", "-XX:ActiveProcessorCount=1", "-cp", ".", "Solver"]
+    );
+}
+
+#[test]
+fn java_prefixes_sources_to_block_argfile_injection() {
+    // A filename beginning with `@` is a javac argfile directive (`@file` reads
+    // compiler options from `file`). Every source token must be `./`-prefixed so
+    // javac reads it as a path, not an argfile -- otherwise a contestant injects
+    // javac flags into the trusted grader compile. `validate_flat_filename`
+    // rejects a leading `-` but not a leading `@`, so this is the real guard.
+    let mut input = req("java", vec!["Main.java"]);
+    input.additional_files = vec![FileRef {
+        filename: "@opts".into(),
+        content_type: None,
+        blob_hash: "opts-hash".into(),
+        read_token: None,
+    }];
+    let compile = resolve::resolve_java(&input, None, "javac", "java", &[], &[])
+        .compile
+        .unwrap();
+    // The `@opts` file is neutralized to `./@opts`, never a bare `@opts`.
+    assert!(
+        compile.command.contains(&"./@opts".to_string()),
+        "argfile-shaped name must be path-prefixed: {:?}",
+        compile.command
+    );
+    assert!(
+        !compile.command.iter().any(|a| a.starts_with('@')),
+        "no argv token may start with `@`: {:?}",
+        compile.command
+    );
 }
 
 #[test]
@@ -214,8 +250,8 @@ fn cpp_with_additional_file_refs() {
     ];
     let result = resolve::resolve_cpp(&input, None, "/usr/bin/g++", &default_cpp_flags(), &[]);
     let compile = result.compile.unwrap();
-    assert!(compile.command.contains(&"grader.cpp".to_string()));
-    assert!(compile.command.contains(&"grader.h".to_string()));
+    assert!(compile.command.contains(&"./grader.cpp".to_string()));
+    assert!(compile.command.contains(&"./grader.h".to_string()));
     assert_eq!(
         compile.cache_inputs,
         vec!["solution.cpp", "grader.cpp", "grader.h"]

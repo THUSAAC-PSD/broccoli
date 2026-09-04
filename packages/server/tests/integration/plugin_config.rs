@@ -842,4 +842,42 @@ mod cascade_deletion {
             .await;
         assert_eq!(res.status, 404);
     }
+
+    #[tokio::test]
+    async fn bulk_removing_contest_problems_cascades_config_deletion() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin23", "password123", "admin")
+            .await;
+        let contest_id = app.create_contest(&token, "C1", true, true).await;
+        let problem_id = app.create_problem(&token, "P1").await;
+        app.add_problem_to_contest(contest_id, problem_id, &token)
+            .await;
+
+        app.put_with_token(
+            &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
+            &json!({"config": {"k": "v"}}),
+            &token,
+        )
+        .await;
+
+        let res = app
+            .delete_with_body_and_token(
+                &routes::contest_problems_bulk(contest_id),
+                &json!({"problem_ids": [problem_id]}),
+                &token,
+            )
+            .await;
+        assert_eq!(res.status, 200);
+
+        // The bulk path must clear the association's config just like the single
+        // remove does; otherwise re-adding the problem resurrects stale config.
+        let res = app
+            .get_with_token(
+                &routes::contest_problem_config_ns(contest_id, problem_id, "test-plugin", "limits"),
+                &token,
+            )
+            .await;
+        assert_eq!(res.status, 404);
+    }
 }

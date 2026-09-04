@@ -10,11 +10,16 @@ pub struct WorkerInfo {
     /// Seconds since the worker last wrote a heartbeat. 0 means just now.
     #[schema(example = 3)]
     pub seconds_since_last_seen: u64,
-    /// True when the heartbeat is older than 10s — worker is likely unhealthy.
+    /// True when the heartbeat is older than 10s - worker is likely unhealthy.
     pub stale: bool,
     #[schema(example = 0)]
     pub in_flight: u32,
     pub max_concurrency: Option<u32>,
+    /// The worker's fairness mode (e.g. `pinned`, `cooperative`, `unknown`),
+    /// reported in its heartbeat. `None` for legacy workers that predate the
+    /// field. See the worker `fairness` module.
+    #[schema(example = "pinned")]
+    pub fairness_mode: Option<String>,
     #[schema(example = "isolate")]
     pub sandbox_backend: String,
     #[schema(example = "0.1.0")]

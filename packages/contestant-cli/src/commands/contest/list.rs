@@ -95,9 +95,33 @@ fn print_cards(contests: &[broccoli_cli_core::client::ContestListItem]) {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    // Count and slice by characters, never bytes: byte slicing panics when the
+    // cut falls inside a multi-byte UTF-8 sequence (e.g. a Chinese contest
+    // title), and byte length is the wrong measure for a display width cap.
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max.saturating_sub(3)])
+        let truncated: String = s.chars().take(max.saturating_sub(3)).collect();
+        format!("{truncated}...")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_does_not_panic_on_multibyte_titles() {
+        // A long non-ASCII title must truncate on a char boundary, not panic.
+        let title = "北京大学程序设计竞赛决赛第一场周末专题";
+        let out = truncate(title, 10);
+        assert!(out.ends_with("..."));
+        assert_eq!(out.chars().count(), 10);
+    }
+
+    #[test]
+    fn truncate_leaves_short_strings_untouched() {
+        assert_eq!(truncate("abc", 10), "abc");
+        assert_eq!(truncate("北京", 10), "北京");
     }
 }

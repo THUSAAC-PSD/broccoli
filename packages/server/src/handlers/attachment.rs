@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{DefaultBodyLimit, Multipart, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use common::storage::ContentHash;
 use sea_orm::sea_query::OnConflict;
@@ -11,14 +12,16 @@ use uuid::Uuid;
 
 use crate::entity::{problem, problem_attachment};
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
 use crate::models::attachment::{AttachmentListResponse, AttachmentResponse};
 use crate::state::AppState;
 use crate::upload_limits::LARGE_UPLOAD_LIMIT_BYTES;
-use crate::utils::blob::{BlobMetadata, build_blob_response, stream_field_to_store};
+use crate::utils::blob::{
+    BlobMetadata, build_blob_response, resolve_virtual_path, stream_field_to_store,
+    take_required_file,
+};
 use crate::utils::contest::require_problem_read_access;
-use crate::utils::filename::{validate_flat_filename, validate_virtual_path};
 use crate::utils::soft_delete::SoftDeletable;
 
 pub fn attachment_upload_body_limit() -> DefaultBodyLimit {
@@ -47,12 +50,12 @@ pub fn attachment_upload_body_limit() -> DefaultBodyLimit {
 )]
 #[instrument(skip(state, auth_user, multipart), fields(problem_id))]
 pub async fn upload_attachment(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(problem_id): AppPath<i32>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     problem::Entity::find_active_by_id(problem_id)
         .one(&state.db)
@@ -90,21 +93,8 @@ pub async fn upload_attachment(
         }
     }
 
-    let (hash, size) =
-        file_result.ok_or_else(|| AppError::Validation("Missing 'file' field".into()))?;
-
-    let filename =
-        file_name.ok_or_else(|| AppError::Validation("File field must have a filename".into()))?;
-    let filename = validate_flat_filename(&filename)
-        .map_err(|e| AppError::Validation(e.message().into()))?
-        .to_string();
-
-    let path = match virtual_path {
-        Some(p) if !p.trim().is_empty() => {
-            validate_virtual_path(&p).map_err(|e| AppError::Validation(e.into()))?
-        }
-        _ => validate_virtual_path(&filename).map_err(|e| AppError::Validation(e.into()))?,
-    };
+    let (hash, size, filename) = take_required_file(file_result, file_name)?;
+    let path = resolve_virtual_path(virtual_path.as_deref(), &filename)?;
 
     let content_type = mime_guess::from_path(&filename)
         .first()
@@ -254,11 +244,11 @@ pub async fn download_attachment(
 )]
 #[instrument(skip(state, auth_user), fields(problem_id, ref_id))]
 pub async fn delete_attachment(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath((problem_id, ref_id)): AppPath<(i32, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("problem:edit")?;
+    auth_user.require_permission(perm::PROBLEM_EDIT)?;
 
     let ref_uuid = Uuid::parse_str(&ref_id)
         .map_err(|_| AppError::Validation("Invalid attachment ID".into()))?;

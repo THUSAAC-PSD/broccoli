@@ -11,7 +11,7 @@ import type { Plugin, ResolvedConfig } from 'vite';
  *
  * It does two things:
  *   1. Exposes a virtual module (`virtual:shared-deps-map`) that returns
- *      a mapping of bare specifiers → browser-resolvable URLs.
+ *      a mapping of bare specifiers -> browser-resolvable URLs.
  *   2. Emits thin re-export "shim" modules for each shared dep. In dev via
  *      middleware (re-exporting from Vite's pre-bundled deps), in production via
  *      emitted chunks.
@@ -21,6 +21,12 @@ import type { Plugin, ResolvedConfig } from 'vite';
  * dynamically loaded module (including cross-origin plugin bundles).
  */
 
+/**
+ * Every `@broccoli/web-sdk/*` subpath a plugin bundle may import must be listed
+ * here: plugins externalize these specifiers and rely on the host's import map
+ * to resolve them at runtime. A missing entry makes the plugin fail to load with
+ * "Failed to resolve module specifier". Keep in sync with web-sdk's subpaths.
+ */
 export const SDK_SHARED_DEPS = [
   '@broccoli/web-sdk',
   '@broccoli/web-sdk/api',
@@ -28,6 +34,7 @@ export const SDK_SHARED_DEPS = [
   '@broccoli/web-sdk/contest',
   '@broccoli/web-sdk/hooks',
   '@broccoli/web-sdk/i18n',
+  '@broccoli/web-sdk/permissions',
   '@broccoli/web-sdk/plugin',
   '@broccoli/web-sdk/problem',
   '@broccoli/web-sdk/sidebar',
@@ -107,7 +114,7 @@ function getNamedExports(dep: string): string[] {
   }
 }
 
-/** Mirrors Vite's dep pre-bundling filename convention: `/` → `_` */
+/** Mirrors Vite's dep pre-bundling filename convention: `/` -> `_` */
 function flattenId(dep: string): string {
   return dep.replace(/\//g, '_');
 }

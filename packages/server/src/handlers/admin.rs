@@ -8,13 +8,14 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use broccoli_server_sdk::permissions as perm;
 use plugin_core::registry::PluginEntry;
 use sea_orm::*;
 use tracing::instrument;
 
 use crate::entity::plugin as plugin_entity;
 use crate::error::{AppError, ErrorBody};
-use crate::extractors::auth::AuthUser;
+use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::path::AppPath;
 use crate::models::plugin::{
     PluginDetailResponse, PluginFullDetailResponse, ReloadAllResponse, ReloadFailure,
@@ -42,7 +43,7 @@ pub async fn list_all_plugins(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PluginDetailResponse>>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     let plugins = state
         .plugins
@@ -77,7 +78,7 @@ pub async fn get_plugin_details(
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<PluginFullDetailResponse>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     let plugin = state
         .plugins
@@ -109,11 +110,11 @@ pub async fn get_plugin_details(
 )]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn enable_plugin(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     if state.plugins.is_plugin_loaded(&id)? {
         return Err(AppError::Conflict(format!(
@@ -155,11 +156,11 @@ pub async fn enable_plugin(
 )]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn disable_plugin(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     if !state.plugins.is_plugin_loaded(&id)? {
         return Err(AppError::Conflict(format!(
@@ -203,11 +204,11 @@ pub async fn disable_plugin(
 )]
 #[instrument(skip(state, auth_user), fields(id))]
 pub async fn reload_plugin(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     if !state.plugins.has_plugin(&id)? {
         return Err(AppError::NotFound(format!("Plugin '{}' not found", id)));
@@ -245,10 +246,10 @@ pub async fn reload_plugin(
 )]
 #[instrument(skip(state, auth_user))]
 pub async fn reload_all_plugins(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<ReloadAllResponse>, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     let loaded_ids: Vec<String> = state
         .plugins
@@ -332,8 +333,14 @@ pub fn upload_body_limit() -> DefaultBodyLimit {
     DefaultBodyLimit::max(LARGE_UPLOAD_LIMIT_BYTES)
 }
 
-fn is_valid_plugin_id(id: &str) -> bool {
-    if id.is_empty() {
+/// Canonical plugin-id validation, shared by the plugin-upload path and the
+/// plugin-config handlers so the two can never disagree (they previously did:
+/// one enforced an alphanumeric first char, the other a 128-char cap). A plugin
+/// id becomes a filesystem path segment, so it is deliberately strict: non-empty,
+/// at most 128 chars, starts with an ASCII alphanumeric, and otherwise contains
+/// only ASCII alphanumeric, `_`, or `-`.
+pub(crate) fn is_valid_plugin_id(id: &str) -> bool {
+    if id.is_empty() || id.len() > 128 {
         return false;
     }
     let first = id.as_bytes()[0];
@@ -365,11 +372,11 @@ const MAX_AGGREGATE_SIZE: u64 = 2 * LARGE_UPLOAD_LIMIT_BYTES as u64;
 )]
 #[instrument(skip(state, auth_user, multipart))]
 pub async fn upload_plugin(
-    auth_user: AuthUser,
+    auth_user: FreshAuthUser,
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
-    auth_user.require_permission("plugin:manage")?;
+    auth_user.require_permission(perm::PLUGIN_MANAGE)?;
 
     let mut archive_bytes: Option<Vec<u8>> = None;
     while let Some(field) = multipart
@@ -522,7 +529,9 @@ pub async fn upload_plugin(
                     let dir_perms = std::fs::Permissions::from_mode(0o755);
                     let mut dir = parent.to_path_buf();
                     while dir.starts_with(&dest_root_clone) {
-                        let _ = std::fs::set_permissions(&dir, dir_perms.clone());
+                        if let Err(e) = std::fs::set_permissions(&dir, dir_perms.clone()) {
+                            tracing::warn!(path = %dir.display(), error = %e, "Failed to set plugin directory permissions during unpack");
+                        }
                         if !dir.pop() {
                             break;
                         }
@@ -538,7 +547,9 @@ pub async fn upload_plugin(
             {
                 use std::os::unix::fs::PermissionsExt;
                 let perms = std::fs::Permissions::from_mode(0o644);
-                let _ = std::fs::set_permissions(&dest, perms);
+                if let Err(e) = std::fs::set_permissions(&dest, perms) {
+                    tracing::warn!(path = %dest.display(), error = %e, "Failed to set plugin file permissions during unpack");
+                }
             }
         }
 
@@ -546,7 +557,9 @@ pub async fn upload_plugin(
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(0o755);
-            let _ = std::fs::set_permissions(&dest_root_clone, perms);
+            if let Err(e) = std::fs::set_permissions(&dest_root_clone, perms) {
+                tracing::warn!(path = %dest_root_clone.display(), error = %e, "Failed to set plugin root directory permissions during unpack");
+            }
         }
 
         Ok(())

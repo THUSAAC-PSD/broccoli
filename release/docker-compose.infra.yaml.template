@@ -55,11 +55,11 @@ services:
     # Tuned for Broccoli's MQ + heartbeat + (planned) observability streams.
     #
     # CRITICAL: maxmemory-policy MUST be noeviction. Every key Broccoli writes is
-    # correctness-bearing — MQ payloads are queued submissions, heartbeats drive
+    # correctness-bearing - MQ payloads are queued submissions, heartbeats drive
     # worker dedup steal logic, dedup keys carry claim invariants, observability
     # streams hold live SSE state. allkeys-lru would silently lose all of these.
     # When Redis is full under noeviction, writes return OOM and the API surfaces
-    # 503 / workers retry — fail-loud beats fail-silent.
+    # 503 / workers retry - fail-loud beats fail-silent.
     #
     # Sizing rationale (override via REDIS_MAXMEMORY):
     #   ~300 MB op envelopes pending under 1000-spike (capped after Phase 2 windowing)

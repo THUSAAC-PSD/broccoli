@@ -15,6 +15,8 @@ pub struct Model {
     /// pre-existing row by attaching them to a synthetic v1 judgement.
     /// New rows written by plugins always set this.
     pub judgement_id: Option<i32>,
+    #[sea_orm(default_value = 0)]
+    pub judge_epoch: i32,
     pub test_case_id: Option<i32>,
     /// 0-based ordinal for custom run test cases. NULL for DB-backed test cases.
     pub run_index: Option<i32>,

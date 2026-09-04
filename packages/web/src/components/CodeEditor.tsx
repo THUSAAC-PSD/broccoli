@@ -1,4 +1,5 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
 import { useSubmitGating } from '@broccoli/web-sdk/submission';
@@ -235,27 +236,70 @@ function getConfiguredFilenames(
     );
 }
 
-export function CodeEditor({
+export function CodeEditor(props: CodeEditorProps) {
+  const apiClient = useApiClient();
+  const { data: supportedLanguages, isPending } = useQuery({
+    queryKey: ['supported-languages'],
+    queryFn: () => fetchSupportedLanguages(apiClient),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Editor state (saved language + draft files) must never initialize against
+  // the fallback language list: the saved language id would not be found, the
+  // draft for the real language would not load, and the auto-save effect would
+  // immediately overwrite the contestant's persisted draft with the template.
+  // Gate mounting the stateful editor on the supported-languages query so the
+  // initializers always see the real language list.
+  if (isPending) {
+    return (
+      <div className="h-full flex flex-col p-3">
+        <div className="flex-1 min-h-0 rounded-lg border bg-muted/30 animate-pulse" />
+      </div>
+    );
+  }
+
+  return (
+    <CodeEditorContent
+      {...props}
+      supportedLanguages={supportedLanguages ?? []}
+    />
+  );
+}
+
+function CodeEditorContent({
   onSubmit,
   onRun,
   latestRun,
   isFullscreen,
   onToggleFullscreen,
-  storageKey,
+  storageKey: storageKeyProp,
   contestType,
   onContestTypeChange,
   contestTypes,
   submissionFormat,
-}: CodeEditorProps) {
+  supportedLanguages,
+}: CodeEditorProps & { supportedLanguages: Language[] }) {
   const { t } = useTranslation();
+  const { user, isLoading: authLoading } = useAuth();
+  // Scope the localStorage draft keys by the signed-in user so a shared contest
+  // machine never surfaces one contestant's in-progress solution to the next.
+  //
+  // The id is captured in a sticky ref (only ever updated to a non-null value)
+  // so a transient refresh blip (user -> null -> user) does NOT flip the key and
+  // trip the reset effect that would wipe in-progress code. And we persist only
+  // once auth has RESOLVED and a user is known: during the pre-auth window (and
+  // for logged-out users) the key is undefined, so nothing is written to an
+  // unscoped key that would be orphaned once the id resolves.
+  const userIdRef = useRef<number | null>(null);
+  if (user?.id != null) {
+    userIdRef.current = user.id;
+  }
+  const storageKey =
+    !authLoading && storageKeyProp && userIdRef.current != null
+      ? `u${userIdRef.current}:${storageKeyProp}`
+      : undefined;
   const gating = useSubmitGating();
   const isGated = gating?.isBlocked ?? false;
-  const apiClient = useApiClient();
-  const { data: supportedLanguages = [] } = useQuery({
-    queryKey: ['supported-languages'],
-    queryFn: () => fetchSupportedLanguages(apiClient),
-    staleTime: 5 * 60 * 1000,
-  });
 
   const availableLanguages = useMemo(() => {
     if (supportedLanguages.length === 0) return [FALLBACK_LANGUAGE];
@@ -332,19 +376,53 @@ export function CodeEditor({
     [submissionFormat],
   );
 
+  // Reconcile when the available language list changes (e.g. the problem's
+  // submission format loads and filters out the current selection). Perform
+  // the full restore path: prefer the persisted language choice and its saved
+  // draft files over resetting to the first language's template.
   useEffect(() => {
     if (availableLanguages.some((lang) => lang.id === selectedLanguage.id))
       return;
-    const nextLanguage = availableLanguages[0];
+    let nextLanguage = availableLanguages[0];
+    if (storageKey) {
+      const savedLang = localStorage.getItem(
+        getStorageKeys(storageKey).selectedLanguage,
+      );
+      const found = savedLang
+        ? availableLanguages.find((l) => l.id === savedLang)
+        : undefined;
+      if (found) nextLanguage = found;
+    }
     setSelectedLanguage(nextLanguage);
+    const persisted = storageKey
+      ? loadLanguageFiles(storageKey, nextLanguage.id).map((file) => ({
+          id: nextFileId(),
+          filename: file.filename,
+          content: file.content,
+        }))
+      : [];
     setFiles((prev) => {
-      const nextFiles = buildFilesForLanguage(nextLanguage, prev);
+      const source = persisted.length > 0 ? persisted : prev;
+      const nextFiles = buildFilesForLanguage(nextLanguage, source);
       if (nextFiles.length > 0) {
-        setActiveFileId(nextFiles[0].id);
+        const savedActiveFilename = storageKey
+          ? localStorage.getItem(
+              getLanguageStorageKeys(storageKey, nextLanguage.id).activeFile,
+            )
+          : null;
+        const active = savedActiveFilename
+          ? nextFiles.find((file) => file.filename === savedActiveFilename)
+          : undefined;
+        setActiveFileId(active?.id ?? nextFiles[0].id);
       }
       return nextFiles;
     });
-  }, [availableLanguages, buildFilesForLanguage, selectedLanguage.id]);
+  }, [
+    availableLanguages,
+    buildFilesForLanguage,
+    selectedLanguage.id,
+    storageKey,
+  ]);
 
   // Multi-file tabs state
   const [files, setFiles] = useState<EditorFile[]>(() => {
@@ -670,7 +748,15 @@ export function CodeEditor({
     }
     const tcs = customTestCases.map((tc) => ({
       input: tc.input,
-      expected_output: tc.expectedOutput.trim() || null,
+      // Stored answer files end with a single trailing newline, and exact
+      // checkers compare byte-for-byte. Normalize the user's expected output
+      // the same way (strip trailing whitespace, append one '\n') so a custom
+      // run agrees with the real judge instead of reporting WrongAnswer for
+      // the trailing newline that every correct program prints.
+      expected_output:
+        tc.expectedOutput.trim().length === 0
+          ? null
+          : `${tc.expectedOutput.trimEnd()}\n`,
     }));
     onRun(files, selectedLanguage.id, tcs);
   };

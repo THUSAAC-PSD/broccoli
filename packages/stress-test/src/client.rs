@@ -1,13 +1,16 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use reqwest::{StatusCode, multipart};
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 use crate::dto::{
-    AddContestProblemRequest, ContestProblemResponse, ContestResponse, CreateContestRequest,
-    CreateProblemRequest, CreateSubmissionRequest, CreateTestCaseRequest, ErrorBody, LoginRequest,
-    LoginResponse, ProblemResponse, RegistriesResponse, SubmissionResponse, TestCaseListItem,
+    AddContestProblemRequest, BulkAddParticipantsRequest, BulkAddParticipantsResponse,
+    ContestProblemResponse, ContestResponse, CreateContestRequest, CreateProblemRequest,
+    CreateSubmissionRequest, CreateTestCaseRequest, ErrorBody, LoginRequest, LoginResponse,
+    ProblemResponse, RegistriesResponse, RunCodeRequest, SubmissionResponse, TestCaseListItem,
     TestCaseResponse,
 };
 use crate::error::{StressError, StressResult};
@@ -24,6 +27,8 @@ struct Inner {
     base_url: String,
     creds: AuthCreds,
     token: RwLock<String>,
+    run_id: String,
+    request_seq: AtomicU64,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +36,14 @@ pub struct Client(Arc<Inner>);
 
 impl Client {
     pub async fn new(base_url: String, creds: AuthCreds) -> StressResult<Self> {
+        Self::new_with_run_id(base_url, creds, format!("stress-{}", Uuid::now_v7())).await
+    }
+
+    pub async fn new_with_run_id(
+        base_url: String,
+        creds: AuthCreds,
+        run_id: String,
+    ) -> StressResult<Self> {
         let http = reqwest::Client::builder()
             .build()
             .map_err(StressError::Network)?;
@@ -45,6 +58,8 @@ impl Client {
             base_url: base_url.trim_end_matches('/').to_string(),
             creds: creds.clone(),
             token: RwLock::new(initial_token),
+            run_id,
+            request_seq: AtomicU64::new(0),
         }));
 
         if matches!(client.0.creds, AuthCreds::UsernamePassword { .. }) {
@@ -52,6 +67,29 @@ impl Client {
         }
 
         Ok(client)
+    }
+
+    pub fn run_id(&self) -> &str {
+        &self.0.run_id
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.0.base_url
+    }
+
+    pub fn supports_login_probe(&self) -> bool {
+        matches!(self.0.creds, AuthCreds::UsernamePassword { .. })
+    }
+
+    fn next_request_id(&self) -> String {
+        let next = self.0.request_seq.fetch_add(1, Ordering::Relaxed) + 1;
+        format!("{}-{}", self.0.run_id, next)
+    }
+
+    fn instrument_request(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        request
+            .header("x-broccoli-stress-run-id", self.0.run_id.as_str())
+            .header("x-request-id", self.next_request_id())
     }
 
     pub async fn login(&self) -> StressResult<()> {
@@ -70,9 +108,7 @@ impl Client {
         let body = LoginRequest { username, password };
 
         let resp = self
-            .0
-            .http
-            .post(&url)
+            .instrument_request(self.0.http.post(&url))
             .json(&body)
             .send()
             .await
@@ -100,7 +136,7 @@ impl Client {
 
     pub async fn list_registries(&self) -> StressResult<RegistriesResponse> {
         let url = format!("{}/api/v1/plugins/registries", self.0.base_url);
-        let resp = self.0.http.get(url).send().await?;
+        let resp = self.instrument_request(self.0.http.get(url)).send().await?;
         if !resp.status().is_success() {
             return Err(drain_error(resp).await);
         }
@@ -206,6 +242,19 @@ impl Client {
         .await
     }
 
+    pub async fn bulk_add_participants(
+        &self,
+        contest_id: i32,
+        req: &BulkAddParticipantsRequest,
+    ) -> StressResult<BulkAddParticipantsResponse> {
+        self.send_json_with_retry(
+            reqwest::Method::POST,
+            &format!("/api/v1/contests/{}/participants/bulk", contest_id),
+            Some(req),
+        )
+        .await
+    }
+
     pub async fn get_submission(&self, id: i32) -> StressResult<SubmissionResponse> {
         self.send_json_with_retry::<(), _>(
             reqwest::Method::GET,
@@ -263,6 +312,72 @@ impl Client {
         .await
     }
 
+    pub async fn list_attachments(
+        &self,
+        problem_id: i32,
+    ) -> StressResult<crate::dto::AttachmentListResponse> {
+        self.send_json_with_retry::<(), _>(
+            reqwest::Method::GET,
+            &format!("/api/v1/problems/{}/attachments", problem_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn download_attachment(
+        &self,
+        problem_id: i32,
+        ref_id: &str,
+    ) -> StressResult<Vec<u8>> {
+        self.send_bytes_with_retry::<()>(
+            reqwest::Method::GET,
+            &format!("/api/v1/problems/{}/attachments/{}", problem_id, ref_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn run_contest_code(
+        &self,
+        contest_id: i32,
+        problem_id: i32,
+        req: &RunCodeRequest,
+    ) -> StressResult<crate::dto::CodeRunResponse> {
+        self.send_json_with_retry(
+            reqwest::Method::POST,
+            &format!(
+                "/api/v1/contests/{}/problems/{}/code-runs",
+                contest_id, problem_id,
+            ),
+            Some(req),
+        )
+        .await
+    }
+
+    pub async fn get_code_run(&self, id: i32) -> StressResult<crate::dto::CodeRunResponse> {
+        self.send_json_with_retry::<(), _>(
+            reqwest::Method::GET,
+            &format!("/api/v1/code-runs/{}", id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn get_json_path<R: DeserializeOwned>(&self, path: &str) -> StressResult<R> {
+        self.send_json_with_retry::<(), R>(reqwest::Method::GET, path, None)
+            .await
+    }
+
+    pub async fn get_public_bytes(&self, path: &str) -> StressResult<Vec<u8>> {
+        let url = format!("{}{}", self.0.base_url, path);
+        let resp = self
+            .instrument_request(self.0.http.get(url))
+            .send()
+            .await
+            .map_err(StressError::Network)?;
+        decode_bytes(resp).await
+    }
+
     pub async fn upload_plugin_archive(
         &self,
         _plugin_id: &str,
@@ -281,7 +396,7 @@ impl Client {
                     .mime_str("application/gzip")
                     .map_err(StressError::Network)?;
                 let form = multipart::Form::new().part("plugin", part);
-                http.post(&url)
+                self.instrument_request(http.post(&url))
                     .bearer_auth(&token)
                     .multipart(form)
                     .send()
@@ -348,6 +463,19 @@ impl Client {
         decode_unit(resp).await
     }
 
+    async fn send_bytes_with_retry<B>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&B>,
+    ) -> StressResult<Vec<u8>>
+    where
+        B: Serialize + ?Sized,
+    {
+        let resp = self.send_request_with_retry(method, path, body).await?;
+        decode_bytes(resp).await
+    }
+
     async fn send_request_with_retry<B>(
         &self,
         method: reqwest::Method,
@@ -360,7 +488,9 @@ impl Client {
         let url = format!("{}{}", self.0.base_url, path);
 
         let send_once = async |token: String| -> StressResult<reqwest::Response> {
-            let mut req = self.0.http.request(method.clone(), &url).bearer_auth(token);
+            let mut req = self
+                .instrument_request(self.0.http.request(method.clone(), &url))
+                .bearer_auth(token);
             if let Some(b) = body {
                 req = req.json(b);
             }
@@ -382,19 +512,31 @@ impl Client {
 
 async fn drain_error(resp: reqwest::Response) -> StressError {
     let status = resp.status().as_u16();
+    let request_id = resp
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(ToOwned::to_owned);
     let body = resp.text().await.unwrap_or_default();
 
     match serde_json::from_str::<ErrorBody>(&body) {
         Ok(parsed) => StressError::Api {
             status,
             code: parsed.code,
-            message: parsed.message,
+            message: append_request_id(parsed.message, request_id),
         },
         Err(_) => StressError::Api {
             status,
             code: "UNKNOWN".to_string(),
-            message: body,
+            message: append_request_id(body, request_id),
         },
+    }
+}
+
+fn append_request_id(message: String, request_id: Option<String>) -> String {
+    match request_id {
+        Some(id) if !id.is_empty() => format!("{message} (x-request-id: {id})"),
+        _ => message,
     }
 }
 
@@ -411,6 +553,16 @@ async fn decode_unit(resp: reqwest::Response) -> StressResult<()> {
         return Err(drain_error(resp).await);
     }
     Ok(())
+}
+
+async fn decode_bytes(resp: reqwest::Response) -> StressResult<Vec<u8>> {
+    if !resp.status().is_success() {
+        return Err(drain_error(resp).await);
+    }
+    resp.bytes()
+        .await
+        .map(|b| b.to_vec())
+        .map_err(StressError::Network)
 }
 
 #[cfg(test)]
@@ -484,6 +636,44 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/api/v1/submissions/42"))
             .and(header("authorization", "Bearer first-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": 42,
+                "language": "cpp",
+                "status": "Pending",
+                "user_id": 1,
+                "username": "admin",
+                "problem_id": 3,
+                "problem_title": "P",
+                "contest_id": null,
+                "contest_type": "ioi",
+                "judge_epoch": 0,
+                "created_at": "2026-05-01T00:00:00Z",
+                "result": null
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let s = client.get_submission(42).await.expect("ok");
+        assert_eq!(s.id, 42);
+    }
+
+    #[tokio::test]
+    async fn requests_include_run_and_request_ids() {
+        let server = MockServer::start().await;
+        let client = Client::new_with_run_id(
+            server.uri(),
+            AuthCreds::Token("static-token".into()),
+            "profile-run-1".into(),
+        )
+        .await
+        .expect("client builds");
+
+        Mock::given(method("GET"))
+            .and(path("/api/v1/submissions/42"))
+            .and(header("authorization", "Bearer static-token"))
+            .and(header("x-broccoli-stress-run-id", "profile-run-1"))
+            .and(header("x-request-id", "profile-run-1-1"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "id": 42,
                 "language": "cpp",
@@ -729,8 +919,10 @@ mod tests {
         let req = CreateContestRequest {
             title: "stress-test scratch".into(),
             description: "auto".into(),
+            activate_time: None,
             start_time: chrono::Utc::now(),
             end_time: chrono::Utc::now() + chrono::Duration::hours(24),
+            deactivate_time: None,
             is_public: false,
             contest_type: Some("icpc".into()),
         };

@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use extism::Pool;
 use matchit::Router;
 use serde::Serialize;
 
 use crate::error::{AssetError, PluginError};
 use crate::manifest::PluginManifest;
+use crate::pool::RecyclingPool;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum PluginStatus {
@@ -32,7 +32,7 @@ pub struct PluginEntry {
     pub root_dir: PathBuf,
     pub manifest: PluginManifest,
     pub status: PluginStatus,
-    pub runtime: Option<Pool>,
+    pub runtime: Option<RecyclingPool>,
     pub router: Router<RouteMatchInfo>,
 }
 

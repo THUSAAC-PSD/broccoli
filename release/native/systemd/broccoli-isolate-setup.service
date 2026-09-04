@@ -1,0 +1,15 @@
+[Unit]
+Description=Broccoli isolate setuid + cgroup-v2 delegation (per-boot)
+After=local-fs.target
+Before=broccoli-worker.service
+ConditionPathExists=@DATA_DIR@/scripts/fix-live-ubuntu-isolate.sh
+ConditionPathExists=/usr/local/bin/isolate
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/chmod u+s /usr/local/bin/isolate
+ExecStart=@DATA_DIR@/scripts/fix-live-ubuntu-isolate.sh
+
+[Install]
+WantedBy=multi-user.target

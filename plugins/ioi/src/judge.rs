@@ -1,11 +1,22 @@
+#[cfg(test)]
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use broccoli_server_sdk::prelude::*;
 
-use crate::config::{ContestConfig, SubtaskDef, TaskConfig, resolve_tc_label, round_score};
+#[cfg(test)]
+use crate::config::round_score;
+use crate::config::{ContestConfig, SubtaskDef, TaskConfig};
+#[cfg(test)]
 use crate::evaluate_batch::evaluate_all;
+use crate::evaluate_batch::evaluate_all_detached;
+#[cfg(test)]
 use crate::persist::persist_results;
-use crate::subtasks::score_all_subtasks;
+use crate::subtasks::{
+    compute_scoring_test_case_ids,
+};
+#[cfg(test)]
+use crate::subtasks::{score_all_subtasks, test_case_reference_keys};
 
 /// Context gathered from host functions, passed to pure judge logic.
 pub struct JudgeContext {
@@ -25,6 +36,7 @@ pub struct JudgeResult {
     pub subtask_scores: Option<Vec<f64>>,
 }
 
+#[cfg(test)]
 pub fn judge_with_context(
     host: &Host,
     req: &OnSubmissionInput,
@@ -60,9 +72,55 @@ pub fn judge_with_context(
         });
     }
 
-    let outcomes = match evaluate_all(host, req, &ctx.test_cases, ctx.submission_id, |raw, tc| {
-        round_score(raw * tc.score)
-    }) {
+    let scoring_test_case_ids: HashSet<i32> =
+        compute_scoring_test_case_ids(&ctx.subtask_defs, &ctx.test_cases)
+            .into_iter()
+            .collect();
+    let scoring_test_cases: Vec<TestCaseRow> = ctx
+        .test_cases
+        .iter()
+        .filter(|tc| scoring_test_case_ids.contains(&tc.id))
+        .cloned()
+        .collect();
+
+    if scoring_test_cases.is_empty() {
+        let _ =
+            host.submission
+                .delete_results(ctx.submission_id, req.judgement_id, req.judge_epoch);
+        let affected = host.submission.update(&SubmissionUpdate {
+            submission_id: ctx.submission_id,
+            judgement_id: req.judgement_id,
+            judge_epoch: req.judge_epoch,
+            status: Some(SubmissionStatus::Judged),
+            verdict: Some(Some(Verdict::Accepted)),
+            score: Some(0.0),
+            time_used: Some(None),
+            memory_used: Some(None),
+            compile_output: None,
+            error_code: None,
+            error_message: None,
+        })?;
+        if affected == 0 {
+            return Err(SdkError::StaleEpoch);
+        }
+        return Ok(JudgeResult {
+            output: OnSubmissionOutput {
+                success: true,
+                error_message: None,
+            },
+            submission_score: Some(0.0),
+            subtask_scores: Some(vec![0.0; ctx.subtask_defs.len()]),
+        });
+    }
+
+    let outcomes = match evaluate_all(
+        host,
+        req,
+        &scoring_test_cases,
+        ctx.submission_id,
+        |raw, tc| round_score(raw * tc.score),
+        &ctx.subtask_defs,
+    ) {
         Ok(outcomes) => outcomes,
         Err(SdkError::StaleEpoch) => {
             // Submission was rejudged. This execution is stale. Stop gracefully
@@ -83,18 +141,19 @@ pub fn judge_with_context(
         Err(e) => return Err(e),
     };
 
-    let id_to_label: HashMap<i32, String> = ctx
+    let id_to_keys: HashMap<i32, Vec<String>> = ctx
         .test_cases
         .iter()
-        .map(|tc| (tc.id, resolve_tc_label(tc)))
+        .map(|tc| (tc.id, test_case_reference_keys(tc)))
         .collect();
     let tc_scores: HashMap<String, f64> = outcomes
         .iter()
-        .filter(|o| !o.verdict.is_skipped())
-        .filter_map(|o| {
-            id_to_label
+        .filter(|o| !o.verdict.is_skipped_or_cancelled())
+        .flat_map(|o| {
+            id_to_keys
                 .get(&o.test_case_id)
-                .map(|label| (label.clone(), o.raw_score))
+                .into_iter()
+                .flat_map(|keys| keys.iter().cloned().map(|key| (key, o.raw_score)))
         })
         .collect();
 
@@ -119,6 +178,98 @@ pub fn judge_with_context(
     })
 }
 
+pub fn judge_with_context_detached(
+    host: &Host,
+    req: &OnSubmissionInput,
+    ctx: &JudgeContext,
+) -> Result<JudgeResult, SdkError> {
+    if ctx.test_cases.is_empty() {
+        let _ = host
+            .log
+            .info("No test cases found, marking as judged with score 0");
+        let affected = host.submission.update(&SubmissionUpdate {
+            submission_id: ctx.submission_id,
+            judgement_id: req.judgement_id,
+            judge_epoch: req.judge_epoch,
+            status: Some(SubmissionStatus::Judged),
+            verdict: Some(Some(Verdict::Accepted)),
+            score: Some(0.0),
+            time_used: Some(None),
+            memory_used: Some(None),
+            compile_output: None,
+            error_code: None,
+            error_message: None,
+        })?;
+        if affected == 0 {
+            return Err(SdkError::StaleEpoch);
+        }
+        return Ok(JudgeResult {
+            output: OnSubmissionOutput {
+                success: true,
+                error_message: None,
+            },
+            submission_score: Some(0.0),
+            subtask_scores: Some(vec![]),
+        });
+    }
+
+    let scoring_test_case_ids: HashSet<i32> =
+        compute_scoring_test_case_ids(&ctx.subtask_defs, &ctx.test_cases)
+            .into_iter()
+            .collect();
+    let scoring_test_cases: Vec<TestCaseRow> = ctx
+        .test_cases
+        .iter()
+        .filter(|tc| scoring_test_case_ids.contains(&tc.id))
+        .cloned()
+        .collect();
+
+    if scoring_test_cases.is_empty() {
+        let _ =
+            host.submission
+                .delete_results(ctx.submission_id, req.judgement_id, req.judge_epoch);
+        let affected = host.submission.update(&SubmissionUpdate {
+            submission_id: ctx.submission_id,
+            judgement_id: req.judgement_id,
+            judge_epoch: req.judge_epoch,
+            status: Some(SubmissionStatus::Judged),
+            verdict: Some(Some(Verdict::Accepted)),
+            score: Some(0.0),
+            time_used: Some(None),
+            memory_used: Some(None),
+            compile_output: None,
+            error_code: None,
+            error_message: None,
+        })?;
+        if affected == 0 {
+            return Err(SdkError::StaleEpoch);
+        }
+        return Ok(JudgeResult {
+            output: OnSubmissionOutput {
+                success: true,
+                error_message: None,
+            },
+            submission_score: Some(0.0),
+            subtask_scores: Some(vec![0.0; ctx.subtask_defs.len()]),
+        });
+    }
+
+    let output = evaluate_all_detached(
+        host,
+        req,
+        &ctx.test_cases,
+        &scoring_test_cases,
+        ctx.submission_id,
+        &ctx.subtask_defs,
+    )?;
+
+    Ok(JudgeResult {
+        output,
+        submission_score: None,
+        subtask_scores: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +279,7 @@ mod tests {
         OnSubmissionInput {
             submission_id: 1,
             judgement_id: 1,
+            fire_after_judging: true,
             user_id: 1,
             problem_id: 10,
             contest_id: Some(1),
@@ -215,10 +367,11 @@ mod tests {
         assert_eq!(result.submission_score, Some(100.0));
         assert_eq!(result.subtask_scores, Some(vec![100.0]));
 
-        // Running + terminal = 2 submission updates
+        // Compiling + Running + terminal = 3 submission updates
         let updates = host.submission.updates();
-        assert_eq!(updates.len(), 2);
-        assert_eq!(updates[0].status, Some(SubmissionStatus::Running));
+        assert_eq!(updates.len(), 3);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::Running));
 
         let sub = host.submission.last_update();
         assert_eq!(sub.score, Some(100.0));
@@ -262,6 +415,120 @@ mod tests {
 
         assert_eq!(result.submission_score, Some(0.0));
         assert_eq!(host.submission.last_update().score, Some(0.0));
+    }
+
+    #[test]
+    fn judge_filters_zero_score_cases_unless_sample_or_subtask_member() {
+        let host = Host::mock();
+        host.submission.add_test_case(1, 0.0);
+        host.submission.add_test_case(2, 0.0);
+        host.submission.add_test_case(3, 100.0);
+        host.submission.add_test_case(4, 0.0);
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+        host.eval.queue_result(TestCaseVerdict::accepted(2));
+        host.eval.queue_result(TestCaseVerdict::accepted(3));
+
+        let tcs = vec![
+            TestCaseRow {
+                id: 1,
+                score: 0.0,
+                is_sample: true,
+                position: 0,
+                description: None,
+                label: Some("sample".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 2,
+                score: 0.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("subtask_zero".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 3,
+                score: 100.0,
+                is_sample: false,
+                position: 2,
+                description: None,
+                label: Some("scored".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 4,
+                score: 0.0,
+                is_sample: false,
+                position: 3,
+                description: None,
+                label: Some("unused_zero".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+        ];
+        let ctx = explicit_subtask_ctx(
+            tcs,
+            vec![SubtaskDef {
+                name: "Scoring".into(),
+                scoring_method: SubtaskScoringMethod::Sum,
+                max_score: 100.0,
+                test_cases: vec!["subtask_zero".into(), "scored".into()],
+            }],
+        );
+
+        let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
+
+        assert_eq!(result.submission_score, Some(100.0));
+        let batch_inputs = host.eval.batch_inputs();
+        assert_eq!(batch_inputs.len(), 1);
+        let evaluated_ids: Vec<i32> = batch_inputs[0]
+            .test_cases
+            .iter()
+            .map(|tc| tc.test_case_id)
+            .collect();
+        assert_eq!(evaluated_ids, vec![1, 2, 3]);
+        assert_eq!(host.submission.results().len(), 3);
+    }
+
+    #[test]
+    fn judge_scores_labeled_test_case_referenced_by_numeric_id() {
+        let host = Host::mock();
+        host.submission.add_test_case(7, 100.0);
+        host.eval.queue_result(TestCaseVerdict::accepted(7));
+
+        let tcs = vec![TestCaseRow {
+            id: 7,
+            score: 100.0,
+            is_sample: false,
+            position: 0,
+            description: None,
+            label: Some("named_case".into()),
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
+            is_custom: false,
+        }];
+        let ctx = explicit_subtask_ctx(
+            tcs,
+            vec![SubtaskDef {
+                name: "By ID".into(),
+                scoring_method: SubtaskScoringMethod::GroupMin,
+                max_score: 100.0,
+                test_cases: vec!["7".into()],
+            }],
+        );
+
+        let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
+
+        assert_eq!(result.submission_score, Some(100.0));
+        assert_eq!(result.subtask_scores, Some(vec![100.0]));
     }
 
     #[test]
@@ -381,33 +648,69 @@ mod tests {
     fn compile_error() {
         let host = Host::mock();
         host.submission.add_test_case(1, 100.0);
+        host.submission.add_test_case(2, 100.0);
+        host.submission.add_test_case(3, 100.0);
         host.eval.queue_result(TestCaseVerdict::compile_error(1));
 
-        let tcs = vec![TestCaseRow {
-            id: 1,
-            score: 100.0,
-            is_sample: false,
-            position: 0,
-            description: None,
-            label: Some("1".into()),
-            input: TestCaseBodyRef::Missing,
-            expected_output: TestCaseBodyRef::Missing,
-            is_custom: false,
-        }];
+        let tcs = vec![
+            TestCaseRow {
+                id: 1,
+                score: 100.0,
+                is_sample: false,
+                position: 0,
+                description: None,
+                label: Some("1".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 2,
+                score: 100.0,
+                is_sample: false,
+                position: 1,
+                description: None,
+                label: Some("2".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+            TestCaseRow {
+                id: 3,
+                score: 100.0,
+                is_sample: false,
+                position: 2,
+                description: None,
+                label: Some("3".into()),
+                input: TestCaseBodyRef::Missing,
+                expected_output: TestCaseBodyRef::Missing,
+                is_custom: false,
+            },
+        ];
         let ctx = default_ctx(tcs);
         let result = judge_with_context(&host, &sample_input(), &ctx).unwrap();
 
         assert!(result.output.success);
-        // Running is set (batch starts), then CE detected -> terminal update
+        // Compile-error-only runs never enter Running; they stay in Compiling
+        // until the terminal CompilationError update.
         let updates = host.submission.updates();
         assert_eq!(updates.len(), 2);
-        assert_eq!(updates[0].status, Some(SubmissionStatus::Running));
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
 
         let sub = host.submission.last_update();
         assert_eq!(sub.status, Some(SubmissionStatus::CompilationError));
         assert_eq!(sub.verdict, Some(None));
-        // CE inserts one TC result row (the CompileError verdict)
-        assert_eq!(host.submission.results().len(), 1);
+
+        let results = host.submission.results();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].test_case_id, Some(1));
+        assert_eq!(results[0].verdict, Verdict::CompileError);
+        assert_eq!(results[1].test_case_id, Some(2));
+        assert_eq!(results[1].verdict, Verdict::Skipped);
+        assert_eq!(results[1].message.as_deref(), Some("SKIPPED_SHORT_CIRCUIT"));
+        assert_eq!(results[2].test_case_id, Some(3));
+        assert_eq!(results[2].verdict, Verdict::Skipped);
+        assert_eq!(results[2].message.as_deref(), Some("SKIPPED_SHORT_CIRCUIT"));
     }
 
     #[test]
@@ -447,12 +750,13 @@ mod tests {
     }
 
     #[test]
-    fn timeout_fills_system_error() {
+    fn polling_error_fills_system_error() {
         let host = Host::mock();
         host.submission.add_test_case(1, 50.0);
         host.submission.add_test_case(2, 50.0);
         host.eval.queue_result(TestCaseVerdict::accepted(1));
-        // Only 1 result for 2 TCs -> timeout
+        host.eval
+            .queue_result_error(SdkError::Other("poll failed".into()));
 
         let tcs = vec![
             TestCaseRow {

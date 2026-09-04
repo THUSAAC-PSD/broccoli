@@ -1,9 +1,7 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
-import type { Submission } from '@broccoli/web-sdk/submission';
+import type { Submission, SubmissionError } from '@broccoli/web-sdk/submission';
 import { Timer, XCircle } from 'lucide-react';
-
-import type { SubmissionError } from '@/features/submission/hooks/use-submission';
 
 import { ReadOnlyCodeViewer } from './ReadOnlyCodeViewer';
 import { TestCaseRow } from './TestCaseRow';
@@ -21,7 +19,7 @@ export function SubmissionResult({
 }: SubmissionResultProps) {
   const { t } = useTranslation();
 
-  // No submission yet — prompt
+  // No submission yet - prompt
   if (!submission && !isSubmitting && !error) {
     return (
       <div className="flex items-center justify-center h-32 text-muted-foreground">

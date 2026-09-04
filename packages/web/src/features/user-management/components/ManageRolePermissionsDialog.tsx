@@ -1,4 +1,4 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
+import { getErrorMessage, useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import {
   Badge,
@@ -17,7 +17,6 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { RolePermissionsRow } from '@/features/user-management/types';
-import { extractErrorMessage } from '@/lib/extract-error';
 
 interface ManageRolePermissionsDialogProps {
   role?: RolePermissionsRow;
@@ -87,7 +86,7 @@ export function ManageRolePermissionsDialog({
 
     if (error) {
       toast.error(
-        extractErrorMessage(error, t('users.roles.grantPermissionError')),
+        getErrorMessage(error, t('users.roles.grantPermissionError')),
       );
       return;
     }
@@ -120,7 +119,7 @@ export function ManageRolePermissionsDialog({
 
     if (error) {
       toast.error(
-        extractErrorMessage(error, t('users.roles.revokePermissionError')),
+        getErrorMessage(error, t('users.roles.revokePermissionError')),
       );
       return;
     }

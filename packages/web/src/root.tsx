@@ -1,5 +1,7 @@
 import '@/App.css';
 
+import { LOCALE_STORAGE_KEY } from '@broccoli/web-sdk/i18n';
+import { THEME_STORAGE_KEY } from '@broccoli/web-sdk/theme';
 import { useEffect } from 'react';
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 import sharedDepsMap from 'virtual:shared-deps-map';
@@ -46,7 +48,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <html
       lang={
         typeof window !== 'undefined'
-          ? (localStorage.getItem('broccoli-locale') ?? 'en')
+          ? (localStorage.getItem(LOCALE_STORAGE_KEY) ?? 'en')
           : 'en'
       }
       suppressHydrationWarning
@@ -71,7 +73,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){var t=localStorage.getItem('theme');if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.classList.add(t);var l=localStorage.getItem('broccoli-locale');if(l&&l!=='en')document.documentElement.style.opacity='0'})()`,
+            __html: `(function(){var t=localStorage.getItem('${THEME_STORAGE_KEY}');if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.classList.add(t);var l=localStorage.getItem('${LOCALE_STORAGE_KEY}');if(l&&l!=='en')document.documentElement.style.opacity='0'})()`,
           }}
         />
       </head>

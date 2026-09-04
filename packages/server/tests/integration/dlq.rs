@@ -5,7 +5,7 @@ use serde_json::json;
 
 use server::entity::{dead_letter_message, submission};
 
-use crate::common::{TestApp, routes};
+use crate::common::{SpawnOptions, TestApp, routes};
 
 async fn create_dlq_entry(
     app: &TestApp,
@@ -392,7 +392,11 @@ mod dlq_retry {
 
     #[tokio::test]
     async fn admin_can_retry_stuck_submission() {
-        let app = TestApp::spawn().await;
+        let app = TestApp::spawn_with_options(SpawnOptions {
+            disable_claim_fiber: true,
+            ..Default::default()
+        })
+        .await;
         let admin_token = app
             .create_user_with_role("admin_retry1", "password123", "admin")
             .await;
@@ -413,7 +417,7 @@ mod dlq_retry {
             .await
             .expect("DB query failed")
             .expect("Submission should exist");
-        assert_eq!(sub.status, SubmissionStatus::Pending);
+        assert_eq!(sub.status, SubmissionStatus::Queued);
         assert!(sub.error_code.is_none());
         assert!(sub.error_message.is_none());
 

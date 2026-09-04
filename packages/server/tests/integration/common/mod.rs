@@ -10,7 +10,7 @@ use plugin_core::host::HostFunctionRegistry;
 use plugin_core::i18n::I18nRegistry;
 use plugin_core::manifest::PluginManifest;
 use plugin_core::registry::PluginRegistry;
-use plugin_core::traits::PluginManager;
+use plugin_core::traits::{PluginInvoker, PluginManager};
 use reqwest::Client;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection,
@@ -31,7 +31,7 @@ use server::config::{
 use server::entity::{user, user_role};
 use server::manager::ServerManager;
 use server::registry::{
-    CheckerFormatRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
+    CheckerStageRegistry, ContestTypeRegistry, EvaluateBatches, EvaluatorRegistry,
     LanguageResolverEntry, LanguageResolverRegistry, OperationBatches, OperationWaiters,
 };
 use server::state::AppState;
@@ -58,25 +58,13 @@ struct TestPluginManager {
 }
 
 #[async_trait::async_trait]
-impl PluginManager for TestPluginManager {
+impl PluginInvoker for TestPluginManager {
     fn get_registry(&self) -> &PluginRegistry {
         self.inner.get_registry()
     }
 
     fn get_config(&self) -> &PluginConfig {
         self.inner.get_config()
-    }
-
-    fn get_host_functions(&self) -> &HostFunctionRegistry {
-        self.inner.get_host_functions()
-    }
-
-    fn get_i18n_registry(&self) -> &I18nRegistry {
-        self.inner.get_i18n_registry()
-    }
-
-    fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
-        self.inner.resolve(manifest)
     }
 
     async fn call_raw(
@@ -90,6 +78,20 @@ impl PluginManager for TestPluginManager {
         }
 
         self.inner.call_raw(plugin_id, func_name, input).await
+    }
+}
+
+impl PluginManager for TestPluginManager {
+    fn get_host_functions(&self) -> &HostFunctionRegistry {
+        self.inner.get_host_functions()
+    }
+
+    fn get_i18n_registry(&self) -> &I18nRegistry {
+        self.inner.get_i18n_registry()
+    }
+
+    fn resolve(&self, manifest: &PluginManifest) -> Option<(String, Vec<String>)> {
+        self.inner.resolve(manifest)
     }
 }
 
@@ -478,12 +480,16 @@ pub struct TestApp {
     pub client: Client,
     pub db: DatabaseConnection,
     server_handle: Option<tokio::task::JoinHandle<()>>,
+    dispatcher: Option<server::dispatcher::Dispatcher>,
 }
 
 impl Drop for TestApp {
     fn drop(&mut self) {
         if let Some(handle) = self.server_handle.take() {
             handle.abort();
+        }
+        if let Some(mut dispatcher) = self.dispatcher.take() {
+            dispatcher.abort();
         }
         close_database_pool(self.db.clone());
     }
@@ -514,16 +520,42 @@ pub struct TestResponse {
     pub body: Value,
 }
 
+/// Per-test config knobs that diverge from the default fixture in
+/// `Self::spawn_internal`. Add a field here when a test needs to
+/// observe a non-default `ServerConfig` value rather than copy-pasting
+/// the entire fixture in the test.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SpawnOptions {
+    /// UP#39: cap on durable `Queued` rows accepted at POST time.
+    /// `Some(0)` (the fixture default) disables the cap; `Some(n)`
+    /// trips backpressure once depth reaches `n`. `None` keeps the
+    /// fixture default (disabled).
+    pub max_queued_submissions: Option<u32>,
+    /// Disable the UP#38 claim fiber. Required for backpressure
+    /// tests that pre-stage `Queued` rows directly - otherwise the
+    /// fiber drains them before the test can observe the cap.
+    pub disable_claim_fiber: bool,
+    /// Start the UP#38 claim fiber in this integration fixture. Most
+    /// handler tests assert API commit state only; claim-fiber tests
+    /// opt in so the shared test database is not hammered by hundreds
+    /// of background pollers during parallel integration runs.
+    pub start_dispatcher: bool,
+}
+
 impl TestApp {
     pub async fn spawn() -> Self {
-        Self::spawn_internal(false).await
+        Self::spawn_internal(false, SpawnOptions::default()).await
     }
 
     pub async fn spawn_with_plugins() -> Self {
-        Self::spawn_internal(true).await
+        Self::spawn_internal(true, SpawnOptions::default()).await
     }
 
-    async fn spawn_internal(load_plugins: bool) -> Self {
+    pub async fn spawn_with_options(options: SpawnOptions) -> Self {
+        Self::spawn_internal(false, options).await
+    }
+
+    async fn spawn_internal(load_plugins: bool, options: SpawnOptions) -> Self {
         let port = shared_pg_port().await;
         let db_name = format!("test_{}", DB_COUNTER.fetch_add(1, Ordering::Relaxed));
 
@@ -542,11 +574,11 @@ impl TestApp {
             .await
             .expect("Failed to connect to test database");
 
-        let blob_store = create_blob_store(&BlobStoreConfig::default(), db.clone())
+        let blob_store = create_blob_store(&BlobStoreConfig::default(), db.clone(), None)
             .await
             .expect("Failed to initialize blob store");
 
-        let app_config = AppConfig {
+        let mut app_config = AppConfig {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
                 port: 0,
@@ -554,18 +586,60 @@ impl TestApp {
                     allow_origins: vec![],
                     max_age: 3600,
                 },
+                public_base_url: None,
                 frontend_dist: PathBuf::from("/srv/dist"),
                 trusted_proxies: vec![],
                 rate_limit_auth: false,
                 id: String::new(),
+                expects_multi_replica: false,
+                dispatcher_lease_steal_enabled: false,
+                dispatcher_semaphore_enabled: false,
+                dispatcher_concurrency: 1,
+                dispatcher_admission_queue_max: 0,
+                // UP#39: 0 disables the durable Queued-depth cap so the
+                // bulk of integration tests don't have to reason about
+                // backpressure. Tests that exercise the cap call
+                // `spawn_with_options(SpawnOptions { max_queued_submissions: ... })`.
+                max_queued_submissions: 0,
+                lease_ttl_secs: 60,
+                lease_refresh_interval_secs: 10,
+                steal_scan_interval_secs: 15,
+                steal_batch_size: 8,
+                sweep_interval_secs: 300,
+                max_dispatch_retries: 5,
+                max_system_error_retries: 50,
+                max_stuck_retries: 5,
+                sweeper_dry_run: true,
+                operation_reaper_enabled: false,
+                operation_reaper_interval_secs: 30,
+                operation_reaper_grace_secs: 30,
+                operation_reaper_max_requeues_per_tick: 1000,
+                operation_reaper_dry_run: false,
+                cancel_primitive_enabled: false,
+                max_blocking_threads: None,
+                batch_evaluator_fanout_concurrency: 64,
+                operation_batch_publish_concurrency: 32,
+                healthz_listen: None,
+                healthz_worker_threads: 2,
+                // Enable the UP#38 claim fiber by default so integration
+                // tests that rely on the UP#37 `Queued`-on-POST flow see the
+                // row transition all the way to dispatch.
+                claim_fiber_enabled: true,
+                claim_poll_interval_ms: 100,
+                claim_batch_size: 32,
             },
             database: DatabaseConfig {
                 url: db_url.clone(),
                 max_connections: 2,
+                plugin_max_connections: 1,
+                plugin_privileged_max_connections: 1,
+                plugin_url: None,
             },
             auth: AuthConfig {
                 jwt_secret: "test-secret-for-integration-tests".to_string(),
                 secure_cookies: false,
+                login_failure_limit: 0,
+                login_failure_window_secs: 60,
             },
             plugin: PluginConfig {
                 plugins_dir: fixtures_dir(),
@@ -582,28 +656,52 @@ impl TestApp {
             bootstrap: BootstrapConfig::default(),
         };
 
+        if let Some(cap) = options.max_queued_submissions {
+            app_config.server.max_queued_submissions = cap;
+        }
+        if options.disable_claim_fiber {
+            app_config.server.claim_fiber_enabled = false;
+        }
+
         let contest_type_registry: ContestTypeRegistry = Arc::new(RwLock::new(HashMap::new()));
         let evaluator_registry: EvaluatorRegistry = Arc::new(RwLock::new(HashMap::new()));
-        let checker_format_registry: CheckerFormatRegistry = Arc::new(RwLock::new(HashMap::new()));
+        let checker_stage_registry: CheckerStageRegistry = Arc::new(RwLock::new(HashMap::new()));
         let language_resolver_registry: LanguageResolverRegistry =
             Arc::new(RwLock::new(HashMap::new()));
         let operation_batches: OperationBatches = Arc::new(dashmap::DashMap::new());
         let operation_waiters: OperationWaiters = Arc::new(dashmap::DashMap::new());
         let evaluate_batches: EvaluateBatches = Arc::new(dashmap::DashMap::new());
+        let hook_registry = server::hooks::new_shared_registry();
+        let evaluate_ops_registry =
+            server::host_funcs::evaluate_ops_registry::EvaluateBatchOpsRegistry::default();
+        let (test_metrics, test_prom_registry) =
+            common::observability::init_metrics("broccoli-test");
 
         let server_plugins = ServerManager::new(
             app_config.plugin.clone(),
-            db.clone(),
-            None,
-            operation_batches.clone(),
-            operation_waiters.clone(),
-            contest_type_registry.clone(),
-            evaluator_registry.clone(),
-            checker_format_registry.clone(),
-            language_resolver_registry.clone(),
-            evaluate_batches.clone(),
-            blob_store.clone(),
-            app_config.clone(),
+            server::host_funcs::context::HostFunctionSystemDeps {
+                db: db.clone(),
+                // Test harness reuses the single app-role pool for both the
+                // restricted and privileged plugin pools; the phase-2 role
+                // restriction is proven directly against a real DB in
+                // `server::database`'s unit tests.
+                privileged_db: db.clone(),
+                mq: None,
+                operation_batches: operation_batches.clone(),
+                operation_waiters: operation_waiters.clone(),
+                contest_type_registry: contest_type_registry.clone(),
+                evaluator_registry: evaluator_registry.clone(),
+                checker_stage_registry: checker_stage_registry.clone(),
+                language_resolver_registry: language_resolver_registry.clone(),
+                evaluate_batches: evaluate_batches.clone(),
+                evaluate_ops_registry,
+                blob_store: blob_store.clone(),
+                hook_registry: hook_registry.clone(),
+                config: app_config.clone(),
+                metrics: Some(test_metrics.clone()),
+                redis_client: None,
+            },
+            Some(test_metrics.clone()),
         )
         .expect("Failed to initialize plugin manager");
         let plugins: Arc<dyn PluginManager> = Arc::new(TestPluginManager {
@@ -618,13 +716,19 @@ impl TestApp {
                     function_name: "noop".into(),
                 },
             );
-            checker_format_registry.write().await.insert(
-                "exact".into(),
-                server::registry::PluginHandler {
-                    plugin_id: "__test__".into(),
-                    function_name: "noop".into(),
-                },
-            );
+            {
+                let mut stage = checker_stage_registry.write().await;
+                for fmt in ["exact", "none"] {
+                    stage.insert(
+                        fmt.into(),
+                        server::registry::CheckerStageHandlers {
+                            plugin_id: "__test__".into(),
+                            resolve_fn: "noop".into(),
+                            interpret_fn: "noop".into(),
+                        },
+                    );
+                }
+            }
             contest_type_registry.write().await.insert(
                 "standard".into(),
                 server::registry::ContestTypeHandlers {
@@ -660,9 +764,6 @@ impl TestApp {
             }
         }
 
-        let (test_metrics, test_prom_registry) =
-            common::observability::init_metrics("broccoli-test");
-
         let state = AppState {
             plugins,
             db: db.clone(),
@@ -673,17 +774,31 @@ impl TestApp {
             registries: server::state::RegistryState {
                 contest_type_registry,
                 evaluator_registry,
-                checker_format_registry,
+                checker_stage_registry,
                 language_resolver_registry,
                 operation_batches,
                 operation_waiters,
                 evaluate_batches,
-                hook_registry: server::hooks::new_shared_registry(),
+                hook_registry,
             },
             device_codes: std::sync::Arc::new(dashmap::DashMap::new()),
             metrics: test_metrics.clone(),
             prometheus_registry: test_prom_registry.clone(),
+            dispatcher_permits: server::dispatcher::permits::DispatcherSemaphore::default(),
+            login_throttle: std::sync::Arc::new(server::utils::login_throttle::LoginThrottle::new(
+                0,
+                std::time::Duration::from_secs(60),
+            )),
         };
+        let dispatcher = options.start_dispatcher.then(|| {
+            server::dispatcher::Dispatcher::spawn(server::dispatcher::DispatcherDeps {
+                state: state.clone(),
+                redis_client: None,
+                server_id: "integration-test-server".to_string(),
+                operation_result_queue_base: "operation_results".to_string(),
+                config: state.config.server.clone(),
+            })
+        });
         if load_plugins {
             let failures = sync_plugins(&state).await.expect("Failed to sync plugins");
             assert!(
@@ -723,6 +838,7 @@ impl TestApp {
                 .expect("Failed to build reqwest client"),
             db,
             server_handle: Some(server_handle),
+            dispatcher,
         }
     }
 
@@ -901,11 +1017,42 @@ impl TestApp {
                     "memory_limit": 262144,
                     "problem_type": "standard",
                     "checker_format": "exact",
+                    // Public so a contestant can read/submit to the standalone
+                    // problem; `require_problem_read_access` (correctly) hides
+                    // non-public problems. Tests that specifically exercise the
+                    // hiding behavior use `create_hidden_problem` instead.
+                    "is_public": true,
                 }),
                 token,
             )
             .await;
         assert_eq!(res.status, 201, "create_problem failed: {}", res.text);
+        res.id()
+    }
+
+    /// Like [`Self::create_problem`] but non-public, for tests that assert a
+    /// contestant cannot reach a hidden/unreleased problem.
+    pub async fn create_hidden_problem(&self, token: &str, title: &str) -> i32 {
+        let res = self
+            .post_with_token(
+                routes::PROBLEMS,
+                &serde_json::json!({
+                    "title": title,
+                    "content": "## Description\nSolve this.",
+                    "time_limit": 1000,
+                    "memory_limit": 262144,
+                    "problem_type": "standard",
+                    "checker_format": "exact",
+                    "is_public": false,
+                }),
+                token,
+            )
+            .await;
+        assert_eq!(
+            res.status, 201,
+            "create_hidden_problem failed: {}",
+            res.text
+        );
         res.id()
     }
 

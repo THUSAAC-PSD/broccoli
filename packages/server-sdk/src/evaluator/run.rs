@@ -18,6 +18,7 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
     if test_cases.is_empty() {
         host.code_run.update(&CodeRunUpdate {
             code_run_id: req.id,
+            judge_epoch: req.judge_epoch,
             status: Some(SubmissionStatus::Judged),
             verdict: Some(Some(Verdict::Accepted)),
             score: Some(0.0),
@@ -61,23 +62,24 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
 
     let mut verdicts: Vec<TcResult> = Vec::new();
 
-    let batch_id = match host.eval.start_batch(&batch_input) {
-        Ok(id) => id,
+    let mut eval_session = match host
+        .eval
+        .windowed(&batch_input)
+        .concurrency(test_cases.len())
+        .start()
+    {
+        Ok(session) => session,
         Err(e) => {
             for tc in test_cases {
                 let r = TcResult::system_error(tc.id, format!("BATCH_START_FAILED: {e:?}"));
-                insert_code_run_tc_result(host, req.id, &r)?;
+                insert_code_run_tc_result(host, req.id, req.judge_epoch, &r)?;
                 verdicts.push(r);
             }
-            return finalize_code_run(host, req.id, &verdicts);
+            return finalize_code_run(host, req.id, req.judge_epoch, &verdicts);
         }
     };
 
-    host.code_run.update(&CodeRunUpdate {
-        code_run_id: req.id,
-        status: Some(SubmissionStatus::Running),
-        ..Default::default()
-    })?;
+    host.code_run.set_compiling(req.id, req.judge_epoch)?;
 
     let _ = host.log.info(&format!(
         "Run: evaluating {} test case(s)",
@@ -86,19 +88,33 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
 
     let mut collected = 0;
     let mut timed_out = false;
+    let mut marked_running = false;
     let result_timeout_ms = default_evaluation_result_timeout_ms(req.time_limit_ms);
 
     while collected < test_cases.len() {
-        match host.eval.next_result(&batch_id, result_timeout_ms) {
+        match eval_session.next_result(result_timeout_ms) {
             Ok(Some(verdict)) => {
                 let r = TcResult::from_verdict(&verdict);
                 if r.verdict == Verdict::CompileError {
-                    insert_code_run_tc_result(host, req.id, &r)?;
+                    insert_code_run_tc_result(host, req.id, req.judge_epoch, &r)?;
                     verdicts.push(r);
-                    let _ = host.eval.cancel_batch(&batch_id);
+                    let collected_ids: HashSet<i32> =
+                        verdicts.iter().map(|r| r.test_case_id).collect();
+                    for tc in test_cases {
+                        if !collected_ids.contains(&tc.id) {
+                            let r = TcResult::skipped(tc.id, "SKIPPED_SHORT_CIRCUIT".into());
+                            insert_code_run_tc_result(host, req.id, req.judge_epoch, &r)?;
+                            verdicts.push(r);
+                        }
+                    }
+                    let _ = eval_session.cancel_all();
                     break;
                 }
-                insert_code_run_tc_result(host, req.id, &r)?;
+                if !marked_running {
+                    host.code_run.set_running(req.id, req.judge_epoch)?;
+                    marked_running = true;
+                }
+                insert_code_run_tc_result(host, req.id, req.judge_epoch, &r)?;
                 verdicts.push(r);
                 collected += 1;
             }
@@ -124,14 +140,14 @@ pub fn evaluate_run(host: &Host, req: &OnCodeRunInput) -> Result<OnCodeRunOutput
         for tc in test_cases {
             if !collected_ids.contains(&tc.id) {
                 let r = TcResult::system_error(tc.id, "EVALUATION_TIMEOUT".into());
-                insert_code_run_tc_result(host, req.id, &r)?;
+                insert_code_run_tc_result(host, req.id, req.judge_epoch, &r)?;
                 verdicts.push(r);
             }
         }
-        let _ = host.eval.cancel_batch(&batch_id);
+        let _ = eval_session.cancel_all();
     }
 
-    finalize_code_run(host, req.id, &verdicts)
+    finalize_code_run(host, req.id, req.judge_epoch, &verdicts)
 }
 
 struct TcResult {
@@ -176,11 +192,30 @@ impl TcResult {
             stderr: None,
         }
     }
+
+    fn skipped(tc_id: i32, message: String) -> Self {
+        Self {
+            test_case_id: tc_id,
+            verdict: Verdict::Skipped,
+            score: 0.0,
+            time_used: None,
+            memory_used: None,
+            message: Some(message),
+            stdout: None,
+            stderr: None,
+        }
+    }
 }
 
-fn insert_code_run_tc_result(host: &Host, code_run_id: i32, r: &TcResult) -> Result<(), SdkError> {
+fn insert_code_run_tc_result(
+    host: &Host,
+    code_run_id: i32,
+    judge_epoch: i32,
+    r: &TcResult,
+) -> Result<(), SdkError> {
     host.code_run.insert_results(&[CodeRunResultRow {
         code_run_id,
+        judge_epoch,
         run_index: r.test_case_id,
         verdict: r.verdict.clone(),
         score: r.score,
@@ -195,9 +230,13 @@ fn insert_code_run_tc_result(host: &Host, code_run_id: i32, r: &TcResult) -> Res
 fn finalize_code_run(
     host: &Host,
     code_run_id: i32,
+    judge_epoch: i32,
     results: &[TcResult],
 ) -> Result<OnCodeRunOutput, SdkError> {
-    let non_skipped: Vec<_> = results.iter().filter(|r| !r.verdict.is_skipped()).collect();
+    let non_skipped: Vec<_> = results
+        .iter()
+        .filter(|r| !r.verdict.is_skipped_or_cancelled())
+        .collect();
 
     let verdict = non_skipped
         .iter()
@@ -228,6 +267,7 @@ fn finalize_code_run(
 
     host.code_run.update(&CodeRunUpdate {
         code_run_id,
+        judge_epoch,
         status: Some(status),
         verdict: Some(db_verdict),
         score: Some(total_score),
@@ -247,4 +287,92 @@ fn finalize_code_run(
         success: true,
         error_message: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn code_run_input(test_cases: Vec<TestCaseRow>) -> OnCodeRunInput {
+        OnCodeRunInput {
+            id: 42,
+            judge_epoch: 0,
+            user_id: 7,
+            problem_id: 11,
+            contest_id: Some(3),
+            files: vec![SourceFile {
+                filename: "main.cpp".into(),
+                content: "int main(){}".into(),
+            }],
+            language: "cpp".into(),
+            time_limit_ms: 1000,
+            memory_limit_kb: 262_144,
+            problem_type: "standard".into(),
+            test_cases,
+        }
+    }
+
+    fn test_case(id: i32) -> TestCaseRow {
+        TestCaseRow {
+            id,
+            score: 1.0,
+            is_sample: false,
+            position: id - 1,
+            description: None,
+            label: Some(id.to_string()),
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
+            is_custom: false,
+        }
+    }
+
+    #[test]
+    fn compile_error_fills_remaining_code_run_cases_with_skipped() {
+        let host = Host::mock();
+        host.eval.queue_result(TestCaseVerdict::compile_error(1));
+        let req = code_run_input(vec![test_case(1), test_case(2), test_case(3)]);
+
+        let output = evaluate_run(&host, &req).unwrap();
+
+        assert!(output.success);
+        let results = host.code_run.results();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].run_index, 1);
+        assert_eq!(results[0].verdict, Verdict::CompileError);
+        assert_eq!(results[1].run_index, 2);
+        assert_eq!(results[1].verdict, Verdict::Skipped);
+        assert_eq!(results[1].message.as_deref(), Some("SKIPPED_SHORT_CIRCUIT"));
+        assert_eq!(results[2].run_index, 3);
+        assert_eq!(results[2].verdict, Verdict::Skipped);
+        assert_eq!(results[2].message.as_deref(), Some("SKIPPED_SHORT_CIRCUIT"));
+        assert!(host.eval.was_cancelled());
+
+        let updates = host.code_run.updates();
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::CompilationError));
+        assert_eq!(updates[1].verdict, Some(None));
+        assert!(
+            updates
+                .iter()
+                .all(|update| update.status != Some(SubmissionStatus::Running))
+        );
+    }
+
+    #[test]
+    fn non_compile_result_moves_code_run_from_compiling_to_running() {
+        let host = Host::mock();
+        host.eval.queue_result(TestCaseVerdict::accepted(1));
+        host.eval.queue_result(TestCaseVerdict::wrong_answer(2));
+        let req = code_run_input(vec![test_case(1), test_case(2)]);
+
+        let output = evaluate_run(&host, &req).unwrap();
+
+        assert!(output.success);
+        let updates = host.code_run.updates();
+        assert_eq!(updates.len(), 3);
+        assert_eq!(updates[0].status, Some(SubmissionStatus::Compiling));
+        assert_eq!(updates[1].status, Some(SubmissionStatus::Running));
+        assert_eq!(updates[2].status, Some(SubmissionStatus::Judged));
+    }
 }

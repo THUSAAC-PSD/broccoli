@@ -1,5 +1,6 @@
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { CONTEST_MANAGE } from '@broccoli/web-sdk/permissions';
 import { Trophy } from 'lucide-react';
 
 import { PageLayout } from '@/components/PageLayout';
@@ -10,7 +11,7 @@ export default function ContestListPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
 
-  if (!user || !user.permissions.includes('contest:manage')) {
+  if (!user || !user.permissions.includes(CONTEST_MANAGE)) {
     return <Unauthorized />;
   }
 

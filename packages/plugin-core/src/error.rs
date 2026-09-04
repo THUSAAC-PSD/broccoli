@@ -41,6 +41,12 @@ pub enum PluginError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Distinct variant for "instance pool acquisition timed out" so callers can
+    /// retry with backoff. Plugin pool contention is *not* a permanent failure
+    /// of the user's request and should never be surfaced as a final verdict.
+    #[error("Plugin '{0}' pool acquisition timed out")]
+    PoolTimeout(String),
 }
 
 #[derive(Debug, Error)]

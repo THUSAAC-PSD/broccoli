@@ -239,6 +239,22 @@ cargo run -p stress-test -- \
     --admin-password ...
 ```
 
+### Fault scenarios
+
+The `fault` subcommand writes transcript JSON artifacts for pre-release gates:
+
+```sh
+cargo run -p stress-test -- fault rolling-worker-restart \
+  --redis-url redis://127.0.0.1:6379 \
+  --restart-command 'docker compose restart worker' \
+  --out rolling-worker-restart.json
+```
+
+If `--redis-url` is omitted, `cancel-storm` and `rolling-worker-restart` start
+an ephemeral Redis testcontainer. Omit `--restart-command` for
+`rolling-worker-restart` to simulate an abrupt leader death by abandoning the
+cache-leader lease and waiting for TTL takeover.
+
 ### Real-server e2e test
 
 `tests/e2e_real.rs` runs the bin against a live stack and asserts a clean PASS.

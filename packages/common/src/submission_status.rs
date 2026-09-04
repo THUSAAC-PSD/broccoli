@@ -13,6 +13,14 @@ use sea_orm::entity::prelude::*;
 )]
 #[serde(rename_all = "PascalCase")]
 pub enum SubmissionStatus {
+    /// Durable accept state: submission has been persisted by the API but
+    /// not yet claimed by a server's claim fiber for dispatch. Set by
+    /// UP#37 (`INSERT ... status='Queued'` on POST). The claim fiber
+    /// transitions to `Pending` once it acquires the row. Distinguishing
+    /// `Queued` from `Pending` lets per-state stuck-detector thresholds
+    /// (UP#43) apply different timeouts and avoids false-positive 5-min
+    /// "no owner" alarms on rows that simply haven't been claimed yet.
+    Queued,
     #[default]
     Pending,
     Compiling,
@@ -39,6 +47,7 @@ impl SubmissionStatus {
     }
 
     pub const ALL: &'static [SubmissionStatus] = &[
+        Self::Queued,
         Self::Pending,
         Self::Compiling,
         Self::Running,
@@ -49,6 +58,7 @@ impl SubmissionStatus {
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Queued => "Queued",
             Self::Pending => "Pending",
             Self::Compiling => "Compiling",
             Self::Running => "Running",
@@ -92,6 +102,7 @@ impl FromStr for SubmissionStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "Queued" => Ok(Self::Queued),
             "Pending" => Ok(Self::Pending),
             "Compiling" => Ok(Self::Compiling),
             "Running" => Ok(Self::Running),
@@ -120,6 +131,7 @@ pub enum Verdict {
     #[default]
     SystemError,
     Skipped,
+    Cancelled,
     Other(String),
 }
 
@@ -132,6 +144,14 @@ impl Verdict {
         matches!(self, Self::Skipped)
     }
 
+    pub fn is_cancelled(&self) -> bool {
+        matches!(self, Self::Cancelled)
+    }
+
+    pub fn is_skipped_or_cancelled(&self) -> bool {
+        matches!(self, Self::Skipped | Self::Cancelled)
+    }
+
     pub const ALL: &'static [Verdict] = &[
         Self::Accepted,
         Self::WrongAnswer,
@@ -140,6 +160,7 @@ impl Verdict {
         Self::RuntimeError,
         Self::SystemError,
         Self::Skipped,
+        Self::Cancelled,
     ];
 
     pub fn as_str(&self) -> &str {
@@ -151,20 +172,34 @@ impl Verdict {
             Self::RuntimeError => "RuntimeError",
             Self::SystemError => "SystemError",
             Self::Skipped => "Skipped",
+            Self::Cancelled => "Cancelled",
             Self::Other(custom) => custom.as_str(),
         }
     }
 
+    /// Delegates to the canonical severity table in `broccoli_types` so the
+    /// host and the WASM guest SDK can never disagree on aggregation order
+    /// again (they did: this copy ranked `Other` at 255 while the SDK copy
+    /// ranked it 5, putting a plugin custom verdict above everything on one
+    /// side and below `CompileError` — tied with `SystemError` — on the
+    /// other). See `broccoli_types::types::Verdict::severity` for the
+    /// ordering contract. This enum has no `CompileError` variant because
+    /// compile failures are represented as
+    /// `SubmissionStatus::CompilationError` with a NULL verdict column.
     pub fn severity(&self) -> u8 {
+        use broccoli_types::types::Verdict as Sdk;
         match self {
-            Self::Accepted => 0,
-            Self::Skipped => 0,
-            Self::WrongAnswer => 1,
-            Self::TimeLimitExceeded => 2,
-            Self::MemoryLimitExceeded => 3,
-            Self::RuntimeError => 4,
-            Self::SystemError => 5,
-            Self::Other(_) => 255,
+            Self::Accepted => Sdk::Accepted.severity(),
+            Self::WrongAnswer => Sdk::WrongAnswer.severity(),
+            Self::TimeLimitExceeded => Sdk::TimeLimitExceeded.severity(),
+            Self::MemoryLimitExceeded => Sdk::MemoryLimitExceeded.severity(),
+            Self::RuntimeError => Sdk::RuntimeError.severity(),
+            Self::SystemError => Sdk::SystemError.severity(),
+            Self::Skipped => Sdk::Skipped.severity(),
+            Self::Cancelled => Sdk::Cancelled.severity(),
+            // String::new() does not allocate; this is a zero-cost probe of
+            // the canonical table.
+            Self::Other(_) => Sdk::Other(String::new()).severity(),
         }
     }
 }
@@ -216,6 +251,7 @@ impl FromStr for Verdict {
             "RuntimeError" => Ok(Self::RuntimeError),
             "SystemError" => Ok(Self::SystemError),
             "Skipped" => Ok(Self::Skipped),
+            "Cancelled" => Ok(Self::Cancelled),
             _ => {
                 if let Some(custom) = s
                     .strip_prefix("Other(")
@@ -250,9 +286,9 @@ impl<'de> Deserialize<'de> for Verdict {
     }
 }
 
-impl From<broccoli_server_sdk::types::Verdict> for Verdict {
-    fn from(v: broccoli_server_sdk::types::Verdict) -> Self {
-        use broccoli_server_sdk::types::Verdict as Sdk;
+impl From<broccoli_types::types::Verdict> for Verdict {
+    fn from(v: broccoli_types::types::Verdict) -> Self {
+        use broccoli_types::types::Verdict as Sdk;
         match v {
             Sdk::Accepted => Self::Accepted,
             Sdk::WrongAnswer => Self::WrongAnswer,
@@ -261,6 +297,7 @@ impl From<broccoli_server_sdk::types::Verdict> for Verdict {
             Sdk::RuntimeError => Self::RuntimeError,
             Sdk::SystemError | Sdk::CompileError => Self::SystemError,
             Sdk::Skipped => Self::Skipped,
+            Sdk::Cancelled => Self::Cancelled,
             Sdk::Other(custom) => Self::Other(custom),
         }
     }
@@ -268,8 +305,28 @@ impl From<broccoli_server_sdk::types::Verdict> for Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::Verdict;
+    use super::{SubmissionStatus, Verdict};
     use std::str::FromStr;
+
+    #[test]
+    fn queued_status_round_trip_and_predicates() {
+        let raw = serde_json::to_string(&SubmissionStatus::Queued).expect("serialize status");
+        assert_eq!(raw, "\"Queued\"");
+        let parsed: SubmissionStatus = serde_json::from_str(&raw).expect("deserialize status");
+        assert_eq!(parsed, SubmissionStatus::Queued);
+        assert_eq!(SubmissionStatus::Queued.as_str(), "Queued");
+        assert_eq!(
+            SubmissionStatus::from_str("Queued").expect("parse Queued"),
+            SubmissionStatus::Queued
+        );
+        // Queued is pre-Pending: not terminal, not judged, not error.
+        assert!(!SubmissionStatus::Queued.is_terminal());
+        assert!(!SubmissionStatus::Queued.is_judged());
+        assert!(!SubmissionStatus::Queued.is_error());
+        // Queued must be in the ALL listing so callers iterating over all
+        // statuses (registries, metrics labels) see it.
+        assert!(SubmissionStatus::ALL.contains(&SubmissionStatus::Queued));
+    }
 
     #[test]
     fn parse_tagged_other_verdict() {
@@ -301,5 +358,76 @@ mod tests {
         let verdict: Verdict =
             serde_json::from_str("\"PluginStatus\"").expect("deserialize verdict");
         assert_eq!(verdict, Verdict::Other("PluginStatus".to_string()));
+    }
+
+    #[test]
+    fn severity_matches_canonical_sdk_table_for_all_variants() {
+        // Drift pin: every host variant must rank exactly as its SDK
+        // counterpart. If this fails, someone forked the severity table
+        // again — fix it in broccoli_types, not here.
+        use broccoli_types::types::Verdict as Sdk;
+        let pairs: &[(Verdict, Sdk)] = &[
+            (Verdict::Accepted, Sdk::Accepted),
+            (Verdict::WrongAnswer, Sdk::WrongAnswer),
+            (Verdict::TimeLimitExceeded, Sdk::TimeLimitExceeded),
+            (Verdict::MemoryLimitExceeded, Sdk::MemoryLimitExceeded),
+            (Verdict::RuntimeError, Sdk::RuntimeError),
+            (Verdict::SystemError, Sdk::SystemError),
+            (Verdict::Skipped, Sdk::Skipped),
+            (Verdict::Cancelled, Sdk::Cancelled),
+            (
+                Verdict::Other("PluginStatus".into()),
+                Sdk::Other("PluginStatus".into()),
+            ),
+        ];
+        for (host, sdk) in pairs {
+            assert_eq!(
+                host.severity(),
+                sdk.severity(),
+                "severity drift for {host:?}"
+            );
+        }
+        // Custom verdicts outrank standard failures on the host too.
+        assert!(Verdict::Other("X".into()).severity() > Verdict::SystemError.severity());
+    }
+
+    #[test]
+    fn from_sdk_verdict_preserves_db_string_representation() {
+        // The SDK collapses CompileError into "SystemError" for the DB
+        // (compile failures live in SubmissionStatus, not the verdict
+        // column); the From impl must agree with that collapse, and every
+        // other variant must round-trip its string form unchanged.
+        use broccoli_types::types::Verdict as Sdk;
+        let cases: &[Sdk] = &[
+            Sdk::Accepted,
+            Sdk::WrongAnswer,
+            Sdk::TimeLimitExceeded,
+            Sdk::MemoryLimitExceeded,
+            Sdk::RuntimeError,
+            Sdk::SystemError,
+            Sdk::CompileError,
+            Sdk::Skipped,
+            Sdk::Cancelled,
+            Sdk::Other("PluginStatus".into()),
+        ];
+        for sdk in cases {
+            let host: Verdict = sdk.clone().into();
+            assert_eq!(host.as_str(), sdk.to_db_str(), "string drift for {sdk:?}");
+        }
+    }
+
+    #[test]
+    fn cancelled_verdict_round_trip_and_predicates() {
+        let raw = serde_json::to_string(&Verdict::Cancelled).expect("serialize verdict");
+        assert_eq!(raw, "\"Cancelled\"");
+        let parsed: Verdict = serde_json::from_str(&raw).expect("deserialize verdict");
+        assert_eq!(parsed, Verdict::Cancelled);
+        assert_eq!(parsed.as_str(), "Cancelled");
+        assert_eq!(parsed.severity(), 0);
+        assert!(parsed.is_cancelled());
+        assert!(parsed.is_skipped_or_cancelled());
+        assert!(!Verdict::Skipped.is_cancelled());
+        assert!(Verdict::Skipped.is_skipped_or_cancelled());
+        assert!(!Verdict::Accepted.is_skipped_or_cancelled());
     }
 }

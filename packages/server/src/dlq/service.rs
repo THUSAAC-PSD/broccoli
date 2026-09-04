@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use chrono::Utc;
 use common::{DlqEnvelope, DlqErrorCode, DlqMessageType};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, SqlErr, sea_query::LockType,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Set, sea_query::LockType,
 };
 
 use crate::entity::dead_letter_message;
@@ -22,6 +22,8 @@ pub struct DlqStats {
     pub total_resolved: u64,
     pub operation_task_count: u64,
     pub stuck_submission_count: u64,
+    pub stuck_code_run_count: u64,
+    pub stuck_submission_judgement_count: u64,
     pub unresolved_by_error_code: HashMap<String, u64>,
 }
 
@@ -99,21 +101,33 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         message_id: &str,
         model: dead_letter_message::ActiveModel,
     ) -> Result<dead_letter_message::Model, DbErr> {
-        match model.insert(self.conn).await {
-            Ok(inserted) => Ok(inserted),
-            Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
-                dead_letter_message::Entity::find()
-                    .filter(dead_letter_message::Column::MessageId.eq(message_id))
-                    .one(self.conn)
-                    .await?
-                    .ok_or_else(|| {
-                        DbErr::Custom(
-                            "UniqueConstraintViolation but existing row not found".to_string(),
-                        )
-                    })
-            }
-            Err(e) => Err(e),
+        // ON CONFLICT DO NOTHING, NOT a bare insert. A duplicate message_id (broker
+        // redelivery / lost-ack - exactly what the DLQ must survive) would raise a
+        // unique-constraint violation, and a violation ABORTS the surrounding
+        // Postgres transaction; the recovery read that follows would then fail with
+        // 25P02 on the aborted txn, so every transactional caller's idempotent
+        // retry breaks. `exec_without_returning` with `do_nothing` instead leaves
+        // the txn valid and returns `RecordNotInserted` on conflict; either way we
+        // read the row back (the one just inserted, or the pre-existing duplicate).
+        match dead_letter_message::Entity::insert(model)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(dead_letter_message::Column::MessageId)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec_without_returning(self.conn)
+            .await
+        {
+            Ok(_) | Err(DbErr::RecordNotInserted) => {}
+            Err(e) => return Err(e),
         }
+        dead_letter_message::Entity::find()
+            .filter(dead_letter_message::Column::MessageId.eq(message_id))
+            .one(self.conn)
+            .await?
+            .ok_or_else(|| {
+                DbErr::Custom("dead_letter_message row missing after upsert".to_string())
+            })
     }
 
     pub async fn list(
@@ -214,12 +228,16 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
         let total_unresolved = unresolved_data.len() as u64;
         let mut operation_task_count = 0u64;
         let mut stuck_submission_count = 0u64;
+        let mut stuck_code_run_count = 0u64;
+        let mut stuck_submission_judgement_count = 0u64;
         let mut unresolved_by_error_code: HashMap<String, u64> = HashMap::new();
 
         for (message_type, error_code) in unresolved_data {
             match message_type.as_str() {
                 "operation_task" => operation_task_count += 1,
                 "stuck_submission" => stuck_submission_count += 1,
+                "stuck_code_run" => stuck_code_run_count += 1,
+                "stuck_submission_judgement" => stuck_submission_judgement_count += 1,
                 _ => {}
             }
             *unresolved_by_error_code.entry(error_code).or_insert(0) += 1;
@@ -230,6 +248,8 @@ impl<'a, C: ConnectionTrait> DlqService<'a, C> {
             total_resolved,
             operation_task_count,
             stuck_submission_count,
+            stuck_code_run_count,
+            stuck_submission_judgement_count,
             unresolved_by_error_code,
         })
     }

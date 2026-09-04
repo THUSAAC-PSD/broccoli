@@ -10,8 +10,10 @@ import { useNavigate } from 'react-router';
 
 import type { SubmissionEntry } from '@/features/submission/hooks/use-submissions';
 
+import { getSubmissionScoreDisplay } from '../utils/score-display';
 import { getVerdictBadge } from '../utils/verdict';
 import { PinnedSubmissionGroup } from './PinnedSubmissionGroup';
+import { formatMemory } from './TestCaseRow';
 
 const DEFAULT_VISIBLE_COUNT = 5;
 
@@ -52,16 +54,6 @@ function getEntryStatus(entry: SubmissionEntry): SubmissionStatus {
   }
 }
 
-function formatScore(value: number): string {
-  if (!Number.isFinite(value)) return String(value);
-  const rounded = Math.round(value * 100) / 100;
-  if (Number.isInteger(rounded)) return String(rounded);
-  return rounded
-    .toFixed(2)
-    .replace(/\.0+$/, '')
-    .replace(/(\.\d*[1-9])0+$/, '$1');
-}
-
 function getScoreToneClass(variant: string): string {
   switch (variant) {
     case 'accepted':
@@ -91,7 +83,7 @@ export function RecentSubmissionOverview({
 
   // Bucket fan-out entries by groupKey so they render together as a single
   // comparison strip rather than N independent overview rows. Single-target
-  // pins still create a 1-row group, which is fine — it shows the worker
+  // pins still create a 1-row group, which is fine - it shows the worker
   // label and avoids special-casing.
   const groups = new Map<string, SubmissionEntry[]>();
   const ungrouped: SubmissionEntry[] = [];
@@ -210,6 +202,11 @@ export function RecentSubmissionOverview({
             t,
           );
           const scoreToneClass = getScoreToneClass(variant);
+          const scoreDisplay = getSubmissionScoreDisplay(
+            row.status,
+            row.score,
+            t,
+          );
           const canOpen = row.submissionId != null && !!linkBuilder;
 
           return (
@@ -244,16 +241,20 @@ export function RecentSubmissionOverview({
                     {label}
                   </Badge>
 
-                  {row.score != null && (
+                  {scoreDisplay.kind === 'score' ? (
                     <div
                       className={`inline-flex items-end gap-1 font-mono tabular-nums ${scoreToneClass}`}
                     >
                       <span className="text-2xl font-extrabold leading-none tracking-tight">
-                        {formatScore(row.score)}
+                        {scoreDisplay.value}
                       </span>
                       <span className="pb-0.5 text-xs font-semibold tracking-wide opacity-85">
                         {t('result.pointsUnit')}
                       </span>
+                    </div>
+                  ) : (
+                    <div className="inline-flex min-w-16 justify-end text-xs font-semibold text-muted-foreground">
+                      {scoreDisplay.label}
                     </div>
                   )}
                 </div>
@@ -271,7 +272,9 @@ export function RecentSubmissionOverview({
                   )}
                   {row.memoryUsed != null && (
                     <span>
-                      {t('result.memory', { value: String(row.memoryUsed) })}
+                      {t('result.memory', {
+                        value: formatMemory(row.memoryUsed),
+                      })}
                     </span>
                   )}
                 </div>

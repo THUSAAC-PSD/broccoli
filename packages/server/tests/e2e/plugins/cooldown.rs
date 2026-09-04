@@ -197,7 +197,11 @@ async fn cooldown_config_at_problem_scope() {
         .await;
     let user = app.create_authenticated_user("cd_user4", "password").await;
 
-    let problem_id = app.create_problem(&admin, "Cooldown Problem 4").await;
+    // Public: the plain user must get past the problem-visibility gate so the
+    // submission reaches the cooldown hook.
+    let problem_id = app
+        .create_public_problem(&admin, "Cooldown Problem 4")
+        .await;
 
     let config_path = format!("/api/v1/problems/{problem_id}/config/cooldown/cooldown");
     let put_res = app

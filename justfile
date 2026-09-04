@@ -6,6 +6,15 @@ default:
 build:
     cargo build
 
+# Build server and worker with opt-in profiling symbols and frame pointers.
+# This intentionally does not affect the default build/release recipes.
+build-profiling *args:
+    RUSTFLAGS="-C force-frame-pointers=yes" cargo build --profile profiling -p server -p worker {{args}}
+
+# Build a single crate with opt-in profiling symbols and frame pointers.
+build-profiling-crate crate *args:
+    RUSTFLAGS="-C force-frame-pointers=yes" cargo build --profile profiling -p {{crate}} {{args}}
+
 # Run baseline Rust workspace tests.
 # This excludes root plugins (they are intentionally not workspace members) and
 # the stress-test harness. Use test-plugins/test-stress for those opt-in suites.
@@ -144,11 +153,19 @@ up:
 down:
     docker compose down
 
+# Dry-run publish the shared types crate to crates.io
+publish-types-dry:
+    cargo publish -p broccoli-types --dry-run
+
+# Publish the shared types crate to crates.io (must precede publish-server-sdk)
+publish-types:
+    cargo publish -p broccoli-types
+
 # Dry-run publish server SDK to crates.io
 publish-server-sdk-dry:
     cargo publish -p broccoli-server-sdk --dry-run
 
-# Publish server SDK to crates.io
+# Publish server SDK to crates.io (run publish-types first: it is a dependency)
 publish-server-sdk:
     cargo publish -p broccoli-server-sdk
 

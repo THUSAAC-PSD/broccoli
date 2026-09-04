@@ -21,6 +21,12 @@ export interface ConfigInheritanceInfoProps {
   namespace?: string;
   schema?: { properties?: Record<string, { default?: unknown }> };
   hasExplicitValue?: (path: string | string[]) => boolean;
+  /**
+   * Whether the current scope stores no explicit values at all. The cascade
+   * is wholesale: storing ANY field at this scope makes the whole local
+   * config effective, so no field inherits from parent scopes.
+   */
+  isUsingDefaultsOnly?: boolean;
   inherited?: InheritedConfig;
   fieldKey: string;
   formatValue: (value: unknown) => string;
@@ -48,6 +54,7 @@ function extractField(
 export function ConfigInheritanceInfo({
   scope,
   hasExplicitValue,
+  isUsingDefaultsOnly,
   inherited,
   schema,
   fieldKey,
@@ -75,6 +82,12 @@ export function ConfigInheritanceInfo({
     : null;
 
   const hasLocalOverride = hasExplicitValue?.(fieldKey) ?? false;
+  // The judging cascade is wholesale: if ANY field is stored at this scope,
+  // the whole local config is effective and no field inherits from a parent
+  // scope (unset local fields resolve to the schema default instead).
+  const localConfigWins =
+    isUsingDefaultsOnly === undefined ? hasLocalOverride : !isUsingDefaultsOnly;
+  const activeInherited = localConfigWins ? null : effective;
 
   const schemaDefault = schema?.properties?.[fieldKey]?.default;
   const defaultLabel =
@@ -112,9 +125,16 @@ export function ConfigInheritanceInfo({
       )}
     >
       <p className="m-0">
-        {!hasLocalOverride && effective
-          ? labels.inheritInfo(formatValue(effective.value), effective.source)
-          : labels.overrideInfo}
+        {hasLocalOverride
+          ? labels.overrideInfo
+          : activeInherited
+            ? labels.inheritInfo(
+                formatValue(activeInherited.value),
+                activeInherited.source,
+              )
+            : defaultLabel
+              ? labels.notSetWithDefault(defaultLabel)
+              : labels.notSet}
       </p>
       {rows.length > 0 && (
         <div className="flex flex-col gap-0.5">
@@ -149,13 +169,11 @@ export function ConfigInheritanceInfo({
                   (disabled)
                 </span>
               )}
-              {!row.disabled &&
-                !hasLocalOverride &&
-                row.label === effective?.source && (
-                  <span className="text-[11px] text-primary">
-                    ← {labels.active}
-                  </span>
-                )}
+              {!row.disabled && row.label === activeInherited?.source && (
+                <span className="text-[11px] text-primary">
+                  ← {labels.active}
+                </span>
+              )}
             </div>
           ))}
         </div>

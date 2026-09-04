@@ -1,163 +1,123 @@
-use std::collections::HashMap;
+//! Example backend plugin for Broccoli.
+//!
+//! Built on `broccoli-server-sdk`, which owns the host ABI (function imports
+//! and JSON envelopes). Plugins should never hand-roll raw
+//! `extern "ExtismHost"` declarations: the SDK keeps them in sync with the
+//! server's host functions.
+//!
+//! Route handlers are declared in `plugin.toml` and wired through
+//! `run_api_handler`, which decodes the incoming `PluginHttpRequest`,
+//! provides a `Host` handle, and encodes the `PluginHttpResponse`.
 
-use extism_pdk::{FnResult, host_fn, plugin_fn};
-use sea_query::*;
-use serde::{Deserialize, Serialize};
+#[cfg(target_arch = "wasm32")]
+mod plugin {
+    use broccoli_server_sdk::prelude::*;
+    use extism_pdk::{FnResult, plugin_fn};
+    use serde::{Deserialize, Serialize};
 
-// TODO: import from SDK
-#[derive(Deserialize)]
-struct PluginHttpRequest {
-    pub params: HashMap<String, String>,
-    pub body: Option<serde_json::Value>,
-}
-
-#[derive(Serialize)]
-struct PluginHttpResponse {
-    pub status: u16,
-    pub headers: Option<HashMap<String, String>>,
-    pub body: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct DemoInput {
-    name: String,
-}
-
-#[derive(Serialize)]
-struct DemoOutput {
-    greeting: String,
-    visit_count: u32,
-}
-
-#[derive(Deserialize)]
-struct PostMessageInput {
-    name: String,
-    message: String,
-}
-
-#[derive(Serialize)]
-struct PostMessageOutput {
-    status: String,
-    total_messages: i64,
-}
-
-#[host_fn]
-extern "ExtismHost" {
-    fn log_info(msg: String);
-
-    fn store_set(collection: String, key: String, value: String);
-    fn store_get(collection: String, key: String) -> String;
-
-    fn db_execute(sql: String) -> u64;
-    fn db_query(sql: String) -> String;
-}
-
-#[plugin_fn]
-pub fn greet(input: String) -> FnResult<String> {
-    let req: PluginHttpRequest = serde_json::from_str(&input)?;
-    let args = DemoInput {
-        name: req
-            .params
-            .get("name")
-            .cloned()
-            .unwrap_or("World".to_string()),
-    };
-
-    unsafe {
-        log_info(format!("Guest is greeting user: {}", args.name))?;
+    #[derive(Serialize)]
+    struct DemoOutput {
+        greeting: String,
+        visit_count: u32,
     }
 
-    let collection = "stats".to_string();
-    let key = args.name.clone();
-
-    let raw_value = unsafe { store_get(collection.clone(), key.clone())? };
-    let mut count: u32 = if raw_value == "null" {
-        0
-    } else {
-        serde_json::from_str(&raw_value)?
-    };
-
-    count += 1;
-
-    let new_value = serde_json::to_string(&count)?;
-    unsafe {
-        store_set(collection, key, new_value)?;
+    #[derive(Deserialize)]
+    struct PostMessageInput {
+        name: String,
+        message: String,
     }
 
-    let output = DemoOutput {
-        greeting: format!("Hello, {}! This is from Rust Wasm.", args.name),
-        visit_count: count,
-    };
-
-    let resp = PluginHttpResponse {
-        status: 200,
-        headers: None,
-        body: Some(serde_json::to_value(output)?),
-    };
-    Ok(serde_json::to_string(&resp)?)
-}
-
-#[plugin_fn]
-pub fn post_message(input: String) -> FnResult<String> {
-    let req: PluginHttpRequest = serde_json::from_str(&input)?;
-    let args: PostMessageInput = serde_json::from_value(req.body.unwrap_or_default())?;
-
-    let create_sql = Table::create()
-        .table("plugin_messages")
-        .if_not_exists()
-        .col(
-            ColumnDef::new("id")
-                .integer()
-                .not_null()
-                .auto_increment()
-                .primary_key(),
-        )
-        .col(ColumnDef::new("name").text())
-        .col(ColumnDef::new("message").text())
-        .to_string(PostgresQueryBuilder);
-    unsafe {
-        db_execute(create_sql)?;
+    #[derive(Serialize)]
+    struct PostMessageOutput {
+        status: String,
+        total_messages: i64,
     }
 
-    let insert_sql = Query::insert()
-        .into_table("plugin_messages")
-        .columns(["name", "message"])
-        .values_panic([args.name.clone().into(), args.message.into()])
-        .to_string(PostgresQueryBuilder);
-    unsafe {
-        db_execute(insert_sql)?;
+    fn json_response(body: impl Serialize) -> Result<PluginHttpResponse, ApiError> {
+        Ok(PluginHttpResponse {
+            status: 200,
+            headers: None,
+            body: Some(serde_json::to_value(body)?),
+        })
     }
 
-    unsafe {
-        log_info(format!("Message posted by {}", args.name))?;
+    /// `POST /{name}/greet` - greets the caller and counts visits per name
+    /// using the plugin key-value store (`storage` permission).
+    #[plugin_fn]
+    pub fn greet(input: String) -> FnResult<String> {
+        run_api_handler(&input, |host, req| {
+            let name = req
+                .params
+                .get("name")
+                .cloned()
+                .unwrap_or_else(|| "World".to_string());
+
+            host.log.info(&format!("Guest is greeting user: {name}"))?;
+
+            let key = format!("stats:{name}");
+            let count: u32 = match host.storage.get_one(&key)? {
+                Some(raw) => raw.parse().unwrap_or(0),
+                None => 0,
+            } + 1;
+            host.storage
+                .set(&[(key.as_str(), count.to_string().as_str())])?;
+
+            json_response(DemoOutput {
+                greeting: format!("Hello, {name}! This is from Rust Wasm."),
+                visit_count: count,
+            })
+        })
     }
 
-    // Query to count total messages by this user
-    // db_query returns a JSON array string like "[{"count": 5}]"
-    let select_sql = Query::select()
-        .expr(Func::count(Expr::col("name")))
-        .from("plugin_messages")
-        .and_where(Expr::col("name").eq(args.name))
-        .to_string(PostgresQueryBuilder);
-    let query_res = unsafe { db_query(select_sql)? };
+    /// `POST /post-message` - stores a message in a plugin-owned table and
+    /// returns how many messages that name has posted (`sql` permission).
+    #[plugin_fn]
+    pub fn post_message(input: String) -> FnResult<String> {
+        run_api_handler(&input, |host, req| {
+            let args: PostMessageInput =
+                serde_json::from_value(req.body.clone().unwrap_or_default()).map_err(|e| {
+                    PluginHttpResponse::error(400, format!("Invalid request body: {e}"))
+                })?;
 
-    // Parse the result set
-    let rows: Vec<serde_json::Value> = serde_json::from_str(&query_res)?;
-    let count = rows
-        .first()
-        .and_then(|row| row.get("count"))
-        .and_then(|c| c.as_i64())
-        .unwrap_or(0);
+            host.db.execute(
+                "CREATE TABLE IF NOT EXISTS plugin_messages ( \
+                     id SERIAL PRIMARY KEY, \
+                     name TEXT, \
+                     message TEXT \
+                 )",
+            )?;
 
-    let output = PostMessageOutput {
-        status: "success".to_string(),
-        total_messages: count,
-    };
+            // Always bind user input as query parameters via `Params`;
+            // never interpolate it into the SQL string.
+            let mut p = Params::new();
+            let insert_sql = format!(
+                "INSERT INTO plugin_messages (name, message) VALUES ({}, {})",
+                p.bind(args.name.as_str()),
+                p.bind(args.message.as_str()),
+            );
+            host.db.execute_with_args(&insert_sql, &p.into_args())?;
 
-    let resp = PluginHttpResponse {
-        status: 200,
-        headers: None,
-        body: Some(serde_json::to_value(output)?),
-    };
-    Ok(serde_json::to_string(&resp)?)
+            host.log.info(&format!("Message posted by {}", args.name))?;
+
+            #[derive(Deserialize)]
+            struct CountRow {
+                count: i64,
+            }
+            let mut p = Params::new();
+            let count_sql = format!(
+                "SELECT COUNT(*)::bigint AS count FROM plugin_messages WHERE name = {}",
+                p.bind(args.name.as_str()),
+            );
+            let total_messages = host
+                .db
+                .query_one_with_args::<CountRow>(&count_sql, &p.into_args())?
+                .map(|row| row.count)
+                .unwrap_or(0);
+
+            json_response(PostMessageOutput {
+                status: "success".to_string(),
+                total_messages,
+            })
+        })
+    }
 }

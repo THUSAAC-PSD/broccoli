@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "react-router dev",
     "build": "react-router build",
-    "typecheck": "react-router typegen && tsc",
+    "typecheck": "react-router typegen && tsc -b",
     "preview": "vite preview"
   },
   "dependencies": {

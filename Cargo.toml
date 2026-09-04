@@ -8,9 +8,12 @@ members = [
   "packages/worker",
   "packages/dev-cli",
   "packages/stress-test",
+  "packages/broccoli-compare",
   "packages/contestant-cli",
 ]
-# stress-test is excluded from default builds to keep them fast.
+# All members EXCEPT packages/stress-test (test harness) and
+# packages/broccoli-compare (comparator binary), both opt-in via
+# `cargo build -p <name>` so day-to-day builds stay fast.
 default-members = [
   "packages/cli-core",
   "packages/common",
@@ -27,12 +30,19 @@ exclude = [
   "packages/plugins/icpc-contest",
   "packages/plugins/standard-evaluators",
   "packages/plugins/standard-checkers",
+  # Locally-patched copy of the broccoli_queue crate (see VENDOR-PATCHES.md and
+  # the [patch.crates-io] table below). Excluded so it is not treated as a
+  # workspace member (it is edition 2021 with its own dev-deps/benches/tests).
+  "third_party",
 ]
 resolver = "3"
 
-# Strip symbols so release binaries are smaller.
-[profile.release]
-strip = true
+# We vendor broccoli_queue to fix two message-loss bugs in its 0.4.6 release
+# that cannot be worked around from the outside (a broken `reject` retry path
+# and a `process_messages` deserialize leak). See VENDOR-PATCHES.md for the
+# exact diffs. Keep the vendored version at 0.4.6 so this patch stays a drop-in.
+[patch.crates-io]
+broccoli_queue = { path = "third_party/broccoli_queue" }
 
 # Size optimized profile for the broccoli binary.
 [profile.release-cli]
@@ -72,6 +82,10 @@ plugin-core = { path = "packages/plugin-core" }
 rand = "0.9"
 serde = { version = "1.0.228", features = ["derive"] }
 sea-orm = "2.0.0-rc.29"
+sea-orm-migration = { version = "2.0.0-rc.29", default-features = false, features = [
+  "runtime-tokio-rustls",
+  "sqlx-postgres",
+] }
 sha2 = "0.10"
 serde_json = "1.0.149"
 time = "0.3.34"
@@ -106,9 +120,11 @@ rust-s3 = { version = "0.37", default-features = false, features = [
 tokio-util = { version = "0.7", features = ["io"] }
 zip = { version = "7", default-features = false, features = ["deflate"] }
 broccoli-server-sdk = { path = "packages/server-sdk" }
+broccoli-types = { path = "packages/broccoli-types" }
 crossbeam = "0.8"
 dashmap = "6.1"
 flate2 = "1"
+flume = "0.11"
 tar = "0.4"
 dirs = "6"
 open = "5"
@@ -120,3 +136,18 @@ ratatui = { version = "0.28", features = ["unstable-rendered-line-info"] }
 crossterm = "0.28"
 hdrhistogram = "7"
 wiremock = "0.6"
+redis = { version = "1.0", features = ["tokio-comp"] }
+
+# Keep line tables in release builds so perf-based flame graphs resolve symbols.
+# Cost: ~20% binary size, no runtime impact. Drop for size-sensitive production builds.
+[profile.release]
+debug = "line-tables-only"
+strip = "none"
+
+# Opt-in profile for profiling runs that need actionable DWARF stacks.
+# Normal release builds stay on `profile.release`; use `just build-profiling`
+# or Docker build args to select this profile and frame pointers explicitly.
+[profile.profiling]
+inherits = "release"
+debug = "full"
+strip = "none"

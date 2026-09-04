@@ -47,12 +47,21 @@ impl Registry {
         Ok(())
     }
 
-    pub fn register_checker_format(&self, format: &str, handler: &str) -> Result<(), SdkError> {
+    /// Register a checker resolver + interpreter for a format (checker fusion).
+    /// `resolve_handler` builds the `CheckerStage`; `interpret_handler` turns the
+    /// small check result into a verdict.
+    pub fn register_checker_resolver(
+        &self,
+        format: &str,
+        resolve_handler: &str,
+        interpret_handler: &str,
+    ) -> Result<(), SdkError> {
         let input = serde_json::json!({
             "format": format,
-            "handler": handler,
+            "resolve_handler": resolve_handler,
+            "interpret_handler": interpret_handler,
         });
-        unsafe { crate::host::raw::register_checker_format(serde_json::to_string(&input)?)? };
+        unsafe { crate::host::raw::register_checker_resolver(serde_json::to_string(&input)?)? };
         Ok(())
     }
 
@@ -117,7 +126,12 @@ impl Registry {
         Ok(())
     }
 
-    pub fn register_checker_format(&self, _format: &str, _handler: &str) -> Result<(), SdkError> {
+    pub fn register_checker_resolver(
+        &self,
+        _format: &str,
+        _resolve_handler: &str,
+        _interpret_handler: &str,
+    ) -> Result<(), SdkError> {
         Ok(())
     }
 

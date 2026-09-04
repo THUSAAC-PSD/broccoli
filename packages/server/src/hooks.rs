@@ -103,6 +103,88 @@ fn scope_priority(scope: &str) -> u8 {
     }
 }
 
+/// Merge the plugin_config rows that apply to one resource (multiple scopes ×
+/// multiple namespaces per plugin) into a single enablement + position per
+/// plugin, ORDER-INDEPENDENTLY.
+///
+/// The source query has no `ORDER BY`, so Postgres may return these rows in any
+/// order; the reducer must therefore be commutative. Semantics (as the per-row
+/// `enabled.is_some()` guard has always intended):
+///   * position — from the most specific scope present
+///     (contest_problem > contest > problem); ties across a plugin's namespaces
+///     take the smallest position.
+///   * enabled  — inherited from the most specific scope that actually *sets*
+///     it; a more specific row whose `enabled` is NULL overrides position only,
+///     never enablement. Within one scope, any `true` wins over `false`.
+///
+/// A plugin is enabled iff its merged enablement is `Some(true)`.
+///
+/// Rows are `(stored_namespace, scope, enabled, position)`.
+fn merge_resource_enablements<I>(rows: I) -> ResourceEnablements
+where
+    I: IntoIterator<Item = (String, String, Option<bool>, i32)>,
+{
+    struct Agg {
+        pos_pri: u8,
+        pos: i32,
+        enabled_pri: Option<u8>,
+        enabled: Option<bool>,
+    }
+
+    let mut best: HashMap<String, Agg> = HashMap::new();
+
+    for (namespace, scope, enabled, position) in rows {
+        let pid = extract_plugin_id(&namespace).to_string();
+        let pri = scope_priority(&scope);
+
+        let agg = best.entry(pid).or_insert(Agg {
+            pos_pri: 0,
+            pos: 0,
+            enabled_pri: None,
+            enabled: None,
+        });
+
+        // Position: the most specific scope wins; within a scope take the min.
+        match pri.cmp(&agg.pos_pri) {
+            std::cmp::Ordering::Greater => {
+                agg.pos_pri = pri;
+                agg.pos = position;
+            }
+            std::cmp::Ordering::Equal => {
+                agg.pos = agg.pos.min(position);
+            }
+            std::cmp::Ordering::Less => {}
+        }
+
+        // Enablement: only rows that actually set it participate, so a NULL at a
+        // more specific scope can never clobber an inherited value. Priority
+        // decides which scope's value wins; ties OR together (true beats false).
+        if let Some(e) = enabled {
+            match agg.enabled_pri {
+                None => {
+                    agg.enabled_pri = Some(pri);
+                    agg.enabled = Some(e);
+                }
+                Some(cur) => match pri.cmp(&cur) {
+                    std::cmp::Ordering::Greater => {
+                        agg.enabled_pri = Some(pri);
+                        agg.enabled = Some(e);
+                    }
+                    std::cmp::Ordering::Equal => {
+                        agg.enabled = Some(agg.enabled == Some(true) || e);
+                    }
+                    std::cmp::Ordering::Less => {}
+                },
+            }
+        }
+    }
+
+    best.into_iter()
+        .filter(|(_, agg)| agg.enabled == Some(true))
+        .map(|(pid, agg)| (pid, agg.pos))
+        .collect()
+}
+
 pub async fn fetch_resource_enablements<C: ConnectionTrait>(
     problem_id: i32,
     contest_id: Option<i32>,
@@ -140,39 +222,10 @@ pub async fn fetch_resource_enablements<C: ConnectionTrait>(
         .all(db)
         .await?;
 
-    let mut best: HashMap<String, (u8, Option<bool>, i32)> = HashMap::new();
-
-    for r in rows {
-        let pid = extract_plugin_id(&r.namespace).to_string();
-        let pri = scope_priority(&r.scope);
-
-        best.entry(pid)
-            .and_modify(|(cur_pri, enabled, pos)| match pri.cmp(cur_pri) {
-                std::cmp::Ordering::Greater => {
-                    *cur_pri = pri;
-                    if r.enabled.is_some() {
-                        *enabled = r.enabled;
-                    }
-                    *pos = r.position;
-                }
-                std::cmp::Ordering::Equal => {
-                    *enabled = match (*enabled, r.enabled) {
-                        (Some(true), _) | (_, Some(true)) => Some(true),
-                        (Some(false), _) | (_, Some(false)) => Some(false),
-                        _ => *enabled,
-                    };
-                    *pos = (*pos).min(r.position);
-                }
-                std::cmp::Ordering::Less => {}
-            })
-            .or_insert((pri, r.enabled, r.position));
-    }
-
-    Ok(best
-        .into_iter()
-        .filter(|(_, (_, enabled, _))| *enabled == Some(true))
-        .map(|(pid, (_, _, pos))| (pid, pos))
-        .collect())
+    Ok(merge_resource_enablements(
+        rows.into_iter()
+            .map(|r| (r.namespace, r.scope, r.enabled, r.position)),
+    ))
 }
 
 #[derive(Debug)]
@@ -581,6 +634,80 @@ mod tests {
         payload: serde_json::Value,
     ) -> Result<HookOutcome, AppError> {
         dispatch_hooks(topic, payload, None, registry).await
+    }
+
+    #[test]
+    fn merge_resource_enablements_inherits_enabled_regardless_of_row_order() {
+        // A plugin enabled at `problem` scope, plus a more specific
+        // `contest_problem` row that sets only position (enabled = NULL). The
+        // inherited `true` must survive whichever order the rows arrive in, and
+        // the position must come from the more specific scope.
+        let problem_row = (
+            "cooldown:main".to_string(),
+            "problem".to_string(),
+            Some(true),
+            5,
+        );
+        let cp_row = (
+            "cooldown:main".to_string(),
+            "contest_problem".to_string(),
+            None,
+            10,
+        );
+
+        let forward = merge_resource_enablements([problem_row.clone(), cp_row.clone()]);
+        let reverse = merge_resource_enablements([cp_row, problem_row]);
+
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.get("cooldown"), Some(&10));
+    }
+
+    #[test]
+    fn merge_resource_enablements_specific_disable_overrides_inherited_enable() {
+        // An explicit `false` at the more specific scope must win over an
+        // inherited `true`, in either arrival order.
+        let problem_row = (
+            "cooldown:main".to_string(),
+            "problem".to_string(),
+            Some(true),
+            5,
+        );
+        let cp_row = (
+            "cooldown:main".to_string(),
+            "contest_problem".to_string(),
+            Some(false),
+            10,
+        );
+
+        let forward = merge_resource_enablements([problem_row.clone(), cp_row.clone()]);
+        let reverse = merge_resource_enablements([cp_row, problem_row]);
+
+        assert_eq!(forward, reverse);
+        assert!(!forward.contains_key("cooldown"));
+    }
+
+    #[test]
+    fn merge_resource_enablements_true_wins_within_a_scope() {
+        // Two namespaces of the same plugin at the same scope: any `true` wins,
+        // and position is the min across the scope's namespaces.
+        let a = (
+            "cooldown:a".to_string(),
+            "problem".to_string(),
+            Some(false),
+            3,
+        );
+        let b = (
+            "cooldown:b".to_string(),
+            "problem".to_string(),
+            Some(true),
+            7,
+        );
+
+        let forward = merge_resource_enablements([a.clone(), b.clone()]);
+        let reverse = merge_resource_enablements([b, a]);
+
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.get("cooldown"), Some(&3));
     }
 
     #[tokio::test]

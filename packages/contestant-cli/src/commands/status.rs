@@ -100,10 +100,7 @@ fn picker_row(s: &SubmissionListItem) -> String {
         Some(v) => v.human().to_string(),
         None => s.status.human().to_string(),
     };
-    let score = s
-        .score
-        .map(|sc| format!("{:.0}/100", sc))
-        .unwrap_or_else(|| "—".into());
+    let score = s.score.map(fmt::score).unwrap_or_else(|| "—".into());
     let time = s
         .time_used
         .map(|t| fmt::time_ms(t as i64))
@@ -131,10 +128,7 @@ fn print_recent_table(subs: &[SubmissionListItem]) {
     );
     println!("  {}", "─".repeat(76));
     for s in subs {
-        let pts = s
-            .score
-            .map(|sc| format!("{:.0}/100", sc))
-            .unwrap_or_else(|| "—".into());
+        let pts = s.score.map(fmt::score).unwrap_or_else(|| "—".into());
         let t = s
             .time_used
             .map(|t| fmt::time_ms(t as i64))
@@ -177,7 +171,7 @@ fn print_submission(sub: &SubmissionResponse) {
             println!("  Verdict: {}", verdict_style(v));
         }
         if let Some(s) = result.score {
-            println!("  Score: {}/100", s);
+            println!("  Score: {}", fmt::score(s));
         }
         // always show Time/Memory so a gap reads as "no data"
         println!(

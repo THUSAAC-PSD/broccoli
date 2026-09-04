@@ -140,6 +140,15 @@ fn write_problem(
     for (i, s) in samples.iter().enumerate() {
         std::fs::write(samples_dir.join(format!("{}.in", i + 1)), &s.input)?;
         std::fs::write(samples_dir.join(format!("{}.out", i + 1)), &s.output)?;
+        // Sample explanation/note (markdown), if the problem author wrote one.
+        if let Some(note) = s
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+        {
+            std::fs::write(samples_dir.join(format!("{}.md", i + 1)), note)?;
+        }
     }
     Ok(())
 }

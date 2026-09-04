@@ -14,7 +14,7 @@ interface ContestSlotProviderProps {
  * `contest_type` (e.g. only render IOI slots on IOI contests).
  *
  * While the contest info is still loading, we render children with a null
- * contestType — slots with a non-empty contest_type will be skipped until the
+ * contestType - slots with a non-empty contest_type will be skipped until the
  * real type is known. This avoids briefly mounting an IOI scoreboard on an
  * ICPC contest while the contest fetch is in flight.
  */

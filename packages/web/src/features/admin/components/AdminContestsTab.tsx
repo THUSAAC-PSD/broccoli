@@ -1,4 +1,8 @@
-import { type ApiClient, useApiClient } from '@broccoli/web-sdk/api';
+import {
+  type ApiClient,
+  getErrorMessage,
+  useApiClient,
+} from '@broccoli/web-sdk/api';
 import type { ContestProblem, ContestSummary } from '@broccoli/web-sdk/contest';
 import {
   type ServerTableParams,
@@ -54,9 +58,8 @@ import { ManageParticipantsDialog } from '@/features/admin/components/ManagePart
 import { SwitchField } from '@/features/admin/components/SwitchField';
 import { getContestStatus } from '@/features/contest/utils/status';
 import { useTableSearchParams } from '@/hooks/use-table-search-params';
-import { extractErrorMessage } from '@/lib/extract-error';
 
-// ── Data fetcher ──
+// -- Data fetcher --
 
 async function fetchContests(apiClient: ApiClient, params: ServerTableParams) {
   const { data, error } = await apiClient.GET('/contests', {
@@ -74,7 +77,7 @@ async function fetchContests(apiClient: ApiClient, params: ServerTableParams) {
   return { data: data.data, pagination: data.pagination };
 }
 
-// ── Problem Preview Dialog ──
+// -- Problem Preview Dialog --
 
 function ProblemPreviewDialog({
   problemId,
@@ -125,7 +128,7 @@ function ProblemPreviewDialog({
   );
 }
 
-// ── Contest Form Dialog ──
+// -- Contest Form Dialog --
 
 export function ContestFormDialog({
   contest,
@@ -252,7 +255,7 @@ export function ContestFormDialog({
     setLoading(false);
     if (result.error) {
       toast.error(
-        extractErrorMessage(
+        getErrorMessage(
           result.error,
           isEdit ? t('admin.editError') : t('admin.createError'),
         ),
@@ -414,7 +417,7 @@ export function ContestFormDialog({
   );
 }
 
-// ── Contest Problems Dialog ──
+// -- Contest Problems Dialog --
 
 function nextLabel(usedLabels: Set<string>): string {
   // A-Z, then AA-AZ, BA-BZ, ..., ZZ (max 702)
@@ -524,7 +527,7 @@ export function ContestProblemsDialog({
     );
     setAddingId(null);
     if (apiError) {
-      toast.error(extractErrorMessage(apiError, t('toast.problem.addError')));
+      toast.error(getErrorMessage(apiError, t('toast.problem.addError')));
     } else {
       resetKey();
       toast.success(t('toast.problem.added'));
@@ -541,9 +544,7 @@ export function ContestProblemsDialog({
       },
     );
     if (apiError) {
-      toast.error(
-        extractErrorMessage(apiError, t('toast.problem.removeError')),
-      );
+      toast.error(getErrorMessage(apiError, t('toast.problem.removeError')));
     } else {
       toast.success(t('toast.problem.removed'));
       queryClient.invalidateQueries({ queryKey: contestProblemsKey });
@@ -736,7 +737,7 @@ export function ContestProblemsDialog({
   );
 }
 
-// ── Column hook ──
+// -- Column hook --
 
 function useContestColumns({
   onEdit,
@@ -866,7 +867,7 @@ function useContestColumns({
   ];
 }
 
-// ── Contests Tab ──
+// -- Contests Tab --
 
 export function AdminContestsTab() {
   const { t } = useTranslation();
@@ -926,7 +927,7 @@ export function AdminContestsTab() {
       params: { path: { id: contest.id } },
     });
     if (error) {
-      toast.error(extractErrorMessage(error, t('toast.contest.deleteError')));
+      toast.error(getErrorMessage(error, t('toast.contest.deleteError')));
     } else {
       toast.success(t('toast.contest.deleted'));
       queryClient.invalidateQueries({ queryKey: ['admin-contests'] });

@@ -35,6 +35,13 @@ pub enum AppError {
     RateLimited {
         retry_after: u64,
     },
+    /// Server is overloaded; client should retry after the given duration.
+    /// Distinct from `RateLimited` (429): 429 means "your client is too fast",
+    /// 503 means "the system as a whole is past capacity". UP#39 uses this
+    /// for durable-queue depth backpressure.
+    Overloaded {
+        retry_after: u64,
+    },
     PluginRejection {
         code: String,
         message: String,
@@ -101,6 +108,16 @@ impl AppError {
                     format!("Rate limit exceeded. Try again in {} seconds", retry_after),
                 ),
             ),
+            AppError::Overloaded { retry_after } => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                simple(
+                    "QUEUE_OVERLOADED",
+                    format!(
+                        "Server is temporarily overloaded; retry in {} seconds",
+                        retry_after
+                    ),
+                ),
+            ),
             AppError::PluginRejection {
                 code,
                 message,
@@ -153,10 +170,15 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let retry_after = if let AppError::RateLimited { retry_after } = &self {
-            Some(*retry_after)
-        } else {
-            None
+        // Both 429 (RateLimited) and 503 (Overloaded) carry a Retry-After
+        // hint. The header semantics are identical (RFC 7231 §7.1.3); only
+        // the status code differs in what's "tired" - the client (429) vs
+        // the service as a whole (503).
+        let retry_after = match &self {
+            AppError::RateLimited { retry_after } | AppError::Overloaded { retry_after } => {
+                Some(*retry_after)
+            }
+            _ => None,
         };
 
         let (status, body) = self.status_and_body();
@@ -203,6 +225,13 @@ impl From<PluginError> for AppError {
                 AppError::PluginNotReady(err.to_string())
             }
             PluginError::Serialization(_) => AppError::Validation(err.to_string()),
+            // Note: `PluginError::PoolTimeout` deliberately falls through to
+            // `Internal` (500). Hot-path callers (submission dispatch,
+            // evaluate batch, hook firing) retry transparently via
+            // `plugin_core::retry::call_raw_with_pool_retry`, so by the time a
+            // PoolTimeout reaches HTTP error mapping the server is genuinely
+            // overloaded - a 429 would misleadingly tell the *client* to back
+            // off when the right signal is server-internal failure (UP#4).
             _ => AppError::Internal(err.to_string()),
         }
     }
@@ -235,5 +264,56 @@ impl From<TypedMultipartError> for AppError {
             }
             _ => AppError::Internal(err.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    /// UP#39 follow-up: durable-queue backpressure must surface as
+    /// `503 Service Unavailable` with code `QUEUE_OVERLOADED` and the
+    /// `Retry-After` header populated from the variant payload. This
+    /// pins the contract so a future refactor that re-tags the
+    /// variant or drops the header branch fails loudly here.
+    #[tokio::test]
+    async fn overloaded_maps_to_503_with_retry_after() {
+        let err = AppError::Overloaded { retry_after: 7 };
+        let response = err.into_response();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response
+                .headers()
+                .get("Retry-After")
+                .expect("Retry-After header"),
+            "7"
+        );
+
+        let body_bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).expect("json");
+        assert_eq!(body["code"], "QUEUE_OVERLOADED");
+    }
+
+    /// Sanity check that 429 RateLimited and 503 Overloaded both
+    /// flow Retry-After through `IntoResponse` - the implementation
+    /// shares the branch, so a regression in either path would also
+    /// drop the header for the other.
+    #[tokio::test]
+    async fn rate_limited_still_maps_to_429_with_retry_after() {
+        let err = AppError::RateLimited { retry_after: 1 };
+        let response = err.into_response();
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            response
+                .headers()
+                .get("Retry-After")
+                .expect("Retry-After header"),
+            "1"
+        );
     }
 }

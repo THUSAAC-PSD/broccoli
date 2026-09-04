@@ -1,5 +1,6 @@
 import { useAuth } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { CONTEST_MANAGE } from '@broccoli/web-sdk/permissions';
 import {
   Button,
   Skeleton,
@@ -40,7 +41,7 @@ export default function ContestQAPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const id = Number(contestId ?? '0');
 
-  const isAdmin = !!user?.permissions?.includes('contest:manage');
+  const isAdmin = !!user?.permissions?.includes(CONTEST_MANAGE);
 
   const { data: clarifications = [], isLoading } = useClarifications(
     id,

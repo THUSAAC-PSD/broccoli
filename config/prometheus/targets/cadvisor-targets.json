@@ -1,0 +1,9 @@
+[
+  {
+    "targets": ["cadvisor:8080"],
+    "labels": {
+      "service": "cadvisor",
+      "role": "local"
+    }
+  }
+]

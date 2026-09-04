@@ -70,13 +70,13 @@ title = "Java"
 
 [config.compilation.properties.java.properties.compiler]
 type = "string"
-title = "Compiler Command"
-default = "javac"
+title = "Compiler Path"
+default = "/usr/bin/javac"
 
 [config.compilation.properties.java.properties.runner]
 type = "string"
-title = "Runtime Command"
-default = "java"
+title = "Runtime Path"
+default = "/usr/bin/java"
 
 [config.compilation.properties.java.properties.flags]
 type = "array"

@@ -1,9 +1,11 @@
-use redis::AsyncCommands;
 use redis::aio::MultiplexedConnection;
 use tokio::sync::Mutex;
 use tracing::warn;
 
-const HEARTBEAT_PREFIX: &str = "broccoli:worker:heartbeat:";
+use crate::models::operation::models::OperationTask;
+
+const HEARTBEAT_PREFIX: &str = common::worker::WORKER_HEARTBEAT_KEY_PREFIX;
+const OPERATION_DEDUP_SLACK_SECS: u64 = 300;
 
 /// Lua script for atomic, liveness-aware claim.
 ///
@@ -14,7 +16,7 @@ const HEARTBEAT_PREFIX: &str = "broccoli:worker:heartbeat:";
 ///
 /// Returns:
 ///   1 = claimed (fresh) or refreshed (we already held it)
-///   2 = stolen (previous holder has no live heartbeat — assumed dead)
+///   2 = stolen (previous holder has no live heartbeat - assumed dead)
 ///   0 = held by a live worker; caller should skip
 const CLAIM_SCRIPT: &str = r#"
 local current = redis.call('GET', KEYS[1])
@@ -35,11 +37,23 @@ end
 return 0
 "#;
 
+/// Compare-and-delete release: only delete the claim if it STILL holds our
+/// worker_id. An unconditional DEL would delete a claim that another live worker
+/// already STOLE (after our heartbeat lapsed and it took over), which would let a
+/// later redelivery re-claim the key and run the same operation concurrently with
+/// the current owner - the exact duplicate-execution the dedup exists to prevent.
+const RELEASE_SCRIPT: &str = r#"
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+"#;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClaimOutcome {
     /// We acquired the claim (first time, or refreshed our own).
     Claimed,
-    /// Previous holder had no live heartbeat — we took over.
+    /// Previous holder had no live heartbeat - we took over.
     Stolen,
     /// Another worker holds the claim and is alive.
     HeldByOther,
@@ -84,7 +98,19 @@ impl RedisTaskDedup {
         *guard = None;
     }
 
+    pub fn fallback_ttl_secs(&self) -> u64 {
+        self.ttl_secs
+    }
+
+    /// Convenience wrapper that claims with the fallback TTL. Used only by the
+    /// in-crate tests; production claims with a per-operation TTL derived from
+    /// step resource limits via [`Self::try_claim_with_ttl`].
+    #[cfg(test)]
     pub async fn try_claim(&self, task_id: &str) -> ClaimOutcome {
+        self.try_claim_with_ttl(task_id, self.ttl_secs).await
+    }
+
+    pub async fn try_claim_with_ttl(&self, task_id: &str, ttl_secs: u64) -> ClaimOutcome {
         let key = format!("{}{}", self.prefix, task_id);
         let mut conn = match self.get_conn().await {
             Ok(c) => c,
@@ -99,7 +125,7 @@ impl RedisTaskDedup {
             .arg(1)
             .arg(&key)
             .arg(&self.worker_id)
-            .arg(self.ttl_secs)
+            .arg(ttl_secs.max(1))
             .arg(HEARTBEAT_PREFIX)
             .query_async(&mut conn)
             .await;
@@ -134,12 +160,50 @@ impl RedisTaskDedup {
             }
         };
 
-        let result: Result<(), _> = conn.del(&key).await;
+        let result: Result<i64, _> = redis::cmd("EVAL")
+            .arg(RELEASE_SCRIPT)
+            .arg(1)
+            .arg(&key)
+            .arg(&self.worker_id)
+            .query_async(&mut conn)
+            .await;
         if let Err(e) = result {
             warn!(task_id, error = %e, "Redis dedup release failed");
             self.invalidate_conn().await;
         }
     }
+}
+
+pub fn operation_dedup_ttl_secs(operation: &OperationTask) -> Option<u64> {
+    let mut total_secs = 0.0_f64;
+    let mut saw_explicit_limit = false;
+
+    for step in &operation.tasks {
+        let limits = &step.conf.resource_limits;
+        let base = limits.wall_time_limit.or(limits.time_limit);
+        if let Some(base) = base.filter(|value| value.is_finite() && *value > 0.0) {
+            saw_explicit_limit = true;
+            let extra = limits
+                .extra_time
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .unwrap_or(0.0);
+            total_secs += base + extra;
+        }
+    }
+
+    if !saw_explicit_limit {
+        return None;
+    }
+
+    Some(total_secs.ceil() as u64 + OPERATION_DEDUP_SLACK_SECS)
+}
+
+pub fn task_dedup_ttl_secs(task: &common::worker::Task, minimum_ttl_secs: u64) -> u64 {
+    serde_json::from_value::<OperationTask>(task.payload.clone())
+        .ok()
+        .and_then(|operation| operation_dedup_ttl_secs(&operation))
+        .unwrap_or(minimum_ttl_secs)
+        .max(minimum_ttl_secs)
 }
 
 #[cfg(test)]
@@ -155,7 +219,7 @@ mod tests {
 
         assert_eq!(dedup.try_claim(&task_id).await, ClaimOutcome::Claimed);
 
-        // Same worker re-claims → refreshed (Claimed).
+        // Same worker re-claims -> refreshed (Claimed).
         assert_eq!(dedup.try_claim(&task_id).await, ClaimOutcome::Claimed);
 
         dedup.release(&task_id).await;

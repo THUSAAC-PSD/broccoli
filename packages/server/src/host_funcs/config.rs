@@ -131,6 +131,8 @@ fn config_get_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         data.clone()
     };
+    let span = super::host_fn_span("config_get", &plugin_id);
+    let _enter = span.enter();
 
     let raw_namespace = input.namespace.clone();
 
@@ -144,14 +146,13 @@ fn config_get_fn(
     let namespace = resolve_namespace(&input.scope, &plugin_id, &raw_namespace);
     validate_config_input(&input.scope, &ref_id, &namespace)?;
 
-    let result = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    let result = tokio::runtime::Handle::current()
+        .block_on(async {
             plugin_config::Entity::find_by_id((input.scope, ref_id, namespace))
                 .one(&db)
                 .await
         })
-    })
-    .map_err(|e| extism::Error::msg(format!("DB error in config_get: {}", e)))?;
+        .map_err(|e| extism::Error::msg(format!("DB error in config_get: {}", e)))?;
 
     let output_value = match result {
         Some(row) => {
@@ -198,6 +199,8 @@ fn config_set_fn(
             .map_err(|_| extism::Error::msg("Lock poisoned"))?;
         data.clone()
     };
+    let span = super::host_fn_span("config_set", &plugin_id);
+    let _enter = span.enter();
 
     let ref_id = if input.scope == "plugin" {
         plugin_id.clone()
@@ -209,8 +212,8 @@ fn config_set_fn(
     let namespace = resolve_namespace(&input.scope, &plugin_id, &input.namespace);
     validate_config_input(&input.scope, &ref_id, &namespace)?;
 
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
+    tokio::runtime::Handle::current()
+        .block_on(async {
             let active = plugin_config::ActiveModel {
                 scope: Set(input.scope),
                 ref_id: Set(ref_id),
@@ -239,8 +242,7 @@ fn config_set_fn(
 
             Ok::<_, sea_orm::DbErr>(())
         })
-    })
-    .map_err(|e| extism::Error::msg(format!("DB error in config_set: {}", e)))?;
+        .map_err(|e| extism::Error::msg(format!("DB error in config_set: {}", e)))?;
 
     Ok(())
 }

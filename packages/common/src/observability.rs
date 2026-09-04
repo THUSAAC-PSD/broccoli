@@ -100,6 +100,22 @@ pub fn inject_trace_context() -> Option<String> {
     ))
 }
 
+pub fn current_trace_id() -> Option<String> {
+    use opentelemetry::trace::TraceContextExt;
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+    let span = tracing::Span::current();
+    let otel_cx = span.context();
+    let span_ref = otel_cx.span();
+    let sc = span_ref.span_context();
+
+    if !sc.is_valid() {
+        return None;
+    }
+
+    Some(sc.trace_id().to_string())
+}
+
 pub fn extract_trace_context(traceparent: &str) -> Option<opentelemetry::Context> {
     use opentelemetry::trace::{
         SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,
@@ -154,6 +170,31 @@ pub fn init_metrics(service_name: &str) -> (crate::metrics::Metrics, prometheus:
     opentelemetry::global::set_meter_provider(provider);
 
     (metrics, registry)
+}
+
+/// Build a [`Metrics`](crate::metrics::Metrics) backed by a LOCAL meter provider
+/// that is NOT installed as the global provider. Intended for tests: calling
+/// [`init_metrics`] from multiple tests races on `global::set_meter_provider`,
+/// and the last install drops the provider the earlier test's meter depends on,
+/// making metric assertions flaky. The returned provider must be kept alive by
+/// the caller for the duration of the test so its meter keeps recording.
+pub fn init_metrics_local(service_name: &str) -> (crate::metrics::Metrics, SdkMeterProvider) {
+    let registry = prometheus::Registry::new();
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry)
+        .build()
+        .expect("Failed to build Prometheus exporter");
+    let resource = opentelemetry_sdk::Resource::builder()
+        .with_service_name(service_name.to_string())
+        .build();
+    let provider = SdkMeterProvider::builder()
+        .with_reader(exporter)
+        .with_resource(resource)
+        .build();
+    let scope = opentelemetry::InstrumentationScope::builder(service_name.to_string()).build();
+    let meter = provider.meter_with_scope(scope);
+    let metrics = crate::metrics::Metrics::new(&meter);
+    (metrics, provider)
 }
 
 fn build_otel_provider(

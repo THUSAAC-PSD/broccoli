@@ -1,7 +1,8 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import { useAuth } from '@broccoli/web-sdk/auth';
+import { useAuth, useAuthReady } from '@broccoli/web-sdk/auth';
 import { useRegistries } from '@broccoli/web-sdk/hooks';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { PROBLEM_EDIT, SYSTEM_ADMIN } from '@broccoli/web-sdk/permissions';
 import type { SubmissionSummary } from '@broccoli/web-sdk/submission';
 import { SubmitGatingProvider } from '@broccoli/web-sdk/submission';
 import { useQuery } from '@tanstack/react-query';
@@ -34,6 +35,7 @@ export default function ProblemView({
 }: ProblemViewProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const authReady = useAuthReady();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [isCodeFullscreen, setIsCodeFullscreen] = useState(false);
@@ -43,7 +45,7 @@ export default function ProblemView({
   const [targetWorkers, setTargetWorkers] = useState<string[]>([]);
   const apiClient = useApiClient();
   const { data: registries } = useRegistries();
-  const canPinWorker = !!user?.permissions.includes('system:admin');
+  const canPinWorker = !!user?.permissions.includes(SYSTEM_ADMIN);
 
   const rawTab = searchParams.get('tab');
   const routeTab: ProblemRouteTab =
@@ -81,7 +83,7 @@ export default function ProblemView({
     error,
   } = useQuery({
     queryKey: ['problem', problemId],
-    enabled: Number.isFinite(problemId),
+    enabled: authReady && Number.isFinite(problemId),
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/problems/{id}', {
         params: { path: { id: problemId } },
@@ -93,7 +95,7 @@ export default function ProblemView({
 
   const { data: contestProblems = [] } = useQuery({
     queryKey: ['contest-problems', contestId],
-    enabled: Number.isFinite(contestId),
+    enabled: authReady && Number.isFinite(contestId),
     queryFn: async () => {
       if (!contestId) return [];
       const { data, error } = await apiClient.GET('/contests/{id}/problems', {
@@ -327,7 +329,7 @@ export default function ProblemView({
   const latestEntry = submissions.submissionEntries[0] ?? null;
   const latestSubmission = latestEntry?.submission ?? null;
   const isSubmitting = submissions.isAnySubmitting;
-  const canEdit = !!user && user.permissions.includes('problem:edit');
+  const canEdit = !!user && user.permissions.includes(PROBLEM_EDIT);
 
   useEffect(() => {
     if (routeTab === 'edit' && !canEdit) {

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 use broccoli_server_sdk::types::TestCaseBodyRef;
@@ -13,11 +13,45 @@ pub struct SubtaskResult {
     pub max_score: f64,
 }
 
+pub fn test_case_reference_keys(tc: &TestCaseRow) -> Vec<String> {
+    let label = resolve_tc_label(tc);
+    let id = tc.id.to_string();
+    if label == id {
+        vec![id]
+    } else {
+        vec![label, id]
+    }
+}
+
 fn test_case_weights(test_cases: &[TestCaseRow]) -> HashMap<String, f64> {
-    test_cases
-        .iter()
-        .map(|tc| (resolve_tc_label(tc), tc.score))
-        .collect()
+    let mut weights = HashMap::new();
+    for tc in test_cases {
+        for key in test_case_reference_keys(tc) {
+            weights.insert(key, tc.score);
+        }
+    }
+    weights
+}
+
+/// Make every scored test case reachable by BOTH its label and its numeric id.
+/// The incoming `tc_scores` map is keyed by label only, but a `SubtaskDef` may
+/// reference a member by numeric id (e.g. `"42"`); without this the id-keyed
+/// lookup misses and the member silently scores 0 (dragging `Sum`, zeroing
+/// `GroupMin`/`GroupMul`). Mirrors [`test_case_weights`], which already keys by
+/// both via [`test_case_reference_keys`].
+fn scores_by_all_keys(
+    test_cases: &[TestCaseRow],
+    tc_scores: &HashMap<String, f64>,
+) -> HashMap<String, f64> {
+    let mut out = tc_scores.clone();
+    for tc in test_cases {
+        if let Some(&score) = tc_scores.get(&resolve_tc_label(tc)) {
+            for key in test_case_reference_keys(tc) {
+                out.entry(key).or_insert(score);
+            }
+        }
+    }
+    out
 }
 
 /// Score a single subtask using the configured method.
@@ -27,7 +61,8 @@ pub fn score_subtask(
     tc_scores: &HashMap<String, f64>,
 ) -> SubtaskResult {
     let weights = test_case_weights(test_cases);
-    score_subtask_with_weights(def, &weights, tc_scores)
+    let tc_scores = scores_by_all_keys(test_cases, tc_scores);
+    score_subtask_with_weights(def, &weights, &tc_scores)
 }
 
 fn score_subtask_with_weights(
@@ -88,12 +123,41 @@ pub fn score_all_subtasks(
     tc_scores: &HashMap<String, f64>,
 ) -> Vec<SubtaskResult> {
     let weights = test_case_weights(test_cases);
+    let tc_scores = scores_by_all_keys(test_cases, tc_scores);
     defs.iter()
-        .map(|def| score_subtask_with_weights(def, &weights, tc_scores))
+        .map(|def| score_subtask_with_weights(def, &weights, &tc_scores))
         .collect()
 }
 
-/// Build a single default subtask containing all test cases with Sum scoring.
+/// Return test case IDs that should be evaluated for IOI scoring/feedback.
+///
+/// Samples are retained for feedback. Positive-score cases are retained for
+/// normal scoring. Zero-score non-samples are retained only when an explicit
+/// subtask references their resolved label or numeric ID.
+pub fn compute_scoring_test_case_ids(
+    subtask_defs: &[SubtaskDef],
+    test_cases: &[TestCaseRow],
+) -> Vec<i32> {
+    let subtask_labels: HashSet<&str> = subtask_defs
+        .iter()
+        .flat_map(|def| def.test_cases.iter().map(String::as_str))
+        .collect();
+
+    test_cases
+        .iter()
+        .filter(|tc| {
+            tc.is_sample
+                || tc.score > 0.0
+                || test_case_reference_keys(tc)
+                    .iter()
+                    .any(|key| subtask_labels.contains(key.as_str()))
+        })
+        .map(|tc| tc.id)
+        .collect()
+}
+
+/// Build a default "All Tests" subtask (Sum scoring) over the non-sample,
+/// positive-score test cases. Returns no subtasks when none qualify.
 ///
 /// Used when no subtask definitions are configured.
 pub fn build_default_subtasks(test_cases: &[TestCaseRow]) -> Vec<SubtaskDef> {
@@ -131,6 +195,20 @@ mod tests {
 
     fn scores(pairs: &[(&str, f64)]) -> HashMap<String, f64> {
         pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    fn test_case(id: i32, score: f64, is_sample: bool, label: Option<&str>) -> TestCaseRow {
+        TestCaseRow {
+            id,
+            score,
+            is_sample,
+            position: id,
+            description: None,
+            label: label.map(String::from),
+            input: TestCaseBodyRef::Missing,
+            expected_output: TestCaseBodyRef::Missing,
+            is_custom: false,
+        }
     }
 
     #[test]
@@ -171,6 +249,21 @@ mod tests {
         let s = scores(&[("1", 0.5), ("2", 0.5)]);
         let result = score_subtask(&def, &[], &s);
         assert_eq!(result.score, 50.0);
+    }
+
+    #[test]
+    fn subtask_member_referenced_by_numeric_id_scores_via_label_keyed_map() {
+        // tc id=42 has an explicit label "big_01"; the score map is keyed by
+        // label. A subtask that references the member by its numeric id must
+        // still resolve it (regression for the id-vs-label lookup bug).
+        let tc = test_case(42, 30.0, false, Some("big_01"));
+        let s = scores(&[("big_01", 1.0)]);
+
+        let group_min = make_def(SubtaskScoringMethod::GroupMin, 30.0, vec!["42"]);
+        assert_eq!(score_subtask(&group_min, &[tc.clone()], &s).score, 30.0);
+
+        let sum = make_def(SubtaskScoringMethod::Sum, 100.0, vec!["42"]);
+        assert_eq!(score_subtask(&sum, &[tc], &s).score, 100.0);
     }
 
     #[test]
@@ -333,5 +426,71 @@ mod tests {
     fn build_default_subtasks_empty() {
         let defs = build_default_subtasks(&[]);
         assert!(defs.is_empty());
+    }
+
+    #[test]
+    fn compute_scoring_test_case_ids_keeps_nested_subtask_members() {
+        let test_cases = vec![
+            test_case(1, 0.0, true, Some("sample")),
+            test_case(2, 0.0, false, Some("group_a_zero")),
+            test_case(3, 20.0, false, Some("group_a_scored")),
+            test_case(4, 0.0, false, Some("unused_zero")),
+        ];
+        let defs = vec![make_def(
+            SubtaskScoringMethod::GroupMin,
+            20.0,
+            vec!["group_a_zero", "group_a_scored"],
+        )];
+
+        let ids = compute_scoring_test_case_ids(&defs, &test_cases);
+
+        assert_eq!(ids, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn compute_scoring_test_case_ids_deduplicates_overlapping_subtasks_by_test_case_order() {
+        let test_cases = vec![
+            test_case(1, 0.0, false, Some("shared")),
+            test_case(2, 0.0, false, Some("only_b")),
+            test_case(3, 0.0, false, Some("unused")),
+        ];
+        let defs = vec![
+            make_def(SubtaskScoringMethod::GroupMin, 10.0, vec!["shared"]),
+            make_def(
+                SubtaskScoringMethod::GroupMin,
+                10.0,
+                vec!["shared", "only_b"],
+            ),
+        ];
+
+        let ids = compute_scoring_test_case_ids(&defs, &test_cases);
+
+        assert_eq!(ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn compute_scoring_test_case_ids_without_subtasks_keeps_only_samples_and_positive_scores() {
+        let test_cases = vec![
+            test_case(1, 0.0, true, Some("sample")),
+            test_case(2, 10.0, false, Some("scored")),
+            test_case(3, 0.0, false, Some("unused_zero")),
+        ];
+
+        let ids = compute_scoring_test_case_ids(&[], &test_cases);
+
+        assert_eq!(ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn compute_scoring_test_case_ids_keeps_labeled_zero_score_member_referenced_by_id() {
+        let test_cases = vec![
+            test_case(1, 0.0, false, Some("unused")),
+            test_case(2, 0.0, false, Some("named_zero")),
+        ];
+        let defs = vec![make_def(SubtaskScoringMethod::GroupMin, 10.0, vec!["2"])];
+
+        let ids = compute_scoring_test_case_ids(&defs, &test_cases);
+
+        assert_eq!(ids, vec![2]);
     }
 }

@@ -8,6 +8,7 @@ pub enum FilenameError {
     NullByte,
     Hidden,
     ControlCharacter,
+    LeadingDash,
 }
 
 impl FilenameError {
@@ -19,6 +20,7 @@ impl FilenameError {
             Self::NullByte => "Invalid filename: null bytes are not allowed",
             Self::Hidden => "Invalid filename: hidden files (starting with '.') are not allowed",
             Self::ControlCharacter => "Invalid filename: control characters are not allowed",
+            Self::LeadingDash => "Invalid filename: cannot start with '-'",
         }
     }
 }
@@ -48,6 +50,16 @@ pub fn validate_flat_filename(filename: &str) -> Result<&str, FilenameError> {
 
     if trimmed.starts_with('.') {
         return Err(FilenameError::Hidden);
+    }
+
+    // A leading '-' makes the filename look like a command-line OPTION. Source
+    // filenames are passed as bare argv tokens to the compiler/interpreter (e.g.
+    // `g++ ... solution.cpp <name> grader.cpp`), so a file named `-DNDEBUG` or
+    // `-w` would be parsed as a compiler FLAG and applied while building a TRUSTED
+    // co-compiled grader (stripping asserts / anti-cheat), not treated as a file.
+    // Reject it here; the argv builders also prefix `./` as defense in depth.
+    if trimmed.starts_with('-') {
+        return Err(FilenameError::LeadingDash);
     }
 
     Ok(trimmed)
@@ -147,7 +159,18 @@ mod tests {
         assert!(validate_flat_filename("solution.cpp").is_ok());
         assert!(validate_flat_filename("Main.java").is_ok());
         assert!(validate_flat_filename("test_file.py").is_ok());
-        assert!(validate_flat_filename("file-name.rs").is_ok());
+        assert!(validate_flat_filename("file-name.rs").is_ok()); // dash mid-name is fine
+    }
+
+    #[test]
+    fn flat_filename_rejects_leading_dash_argument_injection() {
+        // A leading '-' would be parsed as a compiler/interpreter FLAG when the
+        // filename is passed as a bare argv token (e.g. injecting -DNDEBUG into a
+        // trusted co-compiled grader). Must be rejected; a mid-name dash is fine.
+        assert!(validate_flat_filename("-DNDEBUG").is_err());
+        assert!(validate_flat_filename("-o").is_err());
+        assert!(validate_flat_filename("--version").is_err());
+        assert!(validate_flat_filename("-w.cpp").is_err());
     }
 
     #[test]

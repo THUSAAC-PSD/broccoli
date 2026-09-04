@@ -121,7 +121,7 @@ mod windows_backend {
     /// Pinned version of the vendored exe. Bump when the asset is updated so the
     /// extracted copy is replaced.
     const SUMATRA_VERSION: &str = "3.5.2";
-    const SUMATRA_EXE: &[u8] = include_bytes!("../../assets/windows/SumatraPDF.exe");
+    const SUMATRA_EXE: &[u8] = include_bytes!("../assets/windows/SumatraPDF.exe");
 
     /// Extract SumatraPDF to a per-user cache dir on first use and return its
     /// path. Idempotent: a matching existing copy is reused.

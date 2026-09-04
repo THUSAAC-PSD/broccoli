@@ -1,10 +1,11 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
+import { useAuthReady } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Fragment, useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// -- helpers ------------------------------------------------------------------
 
 function getTimeLeft(target: Date) {
   const ms = Math.max(0, target.getTime() - Date.now());
@@ -18,13 +19,14 @@ function getTimeLeft(target: Date) {
   };
 }
 
-// CSS-variable-based color tokens — respond to any theme automatically
+// CSS-variable-based color tokens - respond to any theme automatically
 const ACCENT = 'hsl(var(--sidebar-ring))';
 
-// ── shared data hook ──────────────────────────────────────────────────────────
+// -- shared data hook ----------------------------------------------------------
 
 function useCountdownData(contestId: number) {
   const apiClient = useApiClient();
+  const authReady = useAuthReady();
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -34,7 +36,7 @@ function useCountdownData(contestId: number) {
 
   const { data: contest } = useQuery({
     queryKey: ['contest', contestId],
-    enabled: Number.isFinite(contestId) && contestId > 0,
+    enabled: authReady && Number.isFinite(contestId) && contestId > 0,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}', {
         params: { path: { id: contestId } },
@@ -65,13 +67,13 @@ function useCountdownData(contestId: number) {
   const progress =
     phase === 'running' ? Math.min(100, (elapsed / totalDuration) * 100) : 0;
 
-  // suppress unused tick warning — it drives re-renders
+  // suppress unused tick warning - it drives re-renders
   void tick;
 
   return { contest, phase, tl, progress };
 }
 
-// ── full card ─────────────────────────────────────────────────────────────────
+// -- full card -----------------------------------------------------------------
 
 export function ContestCountdown() {
   const { contestId } = useParams();
@@ -201,7 +203,7 @@ export function ContestCountdown() {
   );
 }
 
-// ── mini (problem-detail top-right) ──────────────────────────────────────────
+// -- mini (problem-detail top-right) ------------------------------------------
 
 export function ContestCountdownMini() {
   const { contestId } = useParams();

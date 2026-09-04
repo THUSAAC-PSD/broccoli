@@ -1,4 +1,4 @@
-import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { type I18nContextValue, useTranslation } from '@broccoli/web-sdk/i18n';
 import { Badge } from '@broccoli/web-sdk/ui';
 import {
   AlertTriangle,
@@ -15,7 +15,7 @@ interface Props {
   worker: WorkerInfo;
 }
 
-function formatRelative(seconds: number, t: (k: string, p?: object) => string) {
+function formatRelative(seconds: number, t: I18nContextValue['t']) {
   if (seconds < 5) return t('system.worker.justNow');
   if (seconds < 60) return t('system.worker.secondsAgo', { count: seconds });
   const minutes = Math.floor(seconds / 60);
@@ -24,7 +24,7 @@ function formatRelative(seconds: number, t: (k: string, p?: object) => string) {
   return t('system.worker.hoursAgo', { count: hours });
 }
 
-function formatUptime(startedAt: string, t: (k: string, p?: object) => string) {
+function formatUptime(startedAt: string, t: I18nContextValue['t']) {
   const seconds = Math.max(
     0,
     Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000),

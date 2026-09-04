@@ -1,9 +1,10 @@
 import { useApiClient } from '@broccoli/web-sdk/api';
-import { useAuth } from '@broccoli/web-sdk/auth';
+import { useAuth, useAuthReady } from '@broccoli/web-sdk/auth';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
+import { CONTEST_MANAGE } from '@broccoli/web-sdk/permissions';
 import { Button } from '@broccoli/web-sdk/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { List, Pencil, Trash2, Users } from 'lucide-react';
+import { Flame, List, Pencil, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
@@ -12,11 +13,13 @@ import {
   ContestProblemsDialog,
 } from '@/features/admin/components/AdminContestsTab';
 import { ManageParticipantsDialog } from '@/features/admin/components/ManageParticipantsDialog';
+import { PrewarmDialog } from '@/features/contest/components/PrewarmDialog';
 
 export function ContestAdminActions() {
   const { contestId } = useParams();
   const { t } = useTranslation();
   const { user } = useAuth();
+  const authReady = useAuthReady();
   const apiClient = useApiClient();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -25,7 +28,7 @@ export function ContestAdminActions() {
 
   const { data: contest } = useQuery({
     queryKey: ['contest', id],
-    enabled: Number.isFinite(id) && id > 0,
+    enabled: authReady && Number.isFinite(id) && id > 0,
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/contests/{id}', {
         params: { path: { id } },
@@ -39,8 +42,9 @@ export function ContestAdminActions() {
   const [editOpen, setEditOpen] = useState(false);
   const [problemsOpen, setProblemsOpen] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState(false);
+  const [warmOpen, setWarmOpen] = useState(false);
 
-  if (!user?.permissions?.includes('contest:manage') || !contest) return null;
+  if (!user?.permissions?.includes(CONTEST_MANAGE) || !contest) return null;
 
   async function handleDelete() {
     if (!window.confirm(t('admin.deleteConfirm'))) return;
@@ -80,6 +84,15 @@ export function ContestAdminActions() {
         variant="ghost"
         size="sm"
         className="w-full justify-start gap-2 h-8 text-xs"
+        onClick={() => setWarmOpen(true)}
+      >
+        <Flame className="h-3.5 w-3.5" />
+        {t('admin.warmCaches')}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start gap-2 h-8 text-xs"
         onClick={() => setEditOpen(true)}
       >
         <Pencil className="h-3.5 w-3.5" />
@@ -109,6 +122,11 @@ export function ContestAdminActions() {
         contest={contest}
         open={participantsOpen}
         onOpenChange={setParticipantsOpen}
+      />
+      <PrewarmDialog
+        contestId={id}
+        open={warmOpen}
+        onOpenChange={setWarmOpen}
       />
     </div>
   );

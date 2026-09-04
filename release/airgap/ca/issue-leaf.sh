@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Issue the server TLS leaf for the air-gapped LAN host. Runs on the
+# target (install time) OR on staging when --lan-host is known early.
+# Each --host becomes an IP: SAN if it parses as an IP literal, else DNS:.
+# TARGET-SIDE: no network access.
+set -euo pipefail
+
+usage() { echo "Usage: issue-leaf.sh --ca-dir DIR --host H [--host H2 ...] --out DIR [--days N]"; }
+
+CA_DIR="" OUT="" DAYS=120
+HOSTS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ca-dir) CA_DIR="$2"; shift 2 ;;
+    --host)   HOSTS+=("$2"); shift 2 ;;
+    --out)    OUT="$2"; shift 2 ;;
+    --days)   DAYS="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+[ -n "$CA_DIR" ] && [ -n "$OUT" ] && [ "${#HOSTS[@]}" -gt 0 ] \
+  || { echo "--ca-dir, --out, and at least one --host are required" >&2; usage; exit 2; }
+[ -f "$CA_DIR/root.crt" ] && [ -f "$CA_DIR/root.key" ] \
+  || { echo "CA dir must contain root.crt and root.key" >&2; exit 2; }
+
+# Reject any --host that is not a bare DNS label or IP literal. A comma would
+# splice a second SAN entry and a newline would inject an arbitrary extfile
+# directive (e.g. an extra X.509 extension) — allowlisting the character set
+# stops both before the value reaches openssl. `case` (not grep) so an embedded
+# newline is matched rather than swallowed as a line separator.
+for h in "${HOSTS[@]}"; do
+  case "$h" in
+    ""|*[!A-Za-z0-9.:-]*)
+      echo "invalid --host '$h': only letters, digits, dot, colon, hyphen allowed" >&2; exit 2 ;;
+  esac
+done
+
+mkdir -p "$OUT"
+# Lock the dir down BEFORE writing server.key: default umask 022 leaves a fresh
+# dir 0755, so the private key would be briefly group/world-readable.
+chmod 700 "$OUT"
+
+is_ip() {
+  # IPv4 dotted-quad, or an IPv6 literal (hex groups + colons). The old
+  # colon-anywhere test mislabeled any colon-bearing string as an IP. Inputs
+  # are already char-allowlisted above, so this only decides IP: vs DNS:.
+  if printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then return 0; fi
+  if printf '%s' "$1" | grep -Eq '^[0-9A-Fa-f:]+$' && printf '%s' "$1" | grep -q ':'; then return 0; fi
+  return 1
+}
+
+# Build SAN list
+san=""
+for h in "${HOSTS[@]}"; do
+  if is_ip "$h"; then san="${san}${san:+,}IP:${h}"; else san="${san}${san:+,}DNS:${h}"; fi
+done
+
+umask 077
+openssl ecparam -name prime256v1 -genkey -noout -out "$OUT/server.key"
+chmod 0600 "$OUT/server.key"
+
+# CN = first host for legacy display; SANs are authoritative.
+openssl req -new -key "$OUT/server.key" -subj "/CN=${HOSTS[0]}" -out "$OUT/server.csr"
+
+ext="$(mktemp)"; trap 'rm -f "$ext" "$OUT/server.csr"' EXIT
+cat > "$ext" <<EXT
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=${san}
+EXT
+
+openssl x509 -req -in "$OUT/server.csr" \
+  -CA "$CA_DIR/root.crt" -CAkey "$CA_DIR/root.key" -CAcreateserial \
+  -sha256 -days "$DAYS" -extfile "$ext" -out "$OUT/server.crt"
+
+echo "issued leaf: $OUT/server.crt (SAN: ${san})"

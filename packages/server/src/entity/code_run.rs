@@ -47,6 +47,17 @@ pub struct Model {
     #[sea_orm(has_many)]
     pub results: HasMany<super::code_run_result::Entity>,
 
+    #[sea_orm(column_type = "String(StringLen::N(128))", nullable)]
+    pub owner_server_id: Option<String>,
+    pub lease_heartbeat_at: Option<DateTimeUtc>,
+    /// Immutable dispatch anchor; see `submission::Model::leased_at`.
+    #[sea_orm(nullable)]
+    pub leased_at: Option<DateTimeUtc>,
+    #[sea_orm(default_value = 0)]
+    pub retry_count: i32,
+    #[sea_orm(default_value = 0)]
+    pub judge_epoch: i32,
+
     pub created_at: DateTimeUtc,
     pub judged_at: Option<DateTimeUtc>,
 }

@@ -103,7 +103,7 @@ export function AllSubmissions() {
     ],
   );
 
-  // Debounce the text input → URL.
+  // Debounce the text input -> URL.
   useEffect(() => {
     const trimmed = searchInput.trim();
     if (trimmed === appliedQ) return;

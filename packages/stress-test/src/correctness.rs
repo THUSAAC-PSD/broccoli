@@ -287,6 +287,7 @@ mod tests {
                 .enumerate()
                 .map(|(i, s)| (s.id, 100 + i as i32))
                 .collect(),
+            owns_fixtures: true,
         }
     }
 
@@ -329,18 +330,21 @@ mod tests {
             Verdict::RuntimeError => "RuntimeError",
             Verdict::SystemError => "SystemError",
             Verdict::Skipped => "Skipped",
+            Verdict::Cancelled => "Cancelled",
             Verdict::Other(_) => "Other",
         }
     }
 
     fn submission_status_wire(s: SubmissionStatus) -> &'static str {
         match s {
+            SubmissionStatus::Queued => "Queued",
             SubmissionStatus::Pending => "Pending",
             SubmissionStatus::Compiling => "Compiling",
             SubmissionStatus::Running => "Running",
             SubmissionStatus::Judged => "Judged",
             SubmissionStatus::CompilationError => "CompilationError",
             SubmissionStatus::SystemError => "SystemError",
+            SubmissionStatus::Unknown => "Unknown",
         }
     }
 
@@ -519,6 +523,7 @@ mod tests {
             problem_type: "batch".into(),
             contest_id: 555,
             problem_ids_by_scenario: [(scenario.id, 200)].into_iter().collect(),
+            owns_fixtures: true,
         };
 
         Mock::given(method("POST"))
@@ -578,6 +583,7 @@ mod tests {
             problem_type: "batch".into(),
             contest_id: 555,
             problem_ids_by_scenario: [(scenario.id, 300)].into_iter().collect(),
+            owns_fixtures: true,
         };
 
         Mock::given(method("POST"))

@@ -12,9 +12,32 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Running contests',
+      collapsed: false,
+      items: [
+        {
+          type: 'category',
+          label: 'Contest formats',
+          collapsed: false,
+          items: [
+            'running-contests/contest-formats/icpc',
+            'running-contests/contest-formats/ioi',
+          ],
+        },
+        'running-contests/plugin-settings',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Building plugins',
       collapsed: false,
       items: ['building-plugins/getting-started'],
+    },
+    {
+      type: 'category',
+      label: 'Internals',
+      collapsed: false,
+      items: ['internals/judging'],
     },
   ],
 };

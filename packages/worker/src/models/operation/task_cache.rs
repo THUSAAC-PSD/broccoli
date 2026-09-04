@@ -9,7 +9,17 @@ use sea_orm::{EntityTrait, Set};
 pub trait TaskCacheStore: Send + Sync {
     async fn get(&self, cache_key: &str) -> Result<Option<HashMap<String, String>>, String>;
 
-    async fn put(&self, cache_key: &str, outputs: HashMap<String, String>) -> Result<(), String>;
+    async fn put(
+        &self,
+        cache_key: &str,
+        outputs: HashMap<String, String>,
+    ) -> Result<TaskCachePutOutcome, String>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskCachePutOutcome {
+    Inserted,
+    AlreadyExists,
 }
 
 pub struct DatabaseTaskCacheStore {
@@ -57,7 +67,11 @@ impl TaskCacheStore for DatabaseTaskCacheStore {
         }
     }
 
-    async fn put(&self, cache_key: &str, outputs: HashMap<String, String>) -> Result<(), String> {
+    async fn put(
+        &self,
+        cache_key: &str,
+        outputs: HashMap<String, String>,
+    ) -> Result<TaskCachePutOutcome, String> {
         let outputs_json = serde_json::to_value(&outputs)
             .map_err(|e| format!("Failed to serialize outputs: {e}"))?;
 
@@ -77,12 +91,18 @@ impl TaskCacheStore for DatabaseTaskCacheStore {
             .await;
 
         match result {
-            Ok(_) => {}
-            Err(sea_orm::DbErr::RecordNotInserted) => {}
+            Ok(rows_affected) => Ok(task_cache_put_outcome(rows_affected)),
+            Err(sea_orm::DbErr::RecordNotInserted) => Ok(TaskCachePutOutcome::AlreadyExists),
             Err(e) => return Err(format!("task_cache insert failed: {e}")),
         }
+    }
+}
 
-        Ok(())
+fn task_cache_put_outcome(rows_affected: u64) -> TaskCachePutOutcome {
+    if rows_affected == 0 {
+        TaskCachePutOutcome::AlreadyExists
+    } else {
+        TaskCachePutOutcome::Inserted
     }
 }
 
@@ -94,8 +114,12 @@ impl TaskCacheStore for NoopTaskCacheStore {
         Ok(None)
     }
 
-    async fn put(&self, _cache_key: &str, _outputs: HashMap<String, String>) -> Result<(), String> {
-        Ok(())
+    async fn put(
+        &self,
+        _cache_key: &str,
+        _outputs: HashMap<String, String>,
+    ) -> Result<TaskCachePutOutcome, String> {
+        Ok(TaskCachePutOutcome::Inserted)
     }
 }
 
@@ -214,5 +238,14 @@ mod tests {
         let cache = NoopTaskCacheStore;
         assert!(cache.get("any_key").await.unwrap().is_none());
         assert!(cache.put("any_key", HashMap::new()).await.is_ok());
+    }
+
+    #[test]
+    fn task_cache_put_outcome_treats_zero_rows_as_existing_entry() {
+        assert_eq!(
+            task_cache_put_outcome(0),
+            TaskCachePutOutcome::AlreadyExists
+        );
+        assert_eq!(task_cache_put_outcome(1), TaskCachePutOutcome::Inserted);
     }
 }

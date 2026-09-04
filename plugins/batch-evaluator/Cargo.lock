@@ -35,6 +35,16 @@ name = "broccoli-server-sdk"
 version = "0.1.1"
 dependencies = [
  "base64",
+ "broccoli-types",
+ "extism-pdk",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "broccoli-types"
+version = "0.1.1"
+dependencies = [
  "extism-pdk",
  "serde",
  "serde_json",
