@@ -257,6 +257,74 @@ impl OperationHandler {
             }
         }
 
+        // Box-local (non-channel) pipes need the SAME keep-alive rendezvous the
+        // channel block above gives declared channels. A `Pipe` whose name is not
+        // a declared channel is a per-environment FIFO at
+        // `<env working_dir>/pipes/<name>` (see `prepare_io_target`). When a
+        // producer and its consumer land in the same execution layer they run
+        // concurrently, so the identical race applies: the producer can open,
+        // write, and close its write end before the consumer opens the read end --
+        // the kernel then discards the buffered bytes and the consumer sees a
+        // premature EOF (empty read); or a fork-inherited dup of a transient
+        // O_RDWR fd (O_CLOEXEC closes at execve, not fork) keeps a phantom writer
+        // alive so a line-oriented consumer blocks forever. Holding an O_RDWR
+        // keep-alive from before the layer until the consumer's done-flag closes
+        // both tails, reusing the channel machinery (`channel_keepalives`,
+        // `consumer_flags`, `release_channel_keepalive`) unchanged. Production
+        // never wires two concurrent local-pipe steps; this is a correctness
+        // backstop the mock-sandbox tests exercise directly.
+        {
+            let (producer_of, consumer_of) =
+                resolve_local_pipe_roles(&operation.tasks, &channel_names);
+            for ((env_ref, pipe_name), producer_id) in &producer_of {
+                let Some(working_dir) = step_working_dirs.get(producer_id) else {
+                    continue;
+                };
+                let pipes_dir = working_dir.join("pipes");
+                let fifo_path = pipes_dir.join(pipe_name);
+                // Pre-create the FIFO so the keep-alive can open before the producer
+                // runs. `prepare_io_target` creates the same path lazily and reuses
+                // an existing FIFO, so racing it is harmless; a genuine non-FIFO
+                // conflict is left for `prepare_io_target` to surface.
+                if !path_is_fifo(&fifo_path) {
+                    if let Err(e) = tokio::fs::create_dir_all(&pipes_dir).await {
+                        warn!(
+                            path = %pipes_dir.display(),
+                            error = %e,
+                            "Failed to create local pipes dir for keep-alive; consumer relies on the worker hard timeout"
+                        );
+                        continue;
+                    }
+                    let _ = tokio::process::Command::new("mkfifo")
+                        .arg(&fifo_path)
+                        .output()
+                        .await;
+                    if !path_is_fifo(&fifo_path) {
+                        continue;
+                    }
+                }
+                if let Some(file) = open_channel_keepalive(&fifo_path) {
+                    let consumer_done =
+                        consumer_of
+                            .get(&(env_ref.clone(), pipe_name.clone()))
+                            .map(|consumer_id| {
+                                consumer_flags
+                                    .entry(consumer_id.clone())
+                                    .or_default()
+                                    .clone()
+                            });
+                    channel_keepalives
+                        .entry(producer_id.clone())
+                        .or_default()
+                        .push(KeepAlive {
+                            fifo_path,
+                            file,
+                            consumer_done,
+                        });
+                }
+            }
+        }
+
         // Run the execution layers under a panic guard so the sandbox + channels
         // cleanup below ALWAYS runs. A panicking step future - or the `?` on a
         // dependency-graph inconsistency - would otherwise unwind straight past
@@ -854,6 +922,62 @@ fn resolve_channel_roles(
         }
     }
     (producer_of, consumer_of)
+}
+
+/// Maps a box-local pipe, keyed by `(env_ref, pipe_name)`, to a step id (its
+/// producer or its consumer). See [`resolve_local_pipe_roles`].
+type LocalPipeRoles = HashMap<(String, String), String>;
+
+/// Resolve each box-local (non-channel) pipe to its producer/consumer step id.
+///
+/// A `Pipe` whose name is NOT a declared channel is a per-environment FIFO at
+/// `<env working_dir>/pipes/<name>` (see `prepare_io_target`). Two steps share
+/// such a FIFO only when they name the same pipe in the *same* environment, so
+/// the map is keyed by `(env_ref, pipe_name)`. Mirror of `resolve_channel_roles`,
+/// minus the explicit `Channel` declarations (box-local pipes have none).
+fn resolve_local_pipe_roles(
+    tasks: &[Step],
+    channel_names: &HashSet<String>,
+) -> (LocalPipeRoles, LocalPipeRoles) {
+    let mut producer_of: LocalPipeRoles = HashMap::new();
+    let mut consumer_of: LocalPipeRoles = HashMap::new();
+    for task in tasks {
+        for target in [&task.io.stdout, &task.io.stderr] {
+            if let IOTarget::Pipe { name } = target
+                && !channel_names.contains(name)
+            {
+                producer_of
+                    .entry((task.env_ref.clone(), name.clone()))
+                    .or_insert_with(|| task.id.clone());
+            }
+        }
+        if let IOTarget::Pipe { name } = &task.io.stdin
+            && !channel_names.contains(name)
+        {
+            consumer_of
+                .entry((task.env_ref.clone(), name.clone()))
+                .or_insert_with(|| task.id.clone());
+        }
+    }
+    (producer_of, consumer_of)
+}
+
+/// True if `path` exists and is a FIFO. Lets the keep-alive skip re-`mkfifo`ing a
+/// pipe `prepare_io_target` already made (a benign create race) and confirm the
+/// target is a FIFO before opening its O_RDWR write end.
+fn path_is_fifo(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        std::fs::symlink_metadata(path)
+            .map(|m| m.file_type().is_fifo())
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 /// Release all of a producer step's channel keep-alives CONCURRENTLY.
