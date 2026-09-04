@@ -45,6 +45,8 @@ pub struct WorkerConfig {
     pub isolate_bin: String,
     #[serde(default = "default_enable_cgroups")]
     pub enable_cgroups: bool,
+    #[serde(default = "default_allow_insecure_no_cgroups")]
+    pub allow_insecure_no_cgroups: bool,
     #[serde(default = "default_sandbox_backend")]
     pub sandbox_backend: String,
     /// Maximum submissions judged in parallel on this worker.
@@ -87,6 +89,9 @@ fn default_isolate_bin() -> String {
 fn default_enable_cgroups() -> bool {
     true
 }
+fn default_allow_insecure_no_cgroups() -> bool {
+    false
+}
 fn default_sandbox_backend() -> String {
     "isolate".into()
 }
@@ -118,6 +123,7 @@ impl Default for WorkerConfig {
             id: default_worker_id(),
             isolate_bin: default_isolate_bin(),
             enable_cgroups: default_enable_cgroups(),
+            allow_insecure_no_cgroups: default_allow_insecure_no_cgroups(),
             sandbox_backend: default_sandbox_backend(),
             max_concurrency: default_max_concurrency(),
             dedup_ttl_secs: default_dedup_ttl_secs(),
@@ -187,6 +193,7 @@ impl WorkerAppConfig {
             .set_default("worker.id", "worker-1")?
             .set_default("worker.isolate_bin", "isolate")?
             .set_default("worker.enable_cgroups", true)?
+            .set_default("worker.allow_insecure_no_cgroups", false)?
             .set_default("worker.sandbox_backend", "isolate")?
             .set_default("worker.max_concurrency", 1_i64)?
             .set_default("worker.dedup_ttl_secs", 600_i64)?

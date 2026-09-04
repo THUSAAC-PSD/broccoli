@@ -1,0 +1,51 @@
+# Air-gap TLS gateway: terminates HTTPS on 443 with the internal-CA leaf and
+# reverse-proxies to the broccoli server. The Caddyfile is mounted UN-rendered;
+# Caddy expands {$LAN_HOST}/{$TLS_CERT}/{$TLS_KEY}/{$BROCCOLI_UPSTREAMS} from
+# THIS container's environment at load time. Never envsubst it — that corrupts
+# Caddy's {$VAR} syntax. Image comes from the bundle via `docker load`;
+# `install.sh` composes this with `--pull never`.
+services:
+  gateway:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    ports:
+      - "${BROCCOLI_GATEWAY_HTTPS_BIND:-0.0.0.0:443}:443"
+    environment:
+      LAN_HOST: "${LAN_HOST}"
+      TLS_CERT: /etc/broccoli-tls/server.crt
+      TLS_KEY: /etc/broccoli-tls/server.key
+      BROCCOLI_UPSTREAMS: "${BROCCOLI_UPSTREAMS:-server:3000}"
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - ../caddy/Caddyfile.airgap:/etc/caddy/Caddyfile:ro
+      # Mount ONLY the leaf cert+key as individual files. The CA signing key
+      # (root.key) shares the server-secret dir; binding the whole dir would
+      # expose it inside this contestant-facing container. Caddy reads exactly
+      # these two paths (TLS_CERT/TLS_KEY above).
+      - "${BROCCOLI_TLS_CERT:?BROCCOLI_TLS_CERT must point at the server TLS leaf cert}:/etc/broccoli-tls/server.crt:ro"
+      - "${BROCCOLI_TLS_KEY:?BROCCOLI_TLS_KEY must point at the server TLS leaf key}:/etc/broccoli-tls/server.key:ro"
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # Harden the server for life behind the TLS gateway (airgap topology ONLY).
+  # Compose merges env per-key onto docker-compose.server.yaml.template, so this
+  # overrides just two keys without restating the base block. The plaintext :3000
+  # publish is loopback-bound by install.sh (BROCCOLI_HTTP_BIND), so the 443
+  # gateway is the only LAN ingress.
+  server:
+    environment:
+      # Gateway terminates TLS: mark session cookies Secure so they never travel
+      # over the plaintext gateway->server hop or a host-local :3000.
+      BROCCOLI__AUTH__SECURE_COOKIES: "true"
+      # Trust the gateway's docker network (private ranges) so Caddy's default
+      # X-Forwarded-For yields the real contestant IP for auth rate limiting /
+      # login throttling instead of collapsing everyone onto the gateway's IP.
+      # Loopback (127.0.0.0/8) is intentionally NOT trusted: no legitimate proxy
+      # reaches the server from 127.x — the gateway, and typically even a
+      # host-published :3000 hit, present as the docker bridge IP — so trusting
+      # loopback would only widen the XFF-spoof surface for no gain.
+      BROCCOLI__SERVER__TRUSTED_PROXIES: '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]'
+
+volumes:
+  caddy_data:
+  caddy_config:

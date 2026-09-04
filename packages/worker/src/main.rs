@@ -12,6 +12,7 @@ mod heartbeat;
 mod metrics;
 mod models;
 mod runtime;
+mod sandbox_preflight;
 mod system_info;
 mod task_runner;
 mod toolchain_fingerprint;
@@ -79,11 +80,7 @@ async fn run_healthcheck() -> anyhow::Result<()> {
             .context("Redis ping failed")?;
     }
 
-    if config
-        .worker
-        .sandbox_backend
-        .eq_ignore_ascii_case("isolate")
-    {
+    if crate::sandbox_preflight::uses_isolate(&config.worker.sandbox_backend) {
         let status = tokio::process::Command::new(&config.worker.isolate_bin)
             .arg("--version")
             .status()
@@ -99,10 +96,8 @@ async fn run_healthcheck() -> anyhow::Result<()> {
         if config.worker.enable_cgroups {
             let controllers = std::fs::read_to_string("/sys/fs/cgroup/cgroup.controllers")
                 .context("cgroup v2 controllers are not visible")?;
-            anyhow::ensure!(
-                !controllers.trim().is_empty(),
-                "cgroup v2 controllers are empty"
-            );
+            crate::sandbox_preflight::controllers_present(&controllers)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
         }
     }
 
