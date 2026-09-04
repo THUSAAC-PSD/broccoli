@@ -1,0 +1,22 @@
+# Air-gapped LAN Caddyfile: explicit internal-CA leaf, no automatic online cert
+# issuance. Mounted UN-rendered into the gateway container; Caddy expands
+# {$LAN_HOST}/{$TLS_CERT}/{$TLS_KEY}/{$BROCCOLI_UPSTREAMS} from the container
+# environment at load time. Never run envsubst over this file — that corrupts
+# Caddy's {$VAR} placeholder syntax. There is no internet on-site, so cert
+# automation cannot be reached; the server serves the leaf minted from the CA.
+{
+	admin off
+	auto_https off
+	# No-SNI clients (browsers/curl connecting by bare IP — SNI carries hostnames
+	# only, per RFC 6066) must still resolve to this site's leaf. With auto_https
+	# off, Caddy serves the explicit cert only when the ClientHello's SNI matches
+	# the site name; a bare-IP hello sends none, so the handshake dies with a TLS
+	# internal-error alert and the gateway is unreachable on an IP-addressed LAN.
+	# Pin the default SNI to the site name so the leaf is served regardless.
+	default_sni {$LAN_HOST}
+}
+{$LAN_HOST} {
+	encode zstd gzip
+	tls {$TLS_CERT} {$TLS_KEY}
+	reverse_proxy {$BROCCOLI_UPSTREAMS}
+}

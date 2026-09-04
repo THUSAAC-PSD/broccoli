@@ -49,3 +49,13 @@ dist/**
 **/.DS_Store
 **/.env
 **/.env.*
+# The broad `!plugins/**` re-include above (needed for the built .wasm + frontend
+# dist that are gitignored on disk) also drags in every plugin frontend's
+# node_modules — ~54k build-only files, ~460MB — which the earlier
+# `**/node_modules/**` rule fails to re-exclude once a plugins-wide `!` include
+# is in force. Re-exclude them explicitly here, LAST so it wins: the built
+# `dist/` is already re-included above and is not under node_modules, so it is
+# unaffected. Keeps them out of the server image's /plugins and therefore out of
+# the air-gap bundle (build-bundle.sh copies /plugins straight out of the image).
+plugins/**/node_modules
+plugins/**/node_modules/**
