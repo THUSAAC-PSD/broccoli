@@ -14,8 +14,31 @@ fn req(lang: &str, files: Vec<&str>) -> ResolveLanguageInput {
     }
 }
 
+/// The shipped default C++ compile flags, read from the SINGLE source of
+/// truth (`plugin.toml`) rather than duplicated as a literal — so this
+/// fixture can never silently drift from what the host actually applies.
 fn default_cpp_flags() -> Vec<String> {
-    vec!["-O2".into(), "-std=c++17".into()]
+    let doc: toml::Value =
+        toml::from_str(include_str!("../plugin.toml")).expect("plugin.toml parses");
+    doc["config"]["compilation"]["properties"]["cpp"]["properties"]["flags"]["default"]
+        .as_array()
+        .expect("cpp flags default is an array")
+        .iter()
+        .map(|v| v.as_str().expect("flag is a string").to_string())
+        .collect()
+}
+
+#[test]
+fn cpp_default_flags_are_o2_only_no_std_for_noi_parity() {
+    // NOI Linux 2.0 compiles C++ with no `-std`, so gcc 9.3's default gnu++14 is
+    // the parity behavior. The global default must be exactly ["-O2"] and carry
+    // no `-std=` (never reintroduce `-std=c++NN` as the global default).
+    let flags = default_cpp_flags();
+    assert_eq!(flags, vec!["-O2".to_string()], "cpp default must be -O2 only");
+    assert!(
+        !flags.iter().any(|f| f.starts_with("-std=")),
+        "C++ default must carry no -std (gnu++14 parity): {flags:?}"
+    );
 }
 
 fn default_c_flags() -> Vec<String> {

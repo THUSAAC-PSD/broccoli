@@ -37,7 +37,7 @@ default = "/usr/bin/g++"
 [config.compilation.properties.cpp.properties.flags]
 type = "array"
 title = "Compile Flags"
-default = ["-O2", "-std=c++17"]
+default = ["-O2"]
 items = { type = "string" }
 
 [config.compilation.properties.c]
