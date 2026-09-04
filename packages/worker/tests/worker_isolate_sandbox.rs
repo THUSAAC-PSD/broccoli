@@ -897,3 +897,27 @@ async fn fused_builtin_stream_under_isolate() {
 
     let _ = std::fs::remove_dir_all(&tools_dir);
 }
+
+// Task 3 - live boot self-test: an over-limit allocation inside isolate MUST
+// surface as `cg-oom-killed` so the batch evaluator can render MemoryLimitExceeded
+// instead of a silent RuntimeError. Unlike the other tests here (which use
+// `IsolateSandboxManager::default()`, cgroups OFF), this constructs the manager
+// with cgroups ENABLED, since `cg-oom-killed` is only emitted under `--cg`. If
+// isolate + cgroup v2 delegation exist the probe must report `Ok`; otherwise the
+// test self-skips. A present-but-non-`Ok` outcome is a real environment defect,
+// not a reason to weaken the assertion.
+#[tokio::test]
+#[ignore = "requires Linux isolate sandbox with cgroup v2 memory delegation"]
+#[serial]
+async fn boot_probe_reports_oom_when_cgroups_enabled() {
+    if !isolate_available() {
+        eprintln!("skipping: isolate not available");
+        return;
+    }
+    let mgr = IsolateSandboxManager::new(isolate_bin(), true);
+    let outcome = worker::sandbox_preflight::probe_isolate_oom(&mgr).await;
+    assert!(
+        matches!(outcome, worker::sandbox_preflight::ProbeOutcome::Ok),
+        "expected Ok, got {outcome:?}"
+    );
+}

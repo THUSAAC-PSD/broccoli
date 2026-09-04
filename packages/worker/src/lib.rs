@@ -13,6 +13,7 @@ pub mod error;
 pub mod heartbeat;
 pub mod metrics;
 pub mod models;
+pub mod sandbox_preflight;
 pub mod system_info;
 mod task_runner;
 pub mod toolchain_fingerprint;

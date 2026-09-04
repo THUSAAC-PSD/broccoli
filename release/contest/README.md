@@ -126,6 +126,54 @@ the problem list, and submit one solution to confirm a worker picks it up.
 
 ---
 
+## Whole-contest bundle
+
+Beyond a plain problem-set archive, `export-problems.sh`/`import-problems.sh` can
+also carry a **contest** end-to-end: the contest row itself, its roster, and the
+roster's accounts/roles — for standing up a duplicate/rehearsal contest, or for
+disaster recovery of a single contest without a full-database restore.
+
+```bash
+# on the source server
+./export-problems.sh --contest 42 [--with-secrets] --out contest-42.tar.gz
+
+# on the target server (must have booted at least once already, so its
+# schema exists -- these scripts never create schema themselves)
+./import-problems.sh --bundle DIR [--with-secrets] [--truncate]
+#   (or: ./import-problems.sh contest-42.tar.gz ...)
+```
+
+- `--contest ID` on export additionally dumps `contest`, `contest_problem`,
+  `contest_user`, `user`, `user_role`, `role`, `role_permission` (only the rows
+  reachable from that contest's roster) and tags the archive's manifest
+  `"format": "broccoli-contest/v1"` instead of `broccoli-problems/v1`.
+  `import-problems.sh` detects this tag and restores those tables too, in
+  FK-safe order, alongside the usual problem tables.
+- **Accounts are never clobbered.** The user upsert is
+  `ON CONFLICT (username) WHERE deleted_at IS NULL DO NOTHING`: an existing
+  **active** account (`deleted_at IS NULL`) is always left untouched, even by a
+  blank or stale password from the bundle. Only brand-new usernames get
+  inserted. This makes a contest bundle safe to import onto a target that
+  already has some of the same operators/contestants registered.
+- **Secrets travel only with `--with-secrets`, and only at export time.**
+  Without it, every `user.password` in the bundle is blanked (`''`) before it
+  ever leaves the source — the archive itself carries no credentials. Passing
+  `--with-secrets` to `import-problems.sh` is accepted for symmetry but is a
+  **documented no-op**: the upsert above never overwrites an existing active
+  user's password regardless of this flag, and a freshly-inserted user simply
+  gets whatever password column the bundle happened to carry (real hash if
+  exported `--with-secrets`, blank otherwise). Whether real secrets are in the
+  bundle is decided once, at export time.
+- The target's schema must already exist — i.e. **the target server has
+  booted at least once** (entity `sync()` + `Migrator::up` create it on boot).
+  These scripts only read/write rows; they never create tables.
+- `--dry-run` on either script touches nothing: `export-problems.sh --dry-run`
+  never opens a DB connection or reads `--config` at all (it just prints the
+  `\copy` statements it would run), and `import-problems.sh --dry-run` prints
+  the `restore.sql` it would run and, for a tarball argument, peeks the
+  manifest with a read-only `tar` extract of just `manifest.json` — no
+  extraction of the rest of the archive, no config read, no DB, no S3.
+
 ## Notes / gotchas
 
 - **SeaweedFS volume capacity.** Blobs live in a per-bucket *collection*; the
