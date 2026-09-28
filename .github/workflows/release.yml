@@ -27,8 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -45,8 +43,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: hadolint/hadolint-action@v3.1.0
         with:
@@ -83,8 +79,6 @@ jobs:
             ext: ""
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install Rust toolchain (mac universal)
         if: matrix.platform == 'macos-universal'
@@ -181,8 +175,6 @@ jobs:
             ext: ""
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install Rust toolchain (mac universal)
         if: matrix.platform == 'macos-universal'
@@ -280,8 +272,6 @@ jobs:
             ext: ""
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install Rust toolchain (mac universal)
         if: matrix.platform == 'macos-universal'
@@ -388,8 +378,6 @@ jobs:
             server_features: ""
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Prepare names
         id: names
@@ -549,8 +537,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: actions/download-artifact@v4
         with:
