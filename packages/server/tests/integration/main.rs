@@ -15,6 +15,7 @@ mod downloads;
 #[cfg(not(feature = "bundled-stress-test"))]
 mod downloads_slim;
 mod health;
+mod hook_enablement;
 mod meta;
 mod permission_fixture;
 mod plugin;

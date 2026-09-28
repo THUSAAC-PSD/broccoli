@@ -125,6 +125,7 @@ pub async fn apply_submission_judgement(
     fire_after_judging_hooks(
         &state.db,
         state.registries.hook_registry.clone(),
+        &state.registries.contest_type_registry,
         updated.id,
         updated.user_id,
         updated.problem_id,

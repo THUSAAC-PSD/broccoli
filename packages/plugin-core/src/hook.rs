@@ -14,8 +14,13 @@ pub const PLUGIN_RUNTIME_ERROR_CODE: &str = "__BROCCOLI_PLUGIN_RUNTIME_ERROR";
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum HookScope {
+    /// Runs where the plugin applies: for a problem, contest, or contest
+    /// problem whose plugin config enables it, and always for submissions to
+    /// a contest whose type this plugin registered. See
+    /// `server::hooks::resource_enablements`.
     #[default]
     Resource,
+    /// Runs for every event on the server.
     Global,
 }
 

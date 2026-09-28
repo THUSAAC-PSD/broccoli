@@ -77,6 +77,9 @@ pub struct EvaluateHostDeps {
     pub plugin_manager: Arc<dyn PluginManager>,
     pub blob_store: Arc<dyn BlobStore>,
     pub hook_registry: SharedHookRegistry,
+    /// Resolves which plugin owns a submission's contest type, for
+    /// `after_judging` hook enablement (see `hooks::resource_enablements`).
+    pub contest_type_registry: ContestTypeRegistry,
     pub metrics: Option<common::metrics::Metrics>,
     pub evaluate_ops_registry: EvaluateBatchOpsRegistry,
     pub redis_client: Option<Arc<redis::Client>>,
@@ -134,6 +137,7 @@ impl HostFunctionDeps {
             plugin_manager: self.plugin_manager.clone(),
             blob_store: self.system.blob_store.clone(),
             hook_registry: self.system.hook_registry.clone(),
+            contest_type_registry: self.system.contest_type_registry.clone(),
             metrics: self.system.metrics.clone(),
             evaluate_ops_registry: self.system.evaluate_ops_registry.clone(),
             redis_client: self.system.redis_client.clone(),

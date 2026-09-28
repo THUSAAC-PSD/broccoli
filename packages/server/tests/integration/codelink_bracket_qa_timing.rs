@@ -125,20 +125,6 @@ async fn setup_fixture_with_timing(
         app.register_for_contest(contest_id, &p.token).await;
     }
 
-    // `HookScope::Resource` only fires once an explicit config row enables
-    // it -- same reasoning as `codelink_bracket.rs`/`codelink_bracket_qa.rs`.
-    let res = app
-        .put_with_token(
-            &routes::contest_config_ns(contest_id, "codelink-bracket", "before_submission"),
-            &json!({"config": {}, "enabled": true, "position": 0}),
-            &staff_token,
-        )
-        .await;
-    assert_eq!(
-        res.status, 200,
-        "enable before_submission hook failed: {}",
-        res.text
-    );
 
     let rounds = create_all_round_problems(&app, contest_id, &staff_token).await;
     let seeds: Vec<i32> = players.iter().map(|p| p.id).collect();

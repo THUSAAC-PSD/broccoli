@@ -269,6 +269,7 @@ async fn fire_detached_evaluate_completion_hooks(
     fire_after_judging_hooks_for_detached_completion(
         &deps.db,
         deps.hook_registry.clone(),
+        &deps.contest_type_registry,
         &completion,
     )
     .await;
