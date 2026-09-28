@@ -80,6 +80,7 @@ handler = "get_cooldown_status_standalone"
   `scope = "resource"`（默认值）表示钩子只在插件适用的范围内运行，即设置中启用了该插件的比赛或题目，以及该插件自身注册的比赛类型下的所有比赛。`scope = "global"` 表示对服务器上的所有提交运行。
 - 路由将一个 HTTP 方法与路径映射到导出的函数。`{problem_id}` 这类路径参数在处理函数内
   读取。
+- 可选的 `[bundle]` 段落指定发布包如何提供该插件。`mode = "default"`（默认值）表示随发布包提供并默认加载；`mode = "optional"` 表示放在 `plugins-available/` 中，由运维人员通过 `enable-plugin.sh` 启用，适用于仅部分赛事需要的插件；`mode = "none"` 表示不随发布包提供，用于测试插件。
 
 ### Cargo.toml
 

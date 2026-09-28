@@ -428,6 +428,23 @@ mod tests {
         assert_eq!(prop.max, Some(300.0));
     }
 
+    /// `[bundle]` is read only by release packaging (release/lib/plugins.sh).
+    /// The host must keep accepting it, or every plugin that declares how it
+    /// ships would fail to load.
+    #[test]
+    fn parse_manifest_with_bundle_section() {
+        let toml_str = r#"
+            name = "test-plugin"
+            version = "1.0.0"
+
+            [bundle]
+            mode = "optional"
+        "#;
+
+        let manifest: PluginManifest = toml::from_str(toml_str).unwrap();
+        assert_eq!(manifest.name, "test-plugin");
+    }
+
     #[test]
     fn parse_manifest_without_config() {
         let toml_str = r#"

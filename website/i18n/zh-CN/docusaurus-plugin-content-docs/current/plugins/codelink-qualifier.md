@@ -8,16 +8,27 @@ sidebar_position: 2
 
 Codelink 上午场使用 `codelink-qualifier` 比赛类型。选手自由选题，每道题的计分名额只授予最先通过该题的若干名选手；在规定数量的不同题目上获得名额后即晋级下午场，参加 [Codelink 淘汰赛](./codelink-bracket.md)。
 
-## 安装插件
+## 启用插件
 
-安装 Broccoli 的开发依赖后，在仓库根目录运行以下命令。
+Codelink 晋级赛和淘汰赛插件随每个发布包提供，但默认不加载，需手动启用。在每台服务器节点的发布包目录中运行以下命令，然后在管理后台的**插件**页面单击 **Reload All**。
+
+```bash
+./enable-plugin.sh codelink-qualifier codelink-bracket
+```
+
+也可以在安装时启用，即运行安装脚本时设置 `BROCCOLI_PLUGINS`。`install.sh` 和 `install-native.sh` 的用法相同。
+
+```bash
+BROCCOLI_PLUGINS="codelink-qualifier codelink-bracket" ./install.sh server
+```
+
+在开发环境中，从仓库构建并安装这两个插件。
 
 ```bash
 pnpm --filter @broccoli/web-sdk build
 just build-plugin plugins/codelink-qualifier --install
+just build-plugin plugins/codelink-bracket --install
 ```
-
-构建产物为 `plugins/codelink-qualifier/codelink_qualifier.wasm`，前端包位于 `plugins/codelink-qualifier/frontend/dist`。服务器从插件目录加载插件，插件目录默认为 `./plugins`。重启服务器，或前往管理后台的**插件**页面，单击 **Reload All**，加载该插件。
 
 ## 创建比赛
 
