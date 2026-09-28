@@ -24,6 +24,11 @@ SVC_USER="${BROCCOLI_SVC_USER:-$(logname 2>/dev/null || echo ubuntu)}"
 DB_NAME="broccoli"; DB_USER="broccoli"
 SEAWEED_DATA="${BROCCOLI_SEAWEED_DATA:-/data/seaweed-data}"
 CONN_ENV="$BUNDLE/connection.env"
+# In a bundle plugins.sh sits in lib/; in a repo checkout, in release/lib/.
+plugins_lib="$BUNDLE/lib/plugins.sh"
+[ -f "$plugins_lib" ] || plugins_lib="$BUNDLE/../lib/plugins.sh"
+# shellcheck source=/dev/null
+. "$plugins_lib"
 
 die(){ echo "error: $*" >&2; exit 1; }
 need_root(){ [ "$(id -u)" = 0 ] || die "run with sudo"; }
@@ -98,6 +103,10 @@ install_common_dirs(){
 install_infra_server(){
   local host="${BROCCOLI_INFRA_HOST:-}"
   [ -n "$host" ] || die "set BROCCOLI_INFRA_HOST=<this box's LAN IP> for infra-server"
+  case "${BROCCOLI__AUTH__SECURE_COOKIES:-false}" in
+    true|false) ;;
+    *) die "BROCCOLI__AUTH__SECURE_COOKIES must be true or false" ;;
+  esac
   require_ubuntu; install_common_dirs
   apt_ensure postgresql postgresql-client redis-server
 
@@ -105,7 +114,9 @@ install_infra_server(){
   install -m755 "$BUNDLE/bin/server" "$DATA_DIR/target/release/server"
   install -m755 "$BUNDLE/bin/broccoli-compare" "$DATA_DIR/tools/broccoli-compare"
   install -m755 "$BUNDLE/bin/weed" /usr/local/bin/weed
-  # plugins + web frontend
+  # plugins + web frontend. Optional plugins named in BROCCOLI_PLUGINS (or
+  # enabled earlier with ./enable-plugin.sh) are in the bundle's plugins/.
+  enable_requested_plugins "$BUNDLE"
   rm -rf "$DATA_DIR/plugins"; cp -a "$BUNDLE/plugins" "$DATA_DIR/plugins"
   install -d "$DATA_DIR/packages/web/build"; rm -rf "$DATA_DIR/packages/web/build/client"
   cp -a "$BUNDLE/web/client" "$DATA_DIR/packages/web/build/client"
@@ -153,6 +164,7 @@ install_infra_server(){
       -e "s|@S3_ENDPOINT@|http://$host:8333|" \
       -e "s|@S3_ACCESS_KEY@|$s3_ak|; s|@S3_SECRET_KEY@|$s3_sk|" \
       -e "s|@JWT_SECRET@|$jwt|; s|@ADMIN_PASSWORD@|$admin_pw|" \
+      -e "s|@SECURE_COOKIES@|${BROCCOLI__AUTH__SECURE_COOKIES:-false}|" \
       -e "s|@DATA_DIR@|$DATA_DIR|; s|@SERVER_ID@|server-1|; s|@WORKER_ID@|server-1|" \
       -e "s|@HTTP_HOST@|0.0.0.0|; s|@HTTP_PORT@|80|; s|@MAX_CONCURRENCY@|1|; s|@INFRA_HOST@|$host|" \
       "$BUNDLE/config/config.toml.tmpl" > "$DATA_DIR/config/config.toml"
@@ -220,6 +232,7 @@ install_worker(){
       -e "s|@S3_ACCESS_KEY@|$BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY|" \
       -e "s|@S3_SECRET_KEY@|$BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY|" \
       -e "s|@JWT_SECRET@|unused-on-worker|; s|@ADMIN_PASSWORD@|unused|" \
+      -e "s|@SECURE_COOKIES@|false|" \
       -e "s|@DATA_DIR@|$DATA_DIR|; s|@SERVER_ID@|$wid|; s|@WORKER_ID@|$wid|" \
       -e "s|@HTTP_HOST@|127.0.0.1|; s|@HTTP_PORT@|8081|; s|@MAX_CONCURRENCY@|${BROCCOLI_MAX_CONCURRENCY:-8}|; s|@INFRA_HOST@|${BROCCOLI_INFRA_HOST:-127.0.0.1}|" \
       "$BUNDLE/config/config.toml.tmpl" > "$DATA_DIR/config/worker.toml"

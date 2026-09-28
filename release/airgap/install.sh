@@ -5,6 +5,11 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 . "$here/lib/runtime.sh"
+# In a bundle plugins.sh sits in lib/; in a repo checkout, in release/lib/.
+plugins_lib="$here/lib/plugins.sh"
+[ -f "$plugins_lib" ] || plugins_lib="$here/../lib/plugins.sh"
+# shellcheck source=/dev/null
+. "$plugins_lib"
 
 usage() {
   echo "Usage: install.sh --role {server|worker|contestant} --bundle DIR [--lan-host H] [--server-secret DIR] [--burn-ca-key]"
@@ -89,10 +94,16 @@ case "$ROLE" in
     # SELinux denies the container read access and the plugin registry loads empty
     # — infra HEALTHY but nothing judges. Runs before compose up so labels are set
     # before the containers mount them.
+    enable_requested_plugins "$BUNDLE/compose"
     runtime_relabel "$ENGINE" "$abs_secret" "$here/caddy/Caddyfile.airgap" "$BUNDLE/compose/plugins" 2>/dev/null || true
     (
       cd "$BUNDLE/compose"
+      # The server stack keeps the project name it has always had (Compose's
+      # default for this directory), so existing installs keep their volumes.
+      # Pinned rather than defaulted so a COMPOSE_PROJECT_NAME in .env.infra or
+      # .env.server cannot move it.
       compose_args=(
+        -p compose
         --env-file .env.infra --env-file .env.server
         -f docker-compose.infra.yaml.template
         -f docker-compose.server.yaml.template
@@ -136,8 +147,14 @@ case "$ROLE" in
     # Relabel that source for rootless Podman under SELinux Enforcing (no-op
     # otherwise) — else SELinux denies the read and the worker loads no
     # evaluators/checkers. Runs before compose up so the label is set first.
+    enable_requested_plugins "$BUNDLE/compose"
     runtime_relabel "$ENGINE" "$BUNDLE/compose/plugins" 2>/dev/null || true
-    ( cd "$BUNDLE/compose" && $COMPOSE --env-file .env.worker \
+    # A worker is its own Compose project (COMPOSE_PROJECT_NAME in a newly
+    # generated .env.worker), so a worker on the server host gets its own
+    # network and is never an orphan of the server stack. A .env.worker from
+    # before that keeps the old shared name, and with it its volumes.
+    worker_project="$(sed -n "s/^COMPOSE_PROJECT_NAME=['\"]\{0,1\}\([^'\"]*\).*/\1/p" "$worker_env" | tail -n 1)"
+    ( cd "$BUNDLE/compose" && $COMPOSE -p "${worker_project:-compose}" --env-file .env.worker \
         -f docker-compose.worker.yaml.template up -d --pull never )
     echo "worker started against server infra (compose up --pull never)"
     ;;

@@ -67,6 +67,14 @@ curl -fsS http://127.0.0.1:${BROCCOLI_HTTP_BIND##*:}/healthz
 During the window, submissions should complete successfully and server logs
 should not show legacy `operation_results` warnings for new work.
 
+## Compose project names
+
+Env files written by this release set `COMPOSE_PROJECT_NAME=broccoli-<role>`,
+so each role is its own Compose project. Env files from earlier releases have
+no project name, and Compose uses the directory name instead. Do not add one to
+a role that is already running: its volumes, including the database, are named
+after the project, and a new name would start it on new, empty volumes.
+
 ## Rollback
 
 1. Restore the previous image tag in the affected node's `.env.<role>`.

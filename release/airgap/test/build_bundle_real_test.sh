@@ -20,9 +20,9 @@ HOST="${AIRGAP_TEST_HOST:-$(ip route get 1 2>/dev/null | awk '{print $7; exit}')
 T="$(mktemp -d)"
 cleanup() {
   ( cd "$T/broccoli-airgap-$V/compose" 2>/dev/null && \
-    $COMPOSE --env-file .env.worker -f docker-compose.worker.yaml.template down -v 2>/dev/null || true )
+    $COMPOSE -p broccoli-worker --env-file .env.worker -f docker-compose.worker.yaml.template down -v 2>/dev/null || true )
   ( cd "$T/broccoli-airgap-$V/compose" 2>/dev/null && \
-    $COMPOSE --env-file .env.infra --env-file .env.server \
+    $COMPOSE -p compose --env-file .env.infra --env-file .env.server \
       -f docker-compose.infra.yaml.template -f docker-compose.server.yaml.template \
       -f docker-compose.gateway-airgap.yaml.template down -v 2>/dev/null || true )
   rm -rf "$T"
@@ -119,7 +119,7 @@ bash "$here/../setup.sh" --role worker --bundle "$b" --lan-host "$HOST" \
   --worker-id smoke-worker --engine "$ENGINE" --non-interactive
 whealthy=0
 for _ in $(seq 1 30); do
-  cid="$( cd "$b/compose" && $COMPOSE --env-file .env.worker -f docker-compose.worker.yaml.template ps -q worker )"
+  cid="$( cd "$b/compose" && $COMPOSE -p broccoli-worker --env-file .env.worker -f docker-compose.worker.yaml.template ps -q worker )"
   [ -n "$cid" ] || { sleep 2; continue; }
   st="$("$ENGINE" inspect -f '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo starting)"
   [ "$st" = healthy ] && { whealthy=1; break; }
