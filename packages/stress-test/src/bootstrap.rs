@@ -174,7 +174,7 @@ pub(crate) fn build_create_contest_request(contest_type: &str) -> CreateContestR
         end_time: now + chrono::Duration::hours(24),
         deactivate_time: Some(now + chrono::Duration::hours(24)),
         is_public: false,
-        contest_type: Some(contest_type.to_string()),
+        contest_type: contest_type.to_string(),
     }
 }
 
@@ -195,6 +195,7 @@ fn resolve_contest_type(
         "contest_type",
         &registries.contest_types,
         override_value,
+        "icpc",
         empty_contest_types_hint,
     )
 }
@@ -207,14 +208,22 @@ fn resolve_problem_type(
         "problem_type",
         &registries.problem_types,
         override_value,
+        "batch",
         empty_problem_types_hint,
     )
 }
 
+/// Pick the type to bootstrap with: the override if given, else `preferred`
+/// (the type the A+B fixtures and their expected verdicts are written for),
+/// else the only registered type. With several registered and no preferred
+/// one, ask for an override instead of guessing: a format such as a
+/// tournament bracket rejects ordinary submissions, so "the first one listed"
+/// can make every submission fail.
 fn resolve_type(
     label: &str,
     available: &[String],
     override_value: Option<&str>,
+    preferred: &str,
     empty_hint: fn() -> &'static str,
 ) -> StressResult<String> {
     if let Some(requested) = override_value {
@@ -229,8 +238,18 @@ fn resolve_type(
         )));
     }
 
-    if let Some(first) = available.first() {
-        return Ok(first.clone());
+    if available.iter().any(|t| t == preferred) {
+        return Ok(preferred.to_string());
+    }
+    if let [only] = available {
+        return Ok(only.clone());
+    }
+    if !available.is_empty() {
+        return Err(StressError::Other(anyhow::anyhow!(
+            "`{preferred}` is not registered and several {label}s are; pass --{} to choose one of: [{}]",
+            label.replace('_', "-"),
+            available.join(", "),
+        )));
     }
 
     Err(StressError::Other(anyhow::anyhow!(
@@ -284,6 +303,41 @@ pub(crate) fn build_create_problem_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn types(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
+    fn hint() -> &'static str {
+        "hint"
+    }
+
+    #[test]
+    fn the_fixture_type_wins_over_whatever_sorts_first() {
+        let available = types(&["codelink-bracket", "codelink-qualifier", "icpc", "ioi"]);
+        let picked = resolve_type("contest_type", &available, None, "icpc", hint).unwrap();
+        assert_eq!(picked, "icpc");
+    }
+
+    #[test]
+    fn a_single_registered_type_is_used() {
+        let picked = resolve_type("contest_type", &types(&["ioi"]), None, "icpc", hint).unwrap();
+        assert_eq!(picked, "ioi");
+    }
+
+    #[test]
+    fn several_types_without_the_fixture_type_need_an_override() {
+        let err = resolve_type(
+            "contest_type",
+            &types(&["codelink-bracket", "ioi"]),
+            None,
+            "icpc",
+            hint,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("--contest-type"), "{err}");
+    }
     use crate::client::{AuthCreds, Client};
     use crate::scenarios::SCENARIOS;
     use serde_json::{Value, json};

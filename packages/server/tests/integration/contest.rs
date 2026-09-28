@@ -10,6 +10,7 @@ fn valid_contest_body(title: &str, is_public: bool) -> serde_json::Value {
         "end_time": "2099-01-02T00:00:00Z",
         "deactivate_time": null,
         "is_public": is_public,
+        "contest_type": "standard",
     })
 }
 
@@ -119,6 +120,7 @@ mod contest_creation {
             "start_time": "2099-01-02T00:00:00Z",
             "end_time": "2099-01-01T00:00:00Z",
             "is_public": false,
+            "contest_type": "standard",
         });
         let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
 
@@ -193,6 +195,7 @@ mod contest_creation {
             "start_time": "2099-01-01T00:00:00Z",
             "end_time": "2099-01-02T00:00:00Z",
             "is_public": false,
+            "contest_type": "standard",
         });
         let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
 
@@ -213,6 +216,7 @@ mod contest_creation {
             "start_time": "2099-01-01T00:00:00Z",
             "end_time": "2099-01-02T00:00:00Z",
             "is_public": false,
+            "contest_type": "standard",
         });
         let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
 
@@ -242,6 +246,7 @@ mod contest_listing {
             "start_time": "2020-01-02T00:00:00Z",
             "end_time": "2099-01-03T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &never_active_body, &admin)
             .await;
@@ -253,6 +258,7 @@ mod contest_listing {
             "start_time": "2099-01-02T00:00:00Z",
             "end_time": "2099-01-03T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &future_body, &admin)
             .await;
@@ -265,6 +271,7 @@ mod contest_listing {
             "end_time": "2020-01-03T00:00:00Z",
             "deactivate_time": "2020-01-04T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &deactivated_body, &admin)
             .await;
@@ -322,6 +329,7 @@ mod contest_listing {
             "start_time": "2020-01-02T00:00:00Z",
             "end_time": "2099-01-03T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &body, &admin).await;
 
@@ -347,6 +355,7 @@ mod contest_listing {
             "start_time": "2099-01-02T00:00:00Z",
             "end_time": "2099-01-03T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &body, &admin).await;
 
@@ -373,6 +382,7 @@ mod contest_listing {
             "end_time": "2020-01-03T00:00:00Z",
             "deactivate_time": "2020-01-04T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &body, &admin).await;
 
@@ -433,6 +443,7 @@ mod contest_listing {
             "start_time": "2020-01-02T00:00:00Z",
             "end_time": "2099-01-03T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &body_early, &admin)
             .await;
@@ -444,6 +455,7 @@ mod contest_listing {
             "start_time": "2099-01-02T00:00:00Z",
             "end_time": "2099-01-03T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &body_late, &admin)
             .await;
@@ -455,6 +467,7 @@ mod contest_listing {
             "start_time": "2020-01-02T00:00:00Z",
             "end_time": "2099-01-03T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &body_never, &admin)
             .await;
@@ -485,6 +498,7 @@ mod contest_listing {
             "start_time": "2099-01-01T00:00:00Z",
             "end_time": "2099-01-02T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &body_early, &admin)
             .await;
@@ -495,6 +509,7 @@ mod contest_listing {
             "start_time": "2099-06-01T00:00:00Z",
             "end_time": "2099-06-02T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         app.post_with_token(routes::CONTESTS, &body_late, &admin)
             .await;
@@ -1435,6 +1450,7 @@ mod contest_problems {
             "start_time": "2099-01-01T00:00:00Z",
             "end_time": "2099-01-02T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         let contest_id = app
             .post_with_token(routes::CONTESTS, &body, &admin)
@@ -1471,6 +1487,7 @@ mod contest_problems {
             "start_time": "2099-01-01T00:00:00Z",
             "end_time": "2099-01-02T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         let contest_id = app
             .post_with_token(routes::CONTESTS, &body, &admin)
@@ -1773,6 +1790,7 @@ mod contest_participants {
                     "end_time": "2020-01-02T00:00:00Z",
                     "deactivate_time": "2020-01-03T00:00:00Z",
                     "is_public": true,
+                    "contest_type": "standard",
                 }),
                 &admin,
             )
@@ -1883,6 +1901,7 @@ mod contest_registration {
             "start_time": "2020-01-01T00:00:00Z",
             "end_time": "2020-01-02T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         let res = app.post_with_token(routes::CONTESTS, &body, &admin).await;
         let id = res.id();
@@ -1910,6 +1929,7 @@ mod contest_registration {
             "start_time": "2099-01-02T00:00:00Z",
             "end_time": "2099-01-03T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         let res = app.post_with_token(routes::CONTESTS, &body, &admin).await;
         let id = res.id();
@@ -1938,6 +1958,7 @@ mod contest_registration {
             "end_time": "2020-01-03T00:00:00Z",
             "deactivate_time": "2020-01-04T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         let res = app.post_with_token(routes::CONTESTS, &body, &admin).await;
         let id = res.id();
@@ -1965,6 +1986,7 @@ mod contest_registration {
             "start_time": "2020-01-01T00:00:00Z",
             "end_time": "2020-01-02T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         let create_res = app.post_with_token(routes::CONTESTS, &body, &admin).await;
         let id = create_res.id();
@@ -2635,5 +2657,131 @@ mod bulk_add_participants {
 
         assert_eq!(res.status, 403);
         assert_eq!(res.body["code"], "PERMISSION_DENIED");
+    }
+}
+
+/// A contest must say which contest type judges it. The server used to fall
+/// back to the alphabetically first registered type, which depends on plugin
+/// names and can land on a tournament format that rejects every submission.
+mod contest_type_required {
+    use super::*;
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+    use server::entity::contest;
+
+    fn contest_body(contest_type: Option<&str>) -> serde_json::Value {
+        let mut body = json!({
+            "title": "Typed",
+            "description": "desc",
+            "activate_time": "2020-01-01T00:00:00Z",
+            "start_time": "2020-01-01T00:00:00Z",
+            "end_time": "2099-01-02T00:00:00Z",
+            "is_public": true,
+        });
+        if let Some(t) = contest_type {
+            body["contest_type"] = json!(t);
+        }
+        body
+    }
+
+    #[tokio::test]
+    async fn creating_a_contest_requires_a_registered_type() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_contest_type", "password123", "admin")
+            .await;
+
+        for (body, what) in [
+            (contest_body(None), "missing"),
+            (contest_body(Some("")), "empty"),
+            (contest_body(Some("no-such-format")), "unregistered"),
+        ] {
+            let res = app.post_with_token(routes::CONTESTS, &body, &token).await;
+            assert_eq!(res.status, 400, "{what} type: {}", res.text);
+        }
+
+        let ok = app
+            .post_with_token(routes::CONTESTS, &contest_body(Some("standard")), &token)
+            .await;
+        assert_eq!(ok.status, 201, "{}", ok.text);
+        assert_eq!(ok.body["contest_type"], "standard");
+
+        let bad_update = app
+            .patch_with_token(
+                &routes::contest(ok.id()),
+                &json!({"contest_type": "no-such-format"}),
+                &token,
+            )
+            .await;
+        assert_eq!(bad_update.status, 400, "{}", bad_update.text);
+    }
+
+    /// Contests created before the type was required keep a NULL type. They
+    /// accept no submissions or code runs until an admin sets one.
+    #[tokio::test]
+    async fn an_untyped_contest_accepts_no_submissions_until_a_type_is_set() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin_untyped", "password123", "admin")
+            .await;
+        let problem_id = app.create_problem(&admin, "Untyped contest problem").await;
+        let created = app
+            .post_with_token(routes::CONTESTS, &contest_body(Some("standard")), &admin)
+            .await;
+        let contest_id = created.id();
+        app.add_problem_to_contest(contest_id, problem_id, &admin)
+            .await;
+        let mut legacy: contest::ActiveModel = contest::Entity::find_by_id(contest_id)
+            .one(&app.db)
+            .await
+            .unwrap()
+            .unwrap()
+            .into();
+        legacy.contest_type = Set(None);
+        legacy.update(&app.db).await.unwrap();
+
+        let user = app
+            .create_authenticated_user("untyped_user", "pass1234")
+            .await;
+        app.register_for_contest(contest_id, &user).await;
+        let files = json!([{"filename": "main.cpp", "content": "int main() {}"}]);
+
+        let submit = app
+            .post_with_token(
+                &routes::contest_problem_submissions(contest_id, problem_id),
+                &json!({"files": files, "language": "cpp"}),
+                &user,
+            )
+            .await;
+        assert_eq!(submit.status, 409, "{}", submit.text);
+
+        let run = app
+            .post_with_token(
+                &routes::contest_problem_code_runs(contest_id, problem_id),
+                &json!({
+                    "files": files,
+                    "language": "cpp",
+                    "custom_test_cases": [{"input": "1", "expected_output": "1"}],
+                }),
+                &user,
+            )
+            .await;
+        assert_eq!(run.status, 409, "{}", run.text);
+
+        let fixed = app
+            .patch_with_token(
+                &routes::contest(contest_id),
+                &json!({"contest_type": "standard"}),
+                &admin,
+            )
+            .await;
+        assert_eq!(fixed.status, 200, "{}", fixed.text);
+        let submit = app
+            .post_with_token(
+                &routes::contest_problem_submissions(contest_id, problem_id),
+                &json!({"files": files, "language": "cpp"}),
+                &user,
+            )
+            .await;
+        assert_eq!(submit.status, 201, "{}", submit.text);
     }
 }

@@ -2508,6 +2508,7 @@ mod problem_contest_access {
             "start_time": "2099-01-01T00:00:00Z",
             "end_time": "2099-01-02T00:00:00Z",
             "is_public": true,
+            "contest_type": "standard",
         });
         let cid = app
             .post_with_token(routes::CONTESTS, &body, &admin)

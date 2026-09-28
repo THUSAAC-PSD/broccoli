@@ -30,8 +30,11 @@ pub struct CreateContestRequest {
     pub show_compile_output: Option<bool>,
     #[schema(example = true)]
     pub show_participants_list: Option<bool>,
+    /// The contest type (format) that judges this contest's submissions.
+    /// Required: the server never picks one, because any "first registered"
+    /// choice depends on plugin names.
     #[schema(example = "ioi")]
-    pub contest_type: Option<String>,
+    pub contest_type: String,
 }
 
 #[derive(Deserialize, Default, PartialEq, utoipa::ToSchema)]
@@ -58,6 +61,7 @@ pub struct UpdateContestRequest {
     pub show_compile_output: Option<bool>,
     #[schema(example = true)]
     pub show_participants_list: Option<bool>,
+    /// Omit to keep the current type. A contest type cannot be removed.
     #[schema(example = "icpc")]
     pub contest_type: Option<String>,
 }

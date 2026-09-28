@@ -10,6 +10,7 @@ fn valid_contest_body(title: &str, is_public: bool) -> serde_json::Value {
         "start_time": "2020-01-01T00:00:00Z",
         "end_time": "2099-01-02T00:00:00Z",
         "is_public": is_public,
+        "contest_type": "standard",
     })
 }
 
@@ -74,6 +75,7 @@ mod contest_creation {
             "start_time": "2099-01-02T00:00:00Z",
             "end_time": "2099-01-01T00:00:00Z",
             "is_public": false,
+            "contest_type": app.contest_type,
         });
         let res = app.post_with_token("/api/v1/contests", &body, &token).await;
 

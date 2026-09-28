@@ -139,8 +139,7 @@ pub struct CreateContestRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deactivate_time: Option<DateTime<Utc>>,
     pub is_public: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contest_type: Option<String>,
+    pub contest_type: String,
 }
 
 #[derive(Serialize, Debug)]

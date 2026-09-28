@@ -67,6 +67,20 @@ curl -fsS http://127.0.0.1:${BROCCOLI_HTTP_BIND##*:}/healthz
 During the window, submissions should complete successfully and server logs
 should not show legacy `operation_results` warnings for new work.
 
+## Contests without a contest type
+
+Every contest now needs a contest type. Contests created by earlier releases
+without one accept no submissions until an admin sets it, where they used to
+be judged by whichever type sorted first. Before a contest, list them on the
+infra node and set a type for each in the contest editor:
+
+```bash
+set -a; . ./.env.infra; set +a
+docker compose --env-file .env.infra -f docker-compose.infra.yaml exec db \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "SELECT id, title FROM contest WHERE contest_type IS NULL AND deleted_at IS NULL"
+```
+
 ## Compose project names
 
 Env files written by this release set `COMPOSE_PROJECT_NAME=broccoli-<role>`,

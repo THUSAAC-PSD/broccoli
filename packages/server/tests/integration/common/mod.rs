@@ -870,6 +870,21 @@ impl TestApp {
                         .join("; ")
                 );
             }
+            // Contests require a registered contest type. When the loaded
+            // plugins register none (visibility fixtures, for example), give
+            // the harness the same stub "standard" type the plugin-less spawn
+            // has, so `create_contest` works the same in both.
+            let mut contest_types = state.registries.contest_type_registry.write().await;
+            if contest_types.is_empty() {
+                contest_types.insert(
+                    "standard".into(),
+                    server::registry::ContestTypeHandlers {
+                        plugin_id: "__test__".into(),
+                        submission_fn: "noop".into(),
+                        code_run_fn: "noop".into(),
+                    },
+                );
+            }
         }
 
         let state_for_app = state.clone();
@@ -1155,6 +1170,7 @@ impl TestApp {
                     "end_time": "2099-01-02T00:00:00Z",
                     "is_public": is_public,
                     "submissions_visible": submissions_visible,
+                    "contest_type": "standard",
                 }),
                 token,
             )

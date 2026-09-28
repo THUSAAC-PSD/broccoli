@@ -35,10 +35,13 @@ use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::hooks;
+use crate::models::problem::validate_contest_type;
 use crate::models::shared::{Pagination, escape_like};
 use crate::models::submission::*;
 use crate::state::AppState;
-use crate::utils::contest::{find_contest, require_contest_participant, require_contest_running};
+use crate::utils::contest::{
+    find_contest, require_contest_participant, require_contest_running, required_contest_type,
+};
 use crate::utils::judging::{files_to_json, validate_code_payload, validate_submission_contract};
 use crate::utils::problem::find_problem;
 use crate::utils::query::validate_sorting_params;
@@ -162,15 +165,8 @@ pub async fn create_submission(
 
     let contest_type = match payload.contest_type {
         Some(ref ct) => {
-            let registry = state.registries.contest_type_registry.read().await;
-            if !registry.contains_key(ct) {
-                let mut valid: Vec<_> = registry.keys().cloned().collect();
-                valid.sort();
-                return Err(AppError::Validation(format!(
-                    "contest_type must be one of: {}",
-                    valid.join(", ")
-                )));
-            }
+            validate_contest_type("contest_type", ct, &state.registries.contest_type_registry)
+                .await?;
             ct.clone()
         }
         None => problem.default_contest_type.clone(),
@@ -696,13 +692,7 @@ pub async fn create_contest_submission(
     dispatch_before_submission_hooks(&state, &hook_event, Some(&enabled_plugins)).await?;
 
     let language = payload.language.trim().to_string();
-    let contest_type = match &contest_model.contest_type {
-        Some(ct) => ct.clone(),
-        None => {
-            let reg = state.registries.contest_type_registry.read().await;
-            reg.keys().min().cloned().unwrap_or_default()
-        }
-    };
+    let contest_type = required_contest_type(&contest_model)?;
     let new_submission = submission::ActiveModel {
         files: Set(files_to_json(&payload.files)),
         language: Set(language.clone()),

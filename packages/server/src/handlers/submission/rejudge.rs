@@ -35,10 +35,11 @@ use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::FreshAuthUser;
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
+use crate::models::problem::validate_contest_type;
 use crate::models::submission::*;
 use crate::services::submission_dispatch::fire_after_judging_hooks;
 use crate::state::AppState;
-use crate::utils::contest::{find_contest, is_problem_in_contest};
+use crate::utils::contest::{find_contest, is_problem_in_contest, required_contest_type};
 use crate::utils::judging::{files_to_json, validate_code_payload, validate_submission_contract};
 use crate::utils::problem::find_problem;
 use crate::visibility::{Subject, VisibilityKernel};
@@ -604,25 +605,12 @@ pub async fn admin_fan_out_submission(
 
     let contest_type = match payload.contest_type {
         Some(ref ct) => {
-            let registry = state.registries.contest_type_registry.read().await;
-            if !registry.contains_key(ct) {
-                let mut valid: Vec<_> = registry.keys().cloned().collect();
-                valid.sort();
-                return Err(AppError::Validation(format!(
-                    "contest_type must be one of: {}",
-                    valid.join(", ")
-                )));
-            }
+            validate_contest_type("contest_type", ct, &state.registries.contest_type_registry)
+                .await?;
             ct.clone()
         }
         None => match payload.contest_id {
-            Some(contest_id) => {
-                let contest_model = find_contest(&txn, contest_id).await?;
-                contest_model
-                    .contest_type
-                    .clone()
-                    .unwrap_or_else(|| problem.default_contest_type.clone())
-            }
+            Some(contest_id) => required_contest_type(&find_contest(&txn, contest_id).await?)?,
             None => problem.default_contest_type.clone(),
         },
     };

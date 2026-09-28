@@ -6,6 +6,19 @@ use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
 use crate::utils::soft_delete::SoftDeletable;
 
+/// The contest type that judges submissions to `contest`. Contests created
+/// before a type was required may have none; they accept no submissions until
+/// an admin sets one, rather than being judged by whichever registered type
+/// happens to sort first.
+pub fn required_contest_type(contest: &contest::Model) -> Result<String, AppError> {
+    contest.contest_type.clone().ok_or_else(|| {
+        AppError::Conflict(
+            "This contest has no contest type. An admin must set one before it accepts submissions."
+                .into(),
+        )
+    })
+}
+
 pub async fn is_problem_in_contest<C: sea_orm::ConnectionTrait>(
     db: &C,
     contest_id: i32,

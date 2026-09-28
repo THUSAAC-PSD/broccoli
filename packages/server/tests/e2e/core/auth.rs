@@ -276,6 +276,7 @@ mod permissions {
                     "start_time": "2099-01-01T00:00:00Z",
                     "end_time": "2099-01-02T00:00:00Z",
                     "is_public": false,
+                    "contest_type": app.contest_type,
                 }),
                 &token,
             )

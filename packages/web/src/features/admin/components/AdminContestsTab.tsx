@@ -226,6 +226,11 @@ export function ContestFormDialog({
       return;
     }
 
+    if (!contestType) {
+      toast.error(t('validation.contestTypeRequiredForContest'));
+      return;
+    }
+
     setLoading(true);
 
     const body = {
@@ -239,7 +244,7 @@ export function ContestFormDialog({
       submissions_visible: submissionsVisible,
       show_compile_output: showCompileOutput,
       show_participants_list: showParticipantsList,
-      contest_type: contestType || undefined,
+      contest_type: contestType,
     };
 
     const result = isEdit
@@ -358,7 +363,9 @@ export function ContestFormDialog({
                 onChange={(e) => setContestType(e.target.value)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <option value="">{t('admin.field.contestTypeNone')}</option>
+                <option value="" disabled>
+                  {t('admin.field.selectPlaceholder')}
+                </option>
                 {(registries?.contest_types ?? []).map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
@@ -789,7 +796,9 @@ function useContestColumns({
         row.original.contest_type ? (
           <Badge variant="outline">{row.original.contest_type}</Badge>
         ) : (
-          <span className="text-muted-foreground">—</span>
+          <span className="text-destructive">
+            {t('admin.field.contestTypeMissing')}
+          </span>
         ),
     },
     {

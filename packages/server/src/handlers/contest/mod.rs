@@ -57,6 +57,7 @@ use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
 use crate::models::contest::*;
+use crate::models::problem::validate_contest_type;
 use crate::models::shared::{Pagination, escape_like};
 use crate::services::plugin_config::{
     ConfigTarget, ConfigTargetPattern, delete_config_by_target, delete_config_by_target_pattern,
@@ -99,6 +100,12 @@ pub async fn create_contest(
 ) -> Result<impl IntoResponse, AppError> {
     auth_user.require_permission(perm::CONTEST_CREATE)?;
     validate_create_contest(&payload)?;
+    validate_contest_type(
+        "contest_type",
+        &payload.contest_type,
+        &state.registries.contest_type_registry,
+    )
+    .await?;
 
     let now = chrono::Utc::now();
     let new_contest = contest::ActiveModel {
@@ -112,7 +119,7 @@ pub async fn create_contest(
         submissions_visible: Set(payload.submissions_visible.unwrap_or(false)),
         show_compile_output: Set(payload.show_compile_output.unwrap_or(true)),
         show_participants_list: Set(payload.show_participants_list.unwrap_or(true)),
-        contest_type: Set(payload.contest_type),
+        contest_type: Set(Some(payload.contest_type)),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -376,6 +383,14 @@ pub async fn update_contest(
 ) -> Result<Json<ContestResponse>, AppError> {
     auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_update_contest(&payload)?;
+    if let Some(ref contest_type) = payload.contest_type {
+        validate_contest_type(
+            "contest_type",
+            contest_type,
+            &state.registries.contest_type_registry,
+        )
+        .await?;
+    }
 
     if payload == UpdateContestRequest::default() {
         let existing = find_contest(&state.db, id).await?;

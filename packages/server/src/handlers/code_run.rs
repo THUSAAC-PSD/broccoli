@@ -27,6 +27,7 @@ use crate::models::code_run::*;
 use crate::state::AppState;
 use crate::utils::contest::{
     find_contest, is_problem_in_contest, require_contest_participant, require_contest_running,
+    required_contest_type,
 };
 use crate::utils::judging::{files_from_json, files_to_json, validate_run_language};
 use crate::utils::problem::find_problem;
@@ -312,13 +313,7 @@ pub async fn run_contest_code(
     );
 
     let language = payload.language.trim().to_string();
-    let contest_type = match &contest_model.contest_type {
-        Some(ct) => ct.clone(),
-        None => {
-            let reg = state.registries.contest_type_registry.read().await;
-            reg.keys().min().cloned().unwrap_or_default()
-        }
-    };
+    let contest_type = required_contest_type(&contest_model)?;
     let new_code_run = code_run::ActiveModel {
         files: Set(files_to_json(&payload.files)),
         language: Set(language),
