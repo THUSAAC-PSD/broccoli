@@ -1,4 +1,3 @@
-import { useApiClient } from '@broccoli/web-sdk/api';
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Button, Input, Label } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
@@ -29,7 +28,6 @@ import { SortableList } from './SortableList';
 export function SetupPanel({ contestId }: { contestId: number }) {
   const { t } = useTranslation();
   const api = useBracketApi();
-  const apiClient = useApiClient();
   const queryClient = useQueryClient();
   const participants = useParticipants(contestId, true);
   const { list: problemList, byId: problems } = useContestProblems(contestId);
@@ -78,20 +76,6 @@ export function SetupPanel({ contestId }: { contestId: number }) {
         round_intermission_seconds: Math.round(breakMinutes * 60),
         escalation_grace_seconds: Math.round(graceSeconds),
       });
-      const { error: gateError } = await apiClient.PUT(
-        '/contests/{id}/config/{plugin_id}/{namespace}',
-        {
-          params: {
-            path: {
-              id: contestId,
-              plugin_id: 'codelink-bracket',
-              namespace: 'before_submission',
-            },
-          },
-          body: { config: {}, enabled: true, position: 0 },
-        },
-      );
-      if (gateError) throw new Error(t('codelink-bracket.setup.gateFailed'));
       await queryClient.invalidateQueries({
         queryKey: ['codelink-bracket-bracket', contestId],
       });

@@ -403,26 +403,10 @@ async fn codelink_bracket_end_to_end_through_the_real_host() {
         app.register_for_contest(contest_id, &p.token).await;
     }
 
-    // Enable the `before_submission` hook (`HookScope::Resource`): per
-    // `packages/server/src/hooks.rs::merge_resource_enablements`, a
-    // resource-scoped hook only fires if an explicit config row sets
-    // `enabled: true` - absent that, `create_contest_submission` would
-    // never dispatch it at all, and the submission-gate probes below would
-    // silently pass through unchecked. The namespace string itself is
-    // cosmetic; `extract_plugin_id` only reads the `plugin_id:` prefix the
-    // host itself composes.
-    let res = app
-        .put_with_token(
-            &routes::contest_config_ns(contest_id, "codelink-bracket", "before_submission"),
-            &json!({"config": {}, "enabled": true, "position": 0}),
-            &staff_token,
-        )
-        .await;
-    assert_eq!(
-        res.status, 200,
-        "enable before_submission hook failed: {}",
-        res.text
-    );
+    // No config row switches the `before_submission` gate on: the host runs
+    // a contest type's own hooks for every contest of that type (see
+    // `hooks::resource_enablements`), so the gate probes below exercise
+    // exactly what a real contest gets.
 
     let rounds = create_all_round_problems(&app, contest_id, &staff_token).await;
 

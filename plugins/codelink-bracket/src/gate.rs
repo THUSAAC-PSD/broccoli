@@ -17,6 +17,11 @@
 //! not see, but that is advisory only: a player can still POST an arbitrary
 //! problem id directly, bypassing whatever the UI shows. This gate is the
 //! enforcement point, independent of visibility.
+//!
+//! The host runs this hook for every submission to a contest of this
+//! plugin's own type, with no per-contest switch (see
+//! `hooks::resource_enablements` in the server). It is never asked about
+//! practice submissions or other formats' contests.
 
 use crate::model::MatchPhase;
 

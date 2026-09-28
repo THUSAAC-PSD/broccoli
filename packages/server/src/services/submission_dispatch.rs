@@ -1,3 +1,4 @@
+use crate::registry::ContestTypeRegistry;
 use broccoli_server_sdk::types::{
     AfterJudgingEvent, DetachedSubmissionCompletion, OnSubmissionInput, OnSubmissionOutput,
     SourceFile, TestCaseBodyRef, TestCaseRow, sanitize_text_field,
@@ -36,6 +37,7 @@ struct SubmissionDispatchTestCaseRow {
 pub(crate) async fn fire_after_judging_hooks(
     db: &DatabaseConnection,
     hook_registry: hooks::SharedHookRegistry,
+    contest_types: &ContestTypeRegistry,
     submission_id: i32,
     user_id: i32,
     problem_id: i32,
@@ -57,12 +59,22 @@ pub(crate) async fn fire_after_judging_hooks(
         return;
     }
 
-    dispatch_after_judging_hooks(db, hook_registry, &sub, user_id, problem_id, contest_id).await;
+    dispatch_after_judging_hooks(
+        db,
+        hook_registry,
+        contest_types,
+        &sub,
+        user_id,
+        problem_id,
+        contest_id,
+    )
+    .await;
 }
 
 pub(crate) async fn fire_after_judging_hooks_for_detached_completion(
     db: &DatabaseConnection,
     hook_registry: hooks::SharedHookRegistry,
+    contest_types: &ContestTypeRegistry,
     completion: &DetachedSubmissionCompletion,
 ) {
     if !completion.fire_after_judging {
@@ -116,6 +128,7 @@ pub(crate) async fn fire_after_judging_hooks_for_detached_completion(
     dispatch_after_judging_hooks(
         db,
         hook_registry,
+        contest_types,
         &sub,
         sub.user_id,
         sub.problem_id,
@@ -127,6 +140,7 @@ pub(crate) async fn fire_after_judging_hooks_for_detached_completion(
 async fn dispatch_after_judging_hooks(
     db: &DatabaseConnection,
     hook_registry: hooks::SharedHookRegistry,
+    contest_types: &ContestTypeRegistry,
     sub: &submission::Model,
     user_id: i32,
     problem_id: i32,
@@ -138,14 +152,14 @@ async fn dispatch_after_judging_hooks(
         .map(|v| v.to_string())
         .unwrap_or_else(|| sub.status.to_string());
 
-    let enabled_plugins = match hooks::fetch_resource_enablements(problem_id, contest_id, db).await
-    {
-        Ok(e) => Some(e),
-        Err(e) => {
-            warn!(error = ?e, "Failed to fetch enablements for after_judging hook");
-            None
-        }
-    };
+    let enabled_plugins =
+        match hooks::resource_enablements(db, contest_types, problem_id, contest_id).await {
+            Ok(e) => Some(e),
+            Err(e) => {
+                warn!(error = ?e, "Failed to fetch enablements for after_judging hook");
+                None
+            }
+        };
 
     hooks::dispatch_hooks_background_typed(
         AfterJudgingEvent {
@@ -858,6 +872,7 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
     let function_name = handler.submission_fn.clone();
     let plugins = state.plugins.clone();
     let hook_registry = state.registries.hook_registry.clone();
+    let contest_types = state.registries.contest_type_registry.clone();
     let db = state.db.clone();
     let metrics = state.metrics.clone();
     let submission_id = submission.id;
@@ -977,6 +992,7 @@ pub(crate) async fn dispatch_submission_to_plugin_with_judgement(
                 fire_after_judging_hooks(
                     &db,
                     hook_registry,
+                    &contest_types,
                     submission_id,
                     user_id,
                     problem_id,

@@ -183,7 +183,13 @@ pub async fn create_submission(
         language: payload.language.trim().to_string(),
         file_count: payload.files.len(),
     };
-    let enabled_plugins = hooks::fetch_resource_enablements(problem_id, None, &state.db).await?;
+    let enabled_plugins = hooks::resource_enablements(
+        &state.db,
+        &state.registries.contest_type_registry,
+        problem_id,
+        None,
+    )
+    .await?;
     dispatch_before_submission_hooks(&state, &hook_event, Some(&enabled_plugins)).await?;
 
     let now = Utc::now();
@@ -673,8 +679,13 @@ pub async fn create_contest_submission(
         &known_languages,
     )?;
 
-    let enabled_plugins =
-        hooks::fetch_resource_enablements(problem_id, Some(contest_id), &state.db).await?;
+    let enabled_plugins = hooks::resource_enablements(
+        &state.db,
+        &state.registries.contest_type_registry,
+        problem_id,
+        Some(contest_id),
+    )
+    .await?;
     let hook_event = BeforeSubmissionEvent {
         user_id: auth_user.user_id,
         problem_id,

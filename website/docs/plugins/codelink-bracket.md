@@ -6,53 +6,59 @@ sidebar_position: 3
 
 # Codelink bracket
 
-Use the `codelink-bracket` contest type for the afternoon knockout round. Sixteen
-players meet in a single-elimination bracket of four rounds. Each match is three
-games plus tiebreaks if needed, and each game is won by the earlier accepted
-submission.
+The `codelink-bracket` contest type runs the Codelink afternoon round. Sixteen
+players, usually the qualifiers from the
+[Codelink qualifier](./codelink-qualifier.md), meet in a single elimination
+bracket of four rounds. A match is three games, each won by whoever solves
+their problem first, plus tiebreak games if the score is level.
 
-## Build and enable the plugin
+## Install the plugin
 
-Run these commands from the Broccoli repository after installing its development
-dependencies.
+Run these commands from the Broccoli repository after installing its
+development dependencies.
 
 ```bash
 pnpm --filter @broccoli/web-sdk build
 just build-plugin plugins/codelink-bracket --install
 ```
 
-The build produces `plugins/codelink-bracket/codelink_bracket.wasm` and the
-frontend bundle under `plugins/codelink-bracket/frontend/dist`. Start the server
-or use **Reload all plugins** in the admin area to discover it.
+The build writes `plugins/codelink-bracket/codelink_bracket.wasm` and the
+frontend bundle under `plugins/codelink-bracket/frontend/dist`. The server
+finds plugins in its plugins directory, `./plugins` by default. Restart the
+server, or select **Reload All** on the admin **Plugins** page.
 
-In the contest editor, select `codelink-bracket` as the contest type, add every
-problem the bracket uses, and enroll the sixteen players.
+## Create the contest
 
-## Set up the bracket
+1. In the contest editor, choose `codelink-bracket` as the contest type and
+   set the start and end of the afternoon round. Leave enough time for four
+   rounds, since no match can be played after the end.
+2. Add every problem the bracket uses. Each round needs seven or more, as the
+   next section explains.
+3. Enroll the sixteen players.
+
+## Configure the rules
 
 Open the contest's **Rankings** page. Until the bracket exists, staff see the
 setup screen there.
 
 1. **Players and seeding.** The first sixteen enrolled players are listed in
-   registration order. Drag them into seed order, or use **Shuffle**.
-   Neighbours meet in round 1: seed 1 plays seed 2, seed 3 plays seed 4, and so
-   on. Remove a player to swap in someone from the list of other enrolled
-   players.
-2. **Problems per round.** Each round needs three problems for the first player
-   of every match, three for the second, and at least one tiebreak problem. The
-   slots are filled from the contest's problem order to start with. A problem
-   can appear only once in the whole bracket.
-3. **Timing.** Set the game length, the break each player gets between their
-   matches, and how long a game may wait on a stuck judge before staff must
-   decide the match.
+   registration order. Drag them into seed order, or use **Shuffle**. Seed 1
+   plays seed 2 in round 1, seed 3 plays seed 4, and so on. Remove a player to
+   bring in someone from the other enrolled players.
+2. **Problems per round.** Every round needs three problems for the first
+   player of each match, three for the second, and at least one tiebreak
+   problem. The slots start out filled in the contest's problem order. A
+   problem can appear only once in the whole bracket.
+3. **Timing.** Set the length of a game, the break each player gets between
+   their own matches, and how long a game waits for a stuck judge before staff
+   have to decide the match. The defaults are 30 minutes, 10 minutes, and 120
+   seconds.
 
-**Create bracket** checks all of this first and lists anything missing. Creating
-the bracket also turns on the plugin's `before_submission` check for the
-contest, which stops players submitting to problems they are not currently
-playing. Seeding and problems cannot be changed afterwards.
+**Create bracket** checks all of this and lists anything missing. Seeding and
+problems cannot be changed once the bracket exists.
 
 To script the setup instead, send the same data to the setup route as a user
-with `contest:manage`:
+with `contest:manage`.
 
 ```bash
 curl -X POST \
@@ -72,69 +78,85 @@ curl -X POST \
   }'
 ```
 
-A scripted setup does not enable the `before_submission` check. Enable it in the
-contest's **Configure** dialog.
-
 | Field | Effect |
 | --- | --- |
-| `seeds` | Sixteen distinct user ids. Adjacent seeds meet in round 1: the first and second, the third and fourth, and so on. |
-| `rounds` | Exactly four rounds. In every match of a round, the first player owns `group_a` and the second owns `group_b`. |
-| `xiaoju_seconds` | Time limit for each game. Must be greater than 0. |
-| `round_intermission_seconds` | Break each player gets after their own match before their next match can start. |
-| `escalation_grace_seconds` | How long a game may wait for a stuck judge before staff must decide the match. Defaults to 120. |
+| `seeds` | Sixteen distinct user ids in seed order. The first plays the second in round 1, the third plays the fourth, and so on. |
+| `rounds` | Exactly four rounds. In every match of a round, the first player gets `group_a` and the second gets `group_b`. |
+| `xiaoju_seconds` | Length of each game. Must be more than 0. |
+| `round_intermission_seconds` | Break each player gets after their own match before their next one can start. |
+| `escalation_grace_seconds` | How long a game waits for a stuck judge before staff must decide. Defaults to 120. |
 
-## Play a match
+## How a match is won
 
-The **Rankings** page shows the bracket as a tree. Each card shows the seeds,
-one dot per game (who won it, or which game is live), and the live game's
-clock. **Present** shows the bracket full screen for an audience and hides the
-staff-only counts. Select a match to open its details in a side panel: the
-score, each game's problems and winner, both players' submissions with links
-to their judging, and the staff controls.
+1. **Ranking.** Each player drags the opponent's three problems into the order
+   the opponent must solve them in. A ranking can be changed until the match
+   starts.
+2. **Start.** The match starts by itself once both players have ranked, the
+   contest has started, and each player has had their break since their
+   previous match. There is no ranking deadline, so a match waits until both
+   rankings are in.
+3. **Games.** In each of the three games, both players work on their next
+   problem at the same time. The first accepted submission wins the game.
+   Submission time decides, not the order in which the judge finishes, and the
+   smaller submission id breaks an exact tie. If neither player solves their
+   problem before the game ends, nobody scores. The next game opens as soon as
+   one is decided.
+4. **Result.** After three games the player with more wins advances. On a
+   level score, including when nobody scored, both players get the round's
+   first tiebreak problem. A scoreless tiebreak moves on to the next tiebreak
+   problem.
 
-Contestants work from the contest's **Overview** page. It opens with their own
-match: a stepper for where they are, the drag-to-rank list when it is their
-turn to rank, and the current problem with its clock once a game is live. The
-Rankings page shows them a one-line link back to it.
+The winner moves into the next round straight away. Matches do not wait for
+the rest of their round, so a quick winner can start the next round while other
+matches are still running. Every match in a round uses the same problems, so a
+pair that starts later faces problems earlier pairs have already seen. Run the
+round in a supervised room.
 
-1. Each player drags the opponent's three problems into the order the opponent
-   must solve them.
-2. The match starts by itself as soon as both players have ranked, the contest
-   has started, and both players have had their break since their previous
-   match. There is no ranking deadline: a match waits until both rankings are
-   in. The bracket shows each waiting match's countdown.
-3. In each of the three games, both players work on their next problem at the
-   same time. The first accepted submission wins the game. Submission time
-   decides, and the smaller submission id breaks an exact tie, the same rule as
-   the [Codelink qualifier](./codelink-qualifier.md). If neither player solves
-   their problem before the deadline, nobody scores.
-4. After three games, the player with more wins advances. A level score,
-   including 0-0, opens the round's first tiebreak problem, which both players
-   solve. A scoreless tiebreak moves to the next tiebreak problem.
+## During the contest
 
-Matches do not wait for the rest of their round, so the winner of a quick match
-can start the next round while other matches are still running. Every match in
-a round uses the same problems, so a pair that starts later faces problems that
-earlier pairs have already seen. Run the round in a supervised room.
+Players work from the **Contest Homepage**. It opens with their own match,
+showing where they are, the ranking list when it is their turn to rank, and
+their current problem with its clock once a game is live. A player sees only
+the problems they have reached and can submit only to the one they are
+currently playing. The **Rankings** page shows them a short link
+back to their match.
 
-If a player never ranks, staff can use **Start now** in the match panel. A
-missing ranking becomes the problems' listed order, and any remaining break is
-skipped.
+The **Rankings** page shows the whole bracket as a tree. Each card shows the
+seeds, one dot per game, and the clock of the live game. A waiting match shows
+when it will start. **Present** puts the bracket full screen for an audience
+and hides the staff counts. Select a match to open its panel with the score,
+each game's problems and winner, both players' submissions with links to their
+judging, and the staff controls.
 
-Players see only the problems they have reached. The winner is placed into the
-next round automatically.
+Staff can act from the match panel. Every action asks for confirmation first.
 
-## Handle judging problems
+| Control | When it appears | What it does |
+| --- | --- | --- |
+| **Start now** | The match is waiting for rankings | Starts the match at once. A missing ranking becomes the listed order and any remaining break is skipped. |
+| **Force expiry** | A game is live or waiting on judging | Checks the current game again right away, for example after a rejudge. It never ends a game before its time is up. |
+| **Award to** | A game is live, waiting on judging, or the match needs a staff decision | Gives the match to that player, who moves into the next round. This cannot be undone. |
 
-A game is never decided while an earlier submission is still being judged, even
-after its deadline. The match shows **Waiting on a pending submission** and
-names the blocking submission. When the result arrives, the game resolves
-normally.
+## When judging is slow or fails
 
-If the judge does not finish within `escalation_grace_seconds`, the match moves
+A game is not decided while an earlier submission is still being judged, even
+after its time is up. The match shows **Waiting on a pending submission**. When
+the result arrives, the game is decided as usual.
+
+If judging has not finished after `escalation_grace_seconds`, the match changes
 to **Needs staff decision**, and the summary above the bracket counts it. The
-match panel links to the named submission and can rejudge it. Check the result,
-then use **Award to** to decide the match. On a match that is still running,
-**Force expiry** re-checks the current game right away, for example after a
-rejudge. It does not end a game before its deadline. Every staff action asks
-for confirmation first.
+match panel says why, links to the stuck submission, and can rejudge it. Check
+the result, then use **Award to**. A match also needs a staff decision when its
+tiebreak problems run out without a winner.
+
+## After the contest
+
+No match starts at or after the contest's end time, whether on its own or with
+**Start now**. A game still running at the end cannot be won any more, because
+nobody can submit. It is not scored as a draw. The match goes to **Needs staff
+decision** and the panel says the contest ended first. A submission still being
+judged at that moment is waited for, as it would be at any game's end.
+
+The summary above the bracket warns staff before this happens, counting the
+matches whose live game or planned start falls after the end. Once the end has
+passed, it counts the matches still unfinished. Award each one to finish the
+bracket.

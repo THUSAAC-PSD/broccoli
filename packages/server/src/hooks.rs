@@ -185,7 +185,64 @@ where
         .collect()
 }
 
-pub async fn fetch_resource_enablements<C: ConnectionTrait>(
+/// Where a plugin that owns a contest type sorts among resource-scoped hooks
+/// when no config row gives it a position: before the opt-in ones, so the
+/// format's own rules are checked first.
+const CONTEST_TYPE_OWNER_POSITION: i32 = i32::MIN;
+
+/// Add the plugin that registered the contest's type to `enablements`. A
+/// format's own hooks are part of its rules, not an optional feature, so its
+/// plugin never has to be switched on for its own contests. A position set by
+/// config is kept. The host learns only which plugin owns the type, nothing
+/// about what the format does.
+fn add_contest_type_owner(enablements: &mut ResourceEnablements, owner: Option<&str>) {
+    if let Some(owner) = owner {
+        enablements
+            .entry(owner.to_string())
+            .or_insert(CONTEST_TYPE_OWNER_POSITION);
+    }
+}
+
+/// The plugins whose resource-scoped hooks run for a submission to
+/// `problem_id`: those enabled by plugin config for the problem, contest, or
+/// contest problem, plus, for a contest submission, the plugin that owns the
+/// contest's type. Practice submissions (`contest_id: None`) get
+/// config-enabled plugins only; a practice submission has no contest whose
+/// rules apply.
+///
+/// The owner comes from the contest's own `contest_type` column. A contest
+/// with no type gets no owner, even though its submissions are judged under
+/// a fallback type: a fallback is not a choice of format, and must not impose
+/// that format's rules on the contest.
+///
+/// Every hook dispatch site uses this, so `before_submission`,
+/// `after_submission` and `after_judging` agree on which plugins run.
+pub async fn resource_enablements<C: ConnectionTrait>(
+    db: &C,
+    contest_types: &crate::registry::ContestTypeRegistry,
+    problem_id: i32,
+    contest_id: Option<i32>,
+) -> Result<ResourceEnablements, AppError> {
+    let mut enablements = fetch_resource_enablements(problem_id, contest_id, db).await?;
+    let Some(contest_id) = contest_id else {
+        return Ok(enablements);
+    };
+    let contest_type = crate::entity::contest::Entity::find_by_id(contest_id)
+        .one(db)
+        .await?
+        .and_then(|c| c.contest_type);
+    if let Some(contest_type) = contest_type {
+        let owner = contest_types
+            .read()
+            .await
+            .get(&contest_type)
+            .map(|h| h.plugin_id.clone());
+        add_contest_type_owner(&mut enablements, owner.as_deref());
+    }
+    Ok(enablements)
+}
+
+async fn fetch_resource_enablements<C: ConnectionTrait>(
     problem_id: i32,
     contest_id: Option<i32>,
     db: &C,
@@ -1046,6 +1103,33 @@ mod tests {
             .unwrap();
         assert!(matches!(result, HookOutcome::Allowed(_)));
         assert_eq!(hook.calls(), 0);
+    }
+
+    #[test]
+    fn contest_type_owner_is_enabled_ahead_of_opt_in_plugins() {
+        let mut enabled = HashMap::new();
+        enabled.insert("cooldown".to_string(), 0);
+        add_contest_type_owner(&mut enabled, Some("codelink-bracket"));
+        assert_eq!(
+            enabled.get("codelink-bracket"),
+            Some(&CONTEST_TYPE_OWNER_POSITION)
+        );
+        assert_eq!(enabled.get("cooldown"), Some(&0));
+    }
+
+    #[test]
+    fn contest_type_owner_keeps_a_position_set_by_config() {
+        let mut enabled = HashMap::new();
+        enabled.insert("codelink-bracket".to_string(), 5);
+        add_contest_type_owner(&mut enabled, Some("codelink-bracket"));
+        assert_eq!(enabled.get("codelink-bracket"), Some(&5));
+    }
+
+    #[test]
+    fn no_contest_type_owner_leaves_enablements_alone() {
+        let mut enabled = HashMap::new();
+        add_contest_type_owner(&mut enabled, None);
+        assert!(enabled.is_empty());
     }
 
     #[tokio::test]

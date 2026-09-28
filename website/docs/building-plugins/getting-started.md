@@ -85,6 +85,10 @@ handler = "get_cooldown_status_standalone"
 - `permissions` gate host access. Without `sql` the database host functions are
   not available, and so on.
 - A hook subscribes a function to a platform event, here `before_submission`.
+  With `scope = "resource"` (the default) it runs only where the plugin
+  applies: in a contest or problem whose settings turn the plugin on, and in
+  every contest of a type the plugin itself registered. With
+  `scope = "global"` it runs for every submission on the server.
 - A route maps an HTTP method and path to an exported function. Path parameters
   like `{problem_id}` are read inside the handler.
 
