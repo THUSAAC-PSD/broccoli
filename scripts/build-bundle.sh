@@ -66,24 +66,6 @@ copy_tree() {
   fi
 }
 
-copy_plugin_tree() {
-  src="$1"
-  dest="$2"
-  mkdir -p "$(dirname "$dest")"
-  tar \
-    --exclude='.git' \
-    --exclude='.DS_Store' \
-    --exclude='target' \
-    --exclude='node_modules' \
-    --exclude='build' \
-    --exclude='.cache' \
-    -C "$(dirname "$src")" -cf - "$(basename "$src")" | \
-    tar -C "$(dirname "$dest")" -xf -
-  if [[ "$(basename "$src")" != "$(basename "$dest")" ]]; then
-    rm -rf "$dest"
-    mv "$(dirname "$dest")/$(basename "$src")" "$dest"
-  fi
-}
 
 local_image_matches_platform() {
   image="$1"
@@ -151,6 +133,9 @@ for file in \
   cp "$ROOT/release/$file" "$WORK/$file"
 done
 cp "$ROOT/release/install.sh" "$WORK/install.sh"
+cp "$ROOT/release/enable-plugin.sh" "$WORK/enable-plugin.sh"
+mkdir -p "$WORK/lib"
+cp "$ROOT/release/lib/plugins.sh" "$WORK/lib/plugins.sh"
 cp "$ROOT/docker-entrypoint-worker.sh" "$WORK/docker-entrypoint-worker.sh"
 copy_tree "$ROOT/release/examples" "$WORK/examples"
 copy_tree "$ROOT/release/docs" "$WORK/docs"
@@ -181,28 +166,24 @@ for path in [
     path.write_text(text)
 PY
 
-for plugin in \
-  batch-evaluator \
-  communication-evaluator \
-  cooldown \
-  icpc \
-  ioi \
-  standard-checkers \
-  standard-languages \
-  submission-limit \
-  broccoli-zh-cn; do
-  copy_plugin_tree "$ROOT/plugins/$plugin" "$WORK/plugins/$plugin"
-done
+# Every plugin under plugins/ ships, staged by its own [bundle] mode (see
+# release/lib/plugins.sh).
+# shellcheck source=../release/lib/plugins.sh
+. "$ROOT/release/lib/plugins.sh"
+stage_bundle_plugins "$ROOT/plugins" "$WORK"
 
-"$PYTHON_BIN" - "$WORK/plugins" <<'PY'
+"$PYTHON_BIN" - "$WORK" <<'PY'
 from pathlib import Path
 import sys
 import tomllib
 
-plugins = Path(sys.argv[1])
+work = Path(sys.argv[1])
 missing: list[str] = []
 
-for manifest_path in sorted(plugins.glob("*/plugin.toml")):
+manifests = sorted(work.glob("plugins/*/plugin.toml")) + sorted(
+    work.glob("plugins-available/*/plugin.toml")
+)
+for manifest_path in manifests:
     plugin_dir = manifest_path.parent
     manifest = tomllib.loads(manifest_path.read_text())
     server = manifest.get("server")

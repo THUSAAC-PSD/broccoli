@@ -88,3 +88,7 @@ name = "contest-overview.content"
 position = "prepend"
 component = "BracketContestInfo"
 contest_type = "codelink-bracket"
+
+[bundle]
+# Event-specific format: shipped with releases but loaded only once enabled.
+mode = "optional"

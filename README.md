@@ -46,7 +46,7 @@ broccoli/
 │   ├── cooldown/                # Minimum delay between submissions
 │   ├── submission-limit/        # Maximum submissions per problem
 │   ├── print/                   # On-demand code printing for contests
-│   └── broccoli-zh-cn/          # Chinese translation pack (git submodule)
+│   └── broccoli-zh-cn/          # Chinese translation pack
 ├── website/                     # Documentation site (Docusaurus)
 ├── config/                      # Configuration (config.example.toml)
 ├── docker-compose.yaml          # PostgreSQL, Redis, SeaweedFS
@@ -78,13 +78,10 @@ just build-js
 # 4. Build and install the WASM plugins.
 just build-plugins --install
 
-# 5. Fetch git submodules (the broccoli-zh-cn translation pack).
-git submodule update --init
-
-# 6. Run the server. It syncs the database schema on startup.
+# 5. Run the server. It syncs the database schema on startup.
 just server
 
-# 7. In another terminal, run the frontend dev server.
+# 6. In another terminal, run the frontend dev server.
 just dev-web
 ```
 

@@ -21,8 +21,8 @@ trap 'rm -rf "$(dirname "$WORK")"' EXIT
 die(){ echo "error: $*" >&2; exit 1; }
 need(){ [ -e "$1" ] || die "missing required artifact: $1"; }
 
-PLUGINS=(standard-languages standard-checkers batch-evaluator communication-evaluator
-         ioi cooldown submission-limit icpc broccoli-zh-cn print)
+# shellcheck source=../lib/plugins.sh
+. "$HERE/../lib/plugins.sh"
 
 mkdir -p "$WORK"/{bin,cli,plugins,web,scripts,systemd,config,contest}
 
@@ -73,32 +73,8 @@ else
   echo "  NOTE: print-client not built (print stations need it) -- (cd plugins/print/client && cargo build --release)"
 fi
 
-echo ">> collecting plugins (plugin.toml + entry .wasm + built web assets)"
-for p in "${PLUGINS[@]}"; do
-  src="$ROOT/plugins/$p"
-  [ -f "$src/plugin.toml" ] || { echo "  skip $p (no plugin.toml)"; continue; }
-  # entry wasm declared in plugin.toml ([server] entry = "...wasm")
-  entry="$(grep -m1 -E '^[[:space:]]*entry[[:space:]]*=' "$src/plugin.toml" | sed -E 's/.*=[[:space:]]*"//; s/".*//')"
-  if [ -z "$entry" ] || [ ! -f "$src/$entry" ]; then
-    echo "  skip $p (entry wasm '${entry:-?}' not built)"; continue
-  fi
-  mkdir -p "$WORK/plugins/$p"
-  cp "$src/plugin.toml" "$WORK/plugins/$p/"
-  cp "$src/$entry" "$WORK/plugins/$p/$entry"
-  # i18n translation files -- REQUIRED: plugin.toml [translations] points at
-  # i18n/*.toml and the server reads them at plugin ACTIVATION. Omitting them
-  # makes every plugin's activation fail ("Failed to read translation file ...
-  # i18n/en.toml"), which breaks plugin HTTP routes + web UI labels.
-  [ -d "$src/i18n" ] && cp -a "$src/i18n" "$WORK/plugins/$p/i18n"
-  # built plugin web assets, if present (the host loads <plugin>/web/dist/index.js
-  # at runtime). Copy ONLY the built output dir -- never node_modules/src.
-  for sub in web/dist web/build frontend/dist frontend/build; do
-    if [ -d "$src/$sub" ]; then
-      mkdir -p "$WORK/plugins/$p/$(dirname "$sub")"
-      cp -a "$src/$sub" "$WORK/plugins/$p/$sub"
-    fi
-  done
-done
+echo ">> collecting plugins (every plugin, staged by its [bundle] mode)"
+stage_bundle_plugins "$ROOT/plugins" "$WORK"
 
 echo ">> collecting server web frontend"
 need "$ROOT/packages/web/build/client"; cp -a "$ROOT/packages/web/build/client" "$WORK/web/client"
@@ -109,6 +85,8 @@ install -m755 "$ROOT/scripts/fix-live-ubuntu-isolate.sh" "$WORK/scripts/fix-live
 
 echo ">> collecting installer + templates + contest tooling"
 install -m755 "$HERE/install-native.sh" "$WORK/install-native.sh"
+install -m755 "$HERE/../enable-plugin.sh" "$WORK/enable-plugin.sh"
+mkdir -p "$WORK/lib"; cp "$HERE/../lib/plugins.sh" "$WORK/lib/plugins.sh"
 install -m755 "$HERE/stage-toolchain.sh" "$WORK/stage-toolchain.sh"
 install -m755 "$HERE/live-boot-preflight.sh" "$WORK/live-boot-preflight.sh"
 # pre-staged offline C/C++/Python toolchain .deb sets for live-boot workers, if any.

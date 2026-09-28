@@ -120,21 +120,24 @@ Do not use this as the production reference architecture.
 
 ## Load Rehearsal
 
-After infra, at least one server, and at least one worker are healthy, run the
-correctness pass and bounded load through the server or gateway URL:
+After infra, at least one server, and at least one worker are healthy, run a
+small judged check (the same one `install.sh` runs on single-host installs),
+then bounded load, through the server or gateway URL:
 
 ```bash
 ./stress-test/broccoli-stress-test \
   --url http://10.0.0.21:3000 \
   --admin-username admin \
   --admin-password "$BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD" \
-  --correctness-only
+  --total 20 \
+  --rate 5 \
+  --concurrency 5 \
+  --p95-budget-ms 60000
 
 ./stress-test/broccoli-stress-test \
   --url http://10.0.0.21:3000 \
   --admin-username admin \
   --admin-password "$BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD" \
-  --skip-correctness \
   --total 200 \
   --rate 10 \
   --concurrency 30 \

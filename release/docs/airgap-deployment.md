@@ -92,6 +92,13 @@ everything an install needs:
   of the manifested tree, so `load-bundle.sh` integrity-verifies the plugin code
   along with everything else. (A `--skip-images` structural bundle omits it, as it
   omits the images themselves.)
+- `compose/plugins-available/` — optional plugins for particular events, such as
+  the Codelink contest formats. They are not loaded until enabled, either with
+  `BROCCOLI_PLUGINS="codelink-qualifier codelink-bracket"` on the server
+  `install.sh` run, or later with `./enable-plugin.sh codelink-qualifier
+  codelink-bracket` followed by **Reload All** on the admin Plugins page.
+  `./enable-plugin.sh` with no arguments lists them. An enabled plugin stays
+  covered by the integrity check: it must match its copy here byte for byte.
 - `cli/` — the musl-static `broccoli` contestant CLI binary.
 - `ca/` — `root.crt` (public, ships everywhere) and `issue-leaf.sh`; NO private
   key lives here. The CA/leaf private keys live only in the
@@ -276,7 +283,7 @@ This:
    sidecar right after the leaf is issued (see §8).
 4. Brings up infra, server, AND the Caddy TLS gateway (443, serving the
    internal-CA leaf, reverse-proxying to the server) with
-   `docker compose --env-file .env.infra --env-file .env.server -f docker-compose.infra.yaml.template -f docker-compose.server.yaml.template -f docker-compose.gateway-airgap.yaml.template up -d --pull never`
+   `docker compose -p compose --env-file .env.infra --env-file .env.server -f docker-compose.infra.yaml.template -f docker-compose.server.yaml.template -f docker-compose.gateway-airgap.yaml.template up -d --pull never`
    — the Caddyfile is mounted un-rendered and Caddy expands its variables from
    the container environment; `--pull never` guarantees Compose only uses the
    images already loaded from `images/*.tar`, never reaching for a registry.

@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
+# shellcheck source=lib/plugins.sh
+. "$ROOT/lib/plugins.sh"
 BUNDLE_VERSION_DEFAULT="v0.3.0"
 
 die() {
@@ -35,6 +37,12 @@ shared storage credentials from the infra node. Use LAN IPs or private cloud
 addresses for those URLs.
 
 Set BROCCOLI_DRY_RUN=1 to generate and validate files without starting Docker.
+
+Optional plugins ship in plugins-available/ and load only once enabled. Set
+BROCCOLI_PLUGINS to enable some at install time, for example
+  BROCCOLI_PLUGINS="codelink-qualifier codelink-bracket" ./install.sh server
+or run ./enable-plugin.sh later. ./enable-plugin.sh with no arguments lists
+them.
 EOF
 }
 
@@ -189,8 +197,17 @@ json_string_value() {
   printf '"%s"' "$value"
 }
 
+# Each role is its own Compose project (COMPOSE_PROJECT_NAME, written into
+# new env files), so roles installed from one directory get separate networks
+# and never treat each other's containers as orphans. Env files written before
+# that keep Compose's default, the directory name, so an upgrade does not
+# attach an existing install to new, empty volumes.
 compose() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  else
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  fi
 }
 
 start_role() {
@@ -707,6 +724,7 @@ write_env_file() {
       admin_pass="${BROCCOLI_ADMIN_PASSWORD:-$(random_secret)}"
       cat > "$ENV_FILE" <<EOF
 BROCCOLI_ROLE=$(env_quote "$ROLE")
+COMPOSE_PROJECT_NAME=$(env_quote "broccoli-$ROLE")
 BROCCOLI_VERSION=$(env_quote "$version")
 BROCCOLI_SERVER_IMAGE=$(env_quote "$server_image")
 BROCCOLI_WORKER_IMAGE=$(env_quote "$worker_image")
@@ -728,14 +746,14 @@ BROCCOLI__DATABASE__URL=$(env_quote "postgres://${postgres_user}:${postgres_pass
 BROCCOLI__MQ__URL=$(env_quote "redis://:${redis_password}@${infra_host}:${redis_port}")
 BROCCOLI__STORAGE__BACKEND=$(env_quote "$(storage_backend)")
 BROCCOLI__STORAGE__OBJECT_STORAGE__BUCKET=$(env_quote "$s3_bucket")
-BROCCOLI__STORAGE__OBJECT_STORAGE__REGION='us-east-1'
+BROCCOLI__STORAGE__OBJECT_STORAGE__REGION=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__REGION:-us-east-1}")
 BROCCOLI__STORAGE__OBJECT_STORAGE__ENDPOINT=$(env_quote "$s3_endpoint")
 BROCCOLI__STORAGE__OBJECT_STORAGE__ACCESS_KEY=$(env_quote "$s3_access")
 BROCCOLI__STORAGE__OBJECT_STORAGE__SECRET_KEY=$(env_quote "$s3_secret")
-BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE='true'
+BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE=$(env_quote "${BROCCOLI__STORAGE__OBJECT_STORAGE__PATH_STYLE:-true}")
 
 BROCCOLI__AUTH__JWT_SECRET=$(env_quote "$jwt_secret")
-BROCCOLI__AUTH__SECURE_COOKIES='false'
+BROCCOLI__AUTH__SECURE_COOKIES=$(env_quote "${BROCCOLI__AUTH__SECURE_COOKIES:-false}")
 BROCCOLI_BOOTSTRAP_ADMIN_USERNAME=$(env_quote "$admin_user")
 BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD=$(env_quote "$admin_pass")
 BROCCOLI_HTTP_BIND=$(env_quote "${BROCCOLI_HTTP_BIND:-0.0.0.0:3000}")
@@ -769,6 +787,7 @@ EOF
       fi
       cat > "$ENV_FILE" <<EOF
 BROCCOLI_ROLE='server'
+COMPOSE_PROJECT_NAME='broccoli-server'
 BROCCOLI_VERSION=$(env_quote "$version")
 BROCCOLI_SERVER_IMAGE=$(env_quote "$server_image")
 BROCCOLI_HTTP_BIND=$(env_quote "${BROCCOLI_HTTP_BIND:-0.0.0.0:3000}")
@@ -809,6 +828,7 @@ EOF
       fi
       cat > "$ENV_FILE" <<EOF
 BROCCOLI_ROLE='worker'
+COMPOSE_PROJECT_NAME='broccoli-worker'
 BROCCOLI_VERSION=$(env_quote "$version")
 BROCCOLI_WORKER_IMAGE=$(env_quote "$worker_image")
 BROCCOLI__WORKER__ID=$(env_quote "${BROCCOLI__WORKER__ID:-$(hostname -s 2>/dev/null || echo worker-1)}")
@@ -833,6 +853,7 @@ EOF
       require_env BROCCOLI_UPSTREAMS
       cat > "$ENV_FILE" <<EOF
 BROCCOLI_ROLE='gateway'
+COMPOSE_PROJECT_NAME='broccoli-gateway'
 CADDY_IMAGE=$(env_quote "$caddy_image")
 BROCCOLI_GATEWAY_HTTP_BIND=$(env_quote "${BROCCOLI_GATEWAY_HTTP_BIND:-0.0.0.0:80}")
 BROCCOLI_UPSTREAMS=$(env_quote "$BROCCOLI_UPSTREAMS")
@@ -980,6 +1001,10 @@ if [ "$ROLE" = "infra" ] || [ "$ROLE" = "single-host" ]; then
   write_server_secrets_env_file
 fi
 
+case "$ROLE" in
+  server|worker|single-host) enable_requested_plugins "$ROOT" ;;
+esac
+
 check_clock_sync
 
 if is_dry_run; then
@@ -1024,11 +1049,19 @@ if should_run_stress_smoke; then
   case "$ROLE" in
     server|gateway|single-host)
       base_url="$(if [ "$ROLE" = gateway ]; then gateway_health_url; else host_health_url; fi)"
+      # A small judged run on bootstrapped A+B fixtures: every submission
+      # must come back with its expected verdict. The latency budget is loose
+      # because a fresh single-host install judges one case at a time; this
+      # checks correctness, not speed. Kept in sync with the
+      # stress-test CLI by packages/stress-test/tests/install_smoke_args.rs.
       ./stress-test/broccoli-stress-test \
         --url "${base_url%/healthz}" \
         --admin-username "${BROCCOLI_BOOTSTRAP_ADMIN_USERNAME:-admin}" \
         --admin-password "${BROCCOLI_BOOTSTRAP_ADMIN_PASSWORD:-}" \
-        --correctness-only
+        --total 20 \
+        --rate 5 \
+        --concurrency 5 \
+        --p95-budget-ms 60000
       ;;
   esac
 fi
@@ -1037,6 +1070,6 @@ cat <<EOF
 Broccoli role '$ROLE' is running.
 Compose file: $COMPOSE_FILE
 Env file: $ENV_FILE
-Logs: docker compose --env-file $ENV_FILE -f $COMPOSE_FILE logs -f
+Logs: docker compose ${COMPOSE_PROJECT_NAME:+-p $COMPOSE_PROJECT_NAME }--env-file $ENV_FILE -f $COMPOSE_FILE logs -f
 Runbook: docs/operator-runbook.md
 EOF

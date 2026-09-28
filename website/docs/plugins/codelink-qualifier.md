@@ -12,20 +12,30 @@ to the first few contestants who solve it. Earn slots on enough different
 problems and you qualify for the afternoon
 [Codelink bracket](./codelink-bracket.md).
 
-## Install the plugin
+## Enable the plugins
 
-Run these commands from the Broccoli repository after installing its
-development dependencies.
+The Codelink qualifier and bracket plugins ship with every release bundle but
+stay off until you enable them. On each server node, run this from the bundle
+directory, then select **Reload All** on the admin **Plugins** page.
+
+```bash
+./enable-plugin.sh codelink-qualifier codelink-bracket
+```
+
+To enable them while installing instead, set `BROCCOLI_PLUGINS` for the
+installer. This works the same way for `install.sh` and `install-native.sh`.
+
+```bash
+BROCCOLI_PLUGINS="codelink-qualifier codelink-bracket" ./install.sh server
+```
+
+In a development checkout, build and install them from the repository.
 
 ```bash
 pnpm --filter @broccoli/web-sdk build
 just build-plugin plugins/codelink-qualifier --install
+just build-plugin plugins/codelink-bracket --install
 ```
-
-The build writes `plugins/codelink-qualifier/codelink_qualifier.wasm` and the
-frontend bundle under `plugins/codelink-qualifier/frontend/dist`. The server
-finds plugins in its plugins directory, `./plugins` by default. Restart the
-server, or select **Reload All** on the admin **Plugins** page.
 
 ## Create the contest
 

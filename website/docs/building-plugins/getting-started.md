@@ -91,6 +91,11 @@ handler = "get_cooldown_status_standalone"
   `scope = "global"` it runs for every submission on the server.
 - A route maps an HTTP method and path to an exported function. Path parameters
   like `{problem_id}` are read inside the handler.
+- An optional `[bundle]` section says how release bundles ship the plugin.
+  `mode = "default"` (the default) ships it and loads it. `mode = "optional"`
+  ships it in `plugins-available/`, where operators enable it with
+  `enable-plugin.sh`; use this for plugins only some events need.
+  `mode = "none"` never ships it, for test fixtures.
 
 ### Cargo.toml
 
