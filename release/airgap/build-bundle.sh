@@ -67,6 +67,8 @@ chmod 600 "$CLS/cluster-secrets.env"
 # 2. Target-side scripts + Caddyfile + trust helpers + installer libs
 cp "$here/load-bundle.sh" "$here/install.sh" "$here/setup.sh" "$B/"
 cp "$here"/lib/*.sh "$B/lib/"
+cp "$repo/release/lib/plugins.sh" "$B/lib/plugins.sh"
+cp "$repo/release/enable-plugin.sh" "$B/enable-plugin.sh"
 cp "$here/caddy/Caddyfile.airgap" "$B/caddy/Caddyfile.airgap"
 cp "$here"/ca/issue-leaf.sh "$B/ca/issue-leaf.sh"
 cp "$here"/trust-ca/* "$B/trust-ca/"
@@ -133,9 +135,13 @@ if [ "$SKIP_IMAGES" = "0" ]; then
   # already pruned by .dockerignore (no target/ detritus) and carrying the built
   # .wasm + frontend dist that are gitignored on disk. Staged into the manifested
   # tree below, so bundle integrity covers the plugin code too.
-  rm -rf "$B/compose/plugins"; mkdir -p "$B/compose/plugins"
+  # The image already split them by [bundle] mode (release/lib/plugins.sh):
+  # optional plugins ride along in plugins-available/ for enable-plugin.sh.
+  rm -rf "$B/compose/plugins" "$B/compose/plugins-available"
+  mkdir -p "$B/compose/plugins" "$B/compose/plugins-available"
   pcid="$("$ENGINE" create "broccoli-server:$VERSION")"
   "$ENGINE" cp "$pcid:/plugins/." "$B/compose/plugins/"
+  "$ENGINE" cp "$pcid:/plugins-available/." "$B/compose/plugins-available/"
   "$ENGINE" rm "$pcid" >/dev/null
 
   # third-party image tags — single-sourced (DRY) from the staged examples/template

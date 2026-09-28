@@ -76,3 +76,7 @@ name = "contest-overview.content"
 position = "prepend"
 component = "CodelinkContestInfo"
 contest_type = "codelink-qualifier"
+
+[bundle]
+# Event-specific format: shipped with releases but loaded only once enabled.
+mode = "optional"

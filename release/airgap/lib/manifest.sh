@@ -30,13 +30,27 @@ _MANIFEST_HOSTENV=(.env.infra .env.server .env.worker)
 # relative to and sorted within `dir`. Shared by generate + verify so the
 # exclusion is expressed exactly once.
 _manifest_hashall() {
-  local dir="$1" ex=( ! -name manifest.sha256 ) n
+  local dir="$1" ex=( ! -name manifest.sha256 ) n prune=()
   for n in "${_MANIFEST_HOSTENV[@]}"; do ex+=( ! -name "$n" ); done
+  # Optional plugins enabled on this host (enable-plugin.sh) are copies of
+  # compose/plugins-available/<name>, which stays hashed; manifest_verify
+  # checks each copy against it instead of hashing it twice.
+  for n in $(_manifest_enabled_optional "$dir"); do
+    prune+=( -path "./compose/plugins/$n" -prune -o )
+  done
   ( cd "$dir"
-    find . -type f "${ex[@]}" -print0 \
+    find . "${prune[@]}" -type f "${ex[@]}" -print0 \
       | LC_ALL=C sort -z \
       | xargs -0 "${_MANIFEST_SHA256[@]}"
   )
+}
+# Names of optional plugins that have been enabled in this bundle.
+_manifest_enabled_optional() {
+  local dir="$1" d
+  for d in "$dir"/compose/plugins-available/*/; do
+    [ -d "$d" ] && [ -d "$dir/compose/plugins/$(basename "$d")" ] && basename "$d"
+  done
+  return 0
 }
 
 manifest_generate() {
@@ -45,8 +59,14 @@ manifest_generate() {
 }
 
 manifest_verify() {
-  local dir="$1"
+  local dir="$1" n
   [ -f "$dir/manifest.sha256" ] || { echo "manifest.sha256 missing" >&2; return 1; }
+  for n in $(_manifest_enabled_optional "$dir"); do
+    diff -rq "$dir/compose/plugins/$n" "$dir/compose/plugins-available/$n" >/dev/null 2>&1 || {
+      echo "manifest verification failed: enabled plugin $n differs from compose/plugins-available/$n" >&2
+      return 1
+    }
+  done
   local tmp; tmp="$(mktemp)"
   _manifest_hashall "$dir" > "$tmp" 2>/dev/null
   if diff -q "$tmp" "$dir/manifest.sha256" >/dev/null 2>&1; then

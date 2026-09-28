@@ -131,8 +131,13 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     mkdir -p /out/dist && \
     cp -a packages/web/build/client/. /out/dist/
 
-FROM scratch AS plugin-stage
-COPY plugins /out/plugins
+# Stage plugins the same way every release bundle does: by each plugin's own
+# [bundle] mode (release/lib/plugins.sh). Default plugins land in /plugins and
+# load at boot; optional ones wait in /plugins-available until enabled.
+FROM ${DEBIAN_IMAGE} AS plugin-stage
+COPY release/lib/plugins.sh /tmp/plugins.sh
+COPY plugins /src/plugins
+RUN bash -c '. /tmp/plugins.sh && stage_bundle_plugins /src/plugins /out'
 
 FROM ${DEBIAN_IMAGE} AS tini-stage
 
@@ -177,6 +182,7 @@ LABEL org.opencontainers.image.title="Broccoli Server" \
 COPY --from=rust-builder --chown=65532:65532 /out/broccoli-server /usr/local/bin/broccoli-server
 COPY --from=web-builder --chown=65532:65532 /out/dist /srv/dist
 COPY --from=plugin-stage --chown=65532:65532 /out/plugins /plugins
+COPY --from=plugin-stage --chown=65532:65532 /out/plugins-available /plugins-available
 COPY --from=tini-stage --chown=65532:65532 /usr/bin/tini /usr/bin/tini
 # Writable, uid-65532-owned HOME (see tini-stage): overrides the base image's
 # non-writable /home/nonroot so wasmtime's plugin cache can be created and every
