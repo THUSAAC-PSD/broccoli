@@ -152,12 +152,8 @@ async fn dispatch_after_judging_hooks(
         .map(|v| v.to_string())
         .unwrap_or_else(|| sub.status.to_string());
 
-    let contest = contest_id.map(|id| hooks::HookContest {
-        id,
-        contest_type: &sub.contest_type,
-    });
     let enabled_plugins =
-        match hooks::resource_enablements(db, contest_types, problem_id, contest).await {
+        match hooks::resource_enablements(db, contest_types, problem_id, contest_id).await {
             Ok(e) => Some(e),
             Err(e) => {
                 warn!(error = ?e, "Failed to fetch enablements for after_judging hook");

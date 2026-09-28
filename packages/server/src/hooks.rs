@@ -185,14 +185,6 @@ where
         .collect()
 }
 
-/// The contest a submission belongs to, as far as hook enablement cares.
-#[derive(Debug, Clone, Copy)]
-pub struct HookContest<'a> {
-    pub id: i32,
-    /// The contest type the submission is judged under (`submission.contest_type`).
-    pub contest_type: &'a str,
-}
-
 /// Where a plugin that owns a contest type sorts among resource-scoped hooks
 /// when no config row gives it a position: before the opt-in ones, so the
 /// format's own rules are checked first.
@@ -214,8 +206,14 @@ fn add_contest_type_owner(enablements: &mut ResourceEnablements, owner: Option<&
 /// The plugins whose resource-scoped hooks run for a submission to
 /// `problem_id`: those enabled by plugin config for the problem, contest, or
 /// contest problem, plus, for a contest submission, the plugin that owns the
-/// contest's type. Practice submissions (`contest: None`) get config-enabled
-/// plugins only; a practice submission has no contest whose rules apply.
+/// contest's type. Practice submissions (`contest_id: None`) get
+/// config-enabled plugins only; a practice submission has no contest whose
+/// rules apply.
+///
+/// The owner comes from the contest's own `contest_type` column. A contest
+/// with no type gets no owner, even though its submissions are judged under
+/// a fallback type: a fallback is not a choice of format, and must not impose
+/// that format's rules on the contest.
 ///
 /// Every hook dispatch site uses this, so `before_submission`,
 /// `after_submission` and `after_judging` agree on which plugins run.
@@ -223,14 +221,21 @@ pub async fn resource_enablements<C: ConnectionTrait>(
     db: &C,
     contest_types: &crate::registry::ContestTypeRegistry,
     problem_id: i32,
-    contest: Option<HookContest<'_>>,
+    contest_id: Option<i32>,
 ) -> Result<ResourceEnablements, AppError> {
-    let mut enablements = fetch_resource_enablements(problem_id, contest.map(|c| c.id), db).await?;
-    if let Some(contest) = contest {
+    let mut enablements = fetch_resource_enablements(problem_id, contest_id, db).await?;
+    let Some(contest_id) = contest_id else {
+        return Ok(enablements);
+    };
+    let contest_type = crate::entity::contest::Entity::find_by_id(contest_id)
+        .one(db)
+        .await?
+        .and_then(|c| c.contest_type);
+    if let Some(contest_type) = contest_type {
         let owner = contest_types
             .read()
             .await
-            .get(contest.contest_type)
+            .get(&contest_type)
             .map(|h| h.plugin_id.clone());
         add_contest_type_owner(&mut enablements, owner.as_deref());
     }
