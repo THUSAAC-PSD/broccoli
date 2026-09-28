@@ -1147,6 +1147,7 @@ impl E2eTestApp {
                     "end_time": "2099-01-02T00:00:00Z",
                     "is_public": is_public,
                     "submissions_visible": submissions_visible,
+                    "contest_type": self.contest_type,
                 }),
                 token,
             )

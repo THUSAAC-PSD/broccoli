@@ -1292,6 +1292,7 @@ mod contest_submissions {
                     "end_time": "2099-12-31T00:00:00Z",
                     "is_public": true,
                     "submissions_visible": false,
+                    "contest_type": "standard",
                 }),
                 &admin_token,
             )
@@ -1337,6 +1338,7 @@ mod contest_submissions {
                     "deactivate_time": "2020-12-31T00:00:00Z",
                     "is_public": true,
                     "submissions_visible": false,
+                    "contest_type": "standard",
                 }),
                 &admin_token,
             )
@@ -1381,6 +1383,7 @@ mod contest_submissions {
                     "end_time": "2099-12-31T00:00:00Z",
                     "is_public": true,
                     "submissions_visible": false,
+                    "contest_type": "standard",
                 }),
                 &admin_token,
             )
@@ -1432,6 +1435,7 @@ mod contest_submissions {
                     "end_time": "2020-01-02T00:00:00Z",
                     "is_public": true,
                     "submissions_visible": false,
+                    "contest_type": "standard",
                 }),
                 &admin_token,
             )

@@ -409,7 +409,12 @@ pub async fn validate_problem_type(
     Ok(())
 }
 
+/// Check that `contest_type` names a registered contest type. `field` is the
+/// request field reported in the error. Every request that names a contest
+/// type (problem default, contest, practice or fan-out submission) goes
+/// through here.
 pub async fn validate_contest_type(
+    field: &str,
     contest_type: &str,
     registry: &ContestTypeRegistry,
 ) -> Result<(), AppError> {
@@ -418,7 +423,7 @@ pub async fn validate_contest_type(
         let mut valid: Vec<_> = reg.keys().cloned().collect();
         valid.sort();
         return Err(AppError::Validation(format!(
-            "default_contest_type must be one of: {}",
+            "{field} must be one of: {}",
             valid.join(", ")
         )));
     }

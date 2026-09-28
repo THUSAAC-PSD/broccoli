@@ -89,6 +89,7 @@ pub async fn create_problem(
         .collect();
     validate_submission_format(payload.submission_format.as_ref(), &known_languages)?;
     validate_contest_type(
+        "default_contest_type",
         &default_contest_type,
         &state.registries.contest_type_registry,
     )
@@ -318,7 +319,12 @@ pub async fn update_problem(
         validate_submission_format(Some(sf), &known_languages)?;
     }
     if let Some(ref ct) = payload.default_contest_type {
-        validate_contest_type(ct, &state.registries.contest_type_registry).await?;
+        validate_contest_type(
+            "default_contest_type",
+            ct,
+            &state.registries.contest_type_registry,
+        )
+        .await?;
     }
 
     if payload == UpdateProblemRequest::default() {

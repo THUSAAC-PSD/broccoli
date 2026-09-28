@@ -555,7 +555,8 @@ export const en: Record<string, string> = {
   'admin.field.problemType': 'Problem Type',
   'admin.field.checkerFormat': 'Checker Format',
   'admin.field.contestType': 'Contest Type',
-  'admin.field.contestTypeNone': 'None (default)',
+  'admin.field.contestTypeMissing': 'Not set',
+  'admin.field.selectPlaceholder': 'Select…',
   'admin.field.submissionFormat': 'Submission Format',
   'admin.field.showTestDetails': 'Show Test Details',
   'admin.field.problemIsPublic': 'Public Problem',
@@ -831,6 +832,8 @@ export const en: Record<string, string> = {
   'validation.titleRequired': 'Title is required.',
   'validation.contentRequired': 'Content is required.',
   'validation.contestTypeRequired': 'Choose a default contest type.',
+  'validation.contestTypeRequiredForContest':
+    'Choose a contest type. A contest without one accepts no submissions.',
   'validation.startEndTimeRequired': 'Start time and end time are required.',
   'validation.startBeforeEnd': 'Start time must be before end time.',
   'validation.activateBeforeStart':

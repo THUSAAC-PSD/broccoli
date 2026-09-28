@@ -2705,7 +2705,7 @@ export interface components {
        */
       activate_time?: string | null;
       /** @example ioi */
-      contest_type?: string | null;
+      contest_type: string;
       /**
        * Format: date-time
        * @example 2025-10-02T12:00:00Z

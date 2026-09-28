@@ -143,6 +143,7 @@ async fn create_contest_window(
         "deactivate_time": window.deactivate,
         "is_public": is_public,
         "submissions_visible": true,
+        "contest_type": "standard",
     });
     let res = app
         .post_with_token(routes::CONTESTS, &body, admin_token)

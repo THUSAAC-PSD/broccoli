@@ -924,7 +924,7 @@ mod tests {
             end_time: chrono::Utc::now() + chrono::Duration::hours(24),
             deactivate_time: None,
             is_public: false,
-            contest_type: Some("icpc".into()),
+            contest_type: "icpc".into(),
         };
         let resp = client.create_contest(&req).await.expect("ok");
         assert_eq!(resp.id, 7);
