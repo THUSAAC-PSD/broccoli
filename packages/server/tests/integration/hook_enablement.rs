@@ -49,24 +49,41 @@ async fn the_contest_type_owner_runs_for_its_own_contests_only() {
         &app.db,
         &types,
         problem,
-        Some(HookContest { id: contest, contest_type: "fmt-a" }),
+        Some(HookContest {
+            id: contest,
+            contest_type: "fmt-a",
+        }),
     )
     .await
     .unwrap();
-    assert!(own.contains_key("format-a"), "owner must run with no config: {own:?}");
+    assert!(
+        own.contains_key("format-a"),
+        "owner must run with no config: {own:?}"
+    );
 
     let other = resource_enablements(
         &app.db,
         &types,
         problem,
-        Some(HookContest { id: contest, contest_type: "fmt-b" }),
+        Some(HookContest {
+            id: contest,
+            contest_type: "fmt-b",
+        }),
     )
     .await
     .unwrap();
-    assert!(!other.contains_key("format-a"), "not another format's contest: {other:?}");
+    assert!(
+        !other.contains_key("format-a"),
+        "not another format's contest: {other:?}"
+    );
 
-    let practice = resource_enablements(&app.db, &types, problem, None).await.unwrap();
-    assert!(!practice.contains_key("format-a"), "not practice: {practice:?}");
+    let practice = resource_enablements(&app.db, &types, problem, None)
+        .await
+        .unwrap();
+    assert!(
+        !practice.contains_key("format-a"),
+        "not practice: {practice:?}"
+    );
 }
 
 #[tokio::test]
@@ -81,11 +98,18 @@ async fn opt_in_plugins_still_need_config_and_the_owner_cannot_be_switched_off()
         &app.db,
         &types,
         problem,
-        Some(HookContest { id: contest, contest_type: "fmt-a" }),
+        Some(HookContest {
+            id: contest,
+            contest_type: "fmt-a",
+        }),
     )
     .await
     .unwrap();
-    assert_eq!(enabled.get("cooldown"), Some(&3), "opt-in plugin keeps its config");
+    assert_eq!(
+        enabled.get("cooldown"),
+        Some(&3),
+        "opt-in plugin keeps its config"
+    );
     assert!(
         enabled.contains_key("format-a"),
         "a format's own rules are not optional for its contests: {enabled:?}"
@@ -95,7 +119,10 @@ async fn opt_in_plugins_still_need_config_and_the_owner_cannot_be_switched_off()
         &app.db,
         &types,
         problem,
-        Some(HookContest { id: contest + 1, contest_type: "fmt-a" }),
+        Some(HookContest {
+            id: contest + 1,
+            contest_type: "fmt-a",
+        }),
     )
     .await
     .unwrap();

@@ -125,7 +125,6 @@ async fn setup_fixture_with_timing(
         app.register_for_contest(contest_id, &p.token).await;
     }
 
-
     let rounds = create_all_round_problems(&app, contest_id, &staff_token).await;
     let seeds: Vec<i32> = players.iter().map(|p| p.id).collect();
     let res = app
