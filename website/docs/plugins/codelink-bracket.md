@@ -54,9 +54,7 @@ setup screen there.
    have to decide the match. The defaults are 30 minutes, 10 minutes, and 120
    seconds.
 
-**Create bracket** checks all of this and lists anything missing. It also turns
-on the plugin's `before_submission` check for the contest, which rejects
-submissions to any problem a player is not currently playing. Seeding and
+**Create bracket** checks all of this and lists anything missing. Seeding and
 problems cannot be changed once the bracket exists.
 
 To script the setup instead, send the same data to the setup route as a user
@@ -87,9 +85,6 @@ curl -X POST \
 | `xiaoju_seconds` | Length of each game. Must be more than 0. |
 | `round_intermission_seconds` | Break each player gets after their own match before their next one can start. |
 | `escalation_grace_seconds` | How long a game waits for a stuck judge before staff must decide. Defaults to 120. |
-
-A scripted setup does not turn on the `before_submission` check. Turn it on in
-the contest's **Configure** dialog.
 
 ## How a match is won
 
@@ -122,7 +117,8 @@ round in a supervised room.
 Players work from the **Contest Homepage**. It opens with their own match,
 showing where they are, the ranking list when it is their turn to rank, and
 their current problem with its clock once a game is live. A player sees only
-the problems they have reached. The **Rankings** page shows them a short link
+the problems they have reached and can submit only to the one they are
+currently playing. The **Rankings** page shows them a short link
 back to their match.
 
 The **Rankings** page shows the whole bracket as a tree. Each card shows the
