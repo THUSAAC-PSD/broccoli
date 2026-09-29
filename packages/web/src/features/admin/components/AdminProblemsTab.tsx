@@ -211,6 +211,10 @@ export function ProblemFormDialog({
       toast.error(t('validation.problemTypeRequired'));
       return;
     }
+    if (!checkerFormat) {
+      toast.error(t('validation.checkerFormatRequired'));
+      return;
+    }
     if (!defaultContestType) {
       toast.error(t('validation.contestTypeRequired'));
       return;

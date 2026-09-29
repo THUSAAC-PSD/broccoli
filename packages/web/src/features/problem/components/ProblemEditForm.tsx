@@ -149,6 +149,10 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
       toast.error(t('validation.problemTypeRequired'));
       return;
     }
+    if (!formData.checkerFormat) {
+      toast.error(t('validation.checkerFormatRequired'));
+      return;
+    }
     if (!formData.defaultContestType) {
       toast.error(t('validation.contestTypeRequired'));
       return;

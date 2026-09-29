@@ -334,6 +334,7 @@
 'admin.field.selectPlaceholder' = '请选择…'
 'validation.contestTypeRequired' = '请选择默认比赛类型。'
 'validation.problemTypeRequired' = '请选择题目类型。'
+'validation.checkerFormatRequired' = '请选择校验格式。'
 'validation.contestTypeRequiredForContest' = '请选择比赛类型。未设置比赛类型的比赛不接受提交。'
 'admin.field.createdAt' = '创建时间'
 'admin.submissionFormat.language' = '选择语言'

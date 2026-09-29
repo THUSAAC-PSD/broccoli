@@ -409,43 +409,19 @@ impl Burst {
             ),
         );
 
-        // Choose problem_type. The spec mixes contest_types; problem_type is a
-        // single fixed value across all problems (override or first available).
-        let problem_type = match self.problem_type.clone() {
-            Some(pt) => {
-                if !registries.problem_types.iter().any(|t| t == &pt) {
-                    transcript.record(
-                        EventKind::Setup,
-                        Severity::Error,
-                        format!(
-                            "problem_type override `{pt}` not in registry: [{}]",
-                            registries.problem_types.join(", ")
-                        ),
-                    );
+        let problem_type =
+            match crate::bootstrap::resolve_problem_type(&registries, self.problem_type.as_deref())
+            {
+                Ok(problem_type) => problem_type,
+                Err(error) => {
+                    transcript.record(EventKind::Setup, Severity::Error, error.to_string());
                     transcript.finish(false);
                     return Ok(ScenarioOutcome {
                         passed: false,
                         transcript,
                     });
                 }
-                pt
-            }
-            None => match registries.problem_types.first() {
-                Some(t) => t.clone(),
-                None => {
-                    transcript.record(
-                        EventKind::Setup,
-                        Severity::Error,
-                        "no problem types registered on the server",
-                    );
-                    transcript.finish(false);
-                    return Ok(ScenarioOutcome {
-                        passed: false,
-                        transcript,
-                    });
-                }
-            },
-        };
+            };
 
         // ---- Bootstrap: one contest + one problem per type. ----------------
         let scenario = &SCENARIOS[0]; // ab-cpp-ac
