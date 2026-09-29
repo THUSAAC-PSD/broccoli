@@ -99,13 +99,13 @@ export function ProblemForm({
     [registries],
   );
 
-  // Effect to auto-select the first available option if the current value is invalid/empty
+  // Keep selected options in sync with the registered formats.
   useEffect(() => {
     let changed = false;
     const newData = { ...data };
 
-    if (!problemTypes.includes(data.problemType)) {
-      newData.problemType = problemTypes[0] ?? '';
+    if (data.problemType && !problemTypes.includes(data.problemType)) {
+      newData.problemType = '';
       changed = true;
     }
     if (!checkerFormats.includes(data.checkerFormat)) {

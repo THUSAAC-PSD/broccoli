@@ -27,7 +27,6 @@ pub struct CreateProblemRequest {
     pub time_limit: i32,
     #[schema(example = 262144)]
     pub memory_limit: i32,
-    #[serde(default)]
     #[schema(example = "batch")]
     pub problem_type: String,
     #[serde(default = "default_checker_format")]
@@ -371,11 +370,6 @@ fn default_checker_format() -> String {
 }
 
 use crate::registry::{CheckerStageRegistry, ContestTypeRegistry, EvaluatorRegistry};
-
-pub async fn first_registered_evaluator(registry: &EvaluatorRegistry) -> String {
-    let reg = registry.read().await;
-    reg.keys().min().cloned().unwrap_or_default()
-}
 
 pub async fn validate_checker_format(
     format: &str,

@@ -99,6 +99,7 @@ mod problem_creation {
                     "content": "Find two numbers that sum to target.",
                     "time_limit": 1000,
                     "memory_limit": 262144,
+                    "problem_type": "standard",
                     "default_contest_type": "standard"
                 }),
                 &token,
@@ -127,6 +128,7 @@ mod problem_creation {
                     "content": "Find the maximum.",
                     "time_limit": 2000,
                     "memory_limit": 131072,
+                    "problem_type": "standard",
                     "default_contest_type": "standard"
                 }),
                 &token,
@@ -149,7 +151,8 @@ mod problem_creation {
                 "title": "No Contest Type",
                 "content": "x",
                 "time_limit": 1000,
-                "memory_limit": 262144
+                "memory_limit": 262144,
+                "problem_type": "standard"
             });
             b.as_object_mut()
                 .unwrap()
@@ -183,6 +186,43 @@ mod problem_creation {
     }
 
     #[tokio::test]
+    async fn create_problem_requires_an_explicit_problem_type() {
+        let app = TestApp::spawn().await;
+        let token = app
+            .create_user_with_role("admin_pt_required", "password123", "admin")
+            .await;
+        let body = |problem_type: Option<&str>| {
+            let mut value = json!({
+                "title": "Explicit Evaluator",
+                "content": "x",
+                "time_limit": 1000,
+                "memory_limit": 262144,
+                "default_contest_type": "standard"
+            });
+            if let Some(problem_type) = problem_type {
+                value["problem_type"] = json!(problem_type);
+            }
+            value
+        };
+
+        let missing = app
+            .post_with_token(routes::PROBLEMS, &body(None), &token)
+            .await;
+        assert_eq!(missing.status, 400, "missing type: {}", missing.text);
+
+        let empty = app
+            .post_with_token(routes::PROBLEMS, &body(Some("")), &token)
+            .await;
+        assert_eq!(empty.status, 400, "empty type: {}", empty.text);
+
+        let valid = app
+            .post_with_token(routes::PROBLEMS, &body(Some("standard")), &token)
+            .await;
+        assert_eq!(valid.status, 201, "explicit type: {}", valid.text);
+        assert_eq!(valid.body["problem_type"], "standard");
+    }
+
+    #[tokio::test]
     async fn contestant_cannot_create_a_problem() {
         let app = TestApp::spawn().await;
         let token = app
@@ -197,6 +237,7 @@ mod problem_creation {
                     "content": "Should fail.",
                     "time_limit": 1000,
                     "memory_limit": 262144,
+                    "problem_type": "standard",
                     "default_contest_type": "standard"
                 }),
                 &token,
@@ -222,6 +263,7 @@ mod problem_creation {
                     "content": "Some content",
                     "time_limit": 1000,
                     "memory_limit": 262144,
+                    "problem_type": "standard",
                     "default_contest_type": "standard"
                 }),
                 &token,
@@ -238,6 +280,7 @@ mod problem_creation {
                     "content": "Some content",
                     "time_limit": 0,
                     "memory_limit": 262144,
+                    "problem_type": "standard",
                     "default_contest_type": "standard"
                 }),
                 &token,
@@ -262,6 +305,7 @@ mod problem_creation {
                     "content": "Some content",
                     "time_limit": 1000,
                     "memory_limit": 262144,
+                    "problem_type": "standard",
                     "default_contest_type": "standard"
                 }),
                 &token,
@@ -291,6 +335,7 @@ mod problem_listing {
                     "content": "Content",
                     "time_limit": 1000,
                     "memory_limit": 262144,
+                    "problem_type": "standard",
                     "default_contest_type": "standard"
                 }),
                 &token,
@@ -322,6 +367,7 @@ mod problem_listing {
                 "content": "Implement binary search.",
                 "time_limit": 1000,
                 "memory_limit": 262144,
+                "problem_type": "standard",
                 "default_contest_type": "standard"
             }),
             &token,
@@ -335,6 +381,7 @@ mod problem_listing {
                 "content": "Find pairs.",
                 "time_limit": 1000,
                 "memory_limit": 262144,
+                "problem_type": "standard",
                 "default_contest_type": "standard"
             }),
             &token,
@@ -365,6 +412,7 @@ mod problem_listing {
                 "content": "Content",
                 "time_limit": 1000,
                 "memory_limit": 262144,
+                "problem_type": "standard",
                 "default_contest_type": "standard"
             }),
             &token,
@@ -378,6 +426,7 @@ mod problem_listing {
                 "content": "Content",
                 "time_limit": 1000,
                 "memory_limit": 262144,
+                "problem_type": "standard",
                 "default_contest_type": "standard"
             }),
             &token,
@@ -423,6 +472,7 @@ mod problem_listing {
                 "content": "Z problem.",
                 "time_limit": 1000,
                 "memory_limit": 262144,
+                "problem_type": "standard",
                 "default_contest_type": "standard"
             }),
             &token,
@@ -436,6 +486,7 @@ mod problem_listing {
                 "content": "A problem.",
                 "time_limit": 1000,
                 "memory_limit": 262144,
+                "problem_type": "standard",
                 "default_contest_type": "standard"
             }),
             &token,
