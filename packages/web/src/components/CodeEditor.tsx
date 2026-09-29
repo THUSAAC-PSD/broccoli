@@ -804,7 +804,7 @@ function CodeEditorContent({
               size="sm"
               className="h-7 px-2 text-xs gap-1 text-muted-foreground"
             >
-              {contestType ?? 'standard'}
+              {contestType || t('admin.field.selectPlaceholder')}
               <ChevronDown className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>

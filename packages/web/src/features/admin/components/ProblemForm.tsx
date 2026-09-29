@@ -108,8 +108,8 @@ export function ProblemForm({
       newData.problemType = '';
       changed = true;
     }
-    if (!checkerFormats.includes(data.checkerFormat)) {
-      newData.checkerFormat = checkerFormats[0] ?? '';
+    if (data.checkerFormat && !checkerFormats.includes(data.checkerFormat)) {
+      newData.checkerFormat = '';
       changed = true;
     }
     // Deliberately no auto-pick for the contest type: it decides who judges

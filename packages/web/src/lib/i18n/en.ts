@@ -832,6 +832,7 @@ export const en: Record<string, string> = {
   'validation.titleRequired': 'Title is required.',
   'validation.contentRequired': 'Content is required.',
   'validation.problemTypeRequired': 'Choose a problem type.',
+  'validation.checkerFormatRequired': 'Choose a checker format.',
   'validation.contestTypeRequired': 'Choose a default contest type.',
   'validation.contestTypeRequiredForContest':
     'Choose a contest type. A contest without one accepts no submissions.',

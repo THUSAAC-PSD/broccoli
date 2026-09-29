@@ -200,7 +200,7 @@ fn resolve_contest_type(
     )
 }
 
-fn resolve_problem_type(
+pub(crate) fn resolve_problem_type(
     registries: &RegistriesResponse,
     override_value: Option<&str>,
 ) -> StressResult<String> {
@@ -337,6 +337,31 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("--contest-type"), "{err}");
+    }
+
+    #[test]
+    fn problem_type_prefers_batch_over_the_first_registered_type() {
+        let registries = RegistriesResponse {
+            problem_types: types(&["communication", "batch"]),
+            checker_formats: vec![],
+            contest_types: vec![],
+            languages: vec![],
+        };
+        assert_eq!(resolve_problem_type(&registries, None).unwrap(), "batch");
+    }
+
+    #[test]
+    fn ambiguous_problem_types_without_batch_need_an_override() {
+        let registries = RegistriesResponse {
+            problem_types: types(&["communication", "interactive"]),
+            checker_formats: vec![],
+            contest_types: vec![],
+            languages: vec![],
+        };
+        let error = resolve_problem_type(&registries, None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("--problem-type"), "{error}");
     }
     use crate::client::{AuthCreds, Client};
     use crate::scenarios::SCENARIOS;

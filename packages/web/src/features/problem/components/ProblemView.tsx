@@ -267,18 +267,15 @@ export default function ProblemView({
     [getSampleCaseData, t],
   );
 
-  // Use the first available registry option as fallback
-  // TODO: handle the case when the registry is empty more gracefully
-  const fallbackContestType = registries?.contest_types?.[0] ?? '';
   const effectiveContestType =
-    contestType ?? problem?.default_contest_type ?? fallbackContestType;
+    contestType ?? problem?.default_contest_type ?? '';
 
   const handleSubmit = useCallback(
     (files: EditorFile[], language: string) => {
       submissions.submit(
         files.map(({ filename, content }) => ({ filename, content })),
         language,
-        effectiveContestType,
+        effectiveContestType || undefined,
         canPinWorker && targetWorkers.length > 0 ? targetWorkers : undefined,
       );
     },
