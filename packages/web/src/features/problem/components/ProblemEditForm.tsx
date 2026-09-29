@@ -35,7 +35,7 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
     content: '',
     timeLimit: 1000,
     memoryLimit: 262144,
-    problemType: 'standard',
+    problemType: '',
     checkerFormat: 'exact',
     defaultContestType: '',
     showTestDetails: false,
@@ -143,6 +143,14 @@ export function ProblemEditForm({ problemId }: ProblemEditFormProps) {
     }
     if (!formData.content.trim()) {
       toast.error(t('validation.contentRequired'));
+      return;
+    }
+    if (!formData.problemType) {
+      toast.error(t('validation.problemTypeRequired'));
+      return;
+    }
+    if (!formData.defaultContestType) {
+      toast.error(t('validation.contestTypeRequired'));
       return;
     }
 

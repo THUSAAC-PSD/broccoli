@@ -2749,7 +2749,7 @@ export interface components {
        */
       memory_limit: number;
       /** @example batch */
-      problem_type?: string;
+      problem_type: string;
       /** @example false */
       show_test_details?: boolean | null;
       /**

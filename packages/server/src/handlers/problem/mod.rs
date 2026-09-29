@@ -66,11 +66,7 @@ pub async fn create_problem(
     auth_user.require_permission(perm::PROBLEM_CREATE)?;
     validate_create_problem(&payload)?;
 
-    let problem_type = if payload.problem_type.is_empty() {
-        first_registered_evaluator(&state.registries.evaluator_registry).await
-    } else {
-        payload.problem_type
-    };
+    let problem_type = payload.problem_type;
     let default_contest_type = payload.default_contest_type;
 
     validate_problem_type(&problem_type, &state.registries.evaluator_registry).await?;
