@@ -80,12 +80,7 @@ pub fn run(args: SubmitArgs) -> anyhow::Result<()> {
         submission_files.push(SubmissionFileDto { filename, content });
     }
 
-    let language = args
-        .language
-        .as_deref()
-        .or_else(|| args.files.first().and_then(|f| context::detect_language(f)))
-        .unwrap_or("cpp")
-        .to_string();
+    let language = context::resolve_language(&args.files, args.language.as_deref())?;
 
     println!(
         "{}  Language: {}",
