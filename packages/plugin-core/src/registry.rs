@@ -68,6 +68,11 @@ impl PluginEntry {
         let mut router = Router::new();
 
         if let Some(server_config) = &manifest.server {
+            if server_config.timers.len() > 1 {
+                return Err(PluginError::LoadFailed(format!(
+                    "Plugin '{id}' declares more than one server timer callback"
+                )));
+            }
             let mut path_map: HashMap<String, RouteMatchInfo> = HashMap::new();
             for route in &server_config.routes {
                 let info = path_map
@@ -149,5 +154,40 @@ impl PluginEntry {
         }
 
         Ok(canonical_asset_path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PluginEntry;
+    use crate::manifest::PluginManifest;
+
+    #[test]
+    fn rejects_multiple_timer_callbacks() {
+        let manifest: PluginManifest = toml::from_str(
+            r#"
+name = "test"
+version = "0.1.0"
+
+[server]
+entry = "test.wasm"
+
+[[server.timers]]
+function = "first"
+
+[[server.timers]]
+function = "second"
+"#,
+        )
+        .unwrap();
+
+        let error = PluginEntry::new("test".into(), ".".into(), manifest)
+            .err()
+            .expect("multiple callbacks must be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("more than one server timer callback")
+        );
     }
 }

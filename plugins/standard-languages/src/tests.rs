@@ -99,6 +99,30 @@ fn cpp_primary_matched_by_default_source_filename() {
 }
 
 #[test]
+fn cpp_primary_prefers_source_extension_over_first_file() {
+    let result = resolve::resolve_cpp(
+        &req("cpp", vec!["notes.txt", "main.cc"]),
+        None,
+        "/usr/bin/g++",
+        &default_cpp_flags(),
+        &[],
+    );
+    let compile = result.compile.unwrap();
+    assert_eq!(compile.command[2], "./main.cc");
+    assert_eq!(result.run.command, vec!["./main"]);
+}
+
+#[test]
+fn python_primary_prefers_source_extension_over_first_file() {
+    let result = resolve::resolve_python3(
+        &req("python3", vec!["notes.txt", "main.py"]),
+        None,
+        "python3",
+    );
+    assert_eq!(result.run.command, vec!["python3", "main.py"]);
+}
+
+#[test]
 fn cpp_compiler_override() {
     let result = resolve::resolve_cpp(
         &req("cpp", vec!["solution.cpp"]),

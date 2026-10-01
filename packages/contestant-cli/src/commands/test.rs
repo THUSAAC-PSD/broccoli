@@ -28,6 +28,10 @@ pub struct TestArgs {
     #[arg(short = 'c', long)]
     pub contest: Option<String>,
 
+    /// Programming language (auto-detected from file extensions if omitted)
+    #[arg(short = 'l', long)]
+    pub language: Option<String>,
+
     /// Input file for local-only testing
     #[arg(short = 'i', long)]
     pub input: Option<String>,
@@ -43,11 +47,7 @@ pub fn run(args: TestArgs) -> anyhow::Result<()> {
     let user_config = load_user_config();
     let ctx = context::discover_context();
 
-    let language = args
-        .files
-        .first()
-        .and_then(|f| context::detect_language(f))
-        .unwrap_or("cpp");
+    let language = context::resolve_language(&args.files, args.language.as_deref())?;
 
     let mut files = Vec::new();
     for path in &args.files {
@@ -65,7 +65,7 @@ pub fn run(args: TestArgs) -> anyhow::Result<()> {
         let input = fs::read_to_string(input_path)
             .with_context(|| format!("Failed to read input file: {}", input_path))?;
         println!("{}  Running locally...", style("→").blue().bold());
-        let output = run_local(&files, language, &input, &user_config)?;
+        let output = run_local(&files, &language, &input, &user_config)?;
         println!("  Output:\n{}", output);
         return Ok(());
     }
@@ -128,7 +128,7 @@ pub fn run(args: TestArgs) -> anyhow::Result<()> {
             style("→").blue().bold(),
             samples.len()
         );
-        run_samples_locally(&files, language, &samples, &user_config)?;
+        run_samples_locally(&files, &language, &samples, &user_config)?;
         return Ok(());
     }
 
@@ -162,7 +162,7 @@ pub fn run(args: TestArgs) -> anyhow::Result<()> {
         .collect();
 
     let created = client
-        .run_contest_code(contest_id, problem_id, files, language, custom)
+        .run_contest_code(contest_id, problem_id, files, &language, custom)
         .context("Failed to start code run")?;
     let run_id = created["id"]
         .as_i64()
@@ -363,7 +363,9 @@ fn run_local(
         .unwrap_or_else(|| default_runtime(language));
 
     let main_file = files
-        .first()
+        .iter()
+        .find(|file| context::detect_language(&file.filename) == Some(language))
+        .or_else(|| files.first())
         .map(|f| &f.filename)
         .context("No source files provided")?;
 

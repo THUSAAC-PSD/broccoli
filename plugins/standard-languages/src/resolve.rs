@@ -69,16 +69,6 @@ const JAVA_MIN_PROCESS_LIMIT: u32 = 64;
 /// deterministic footprint. Flag is JDK-version stable (present since JDK 10).
 const JAVA_ACTIVE_PROCESSORS: u32 = 1;
 
-fn default_source(lang: &str) -> &str {
-    match lang {
-        "c" => "solution.c",
-        "cpp" => "solution.cpp",
-        "python3" => "solution.py",
-        "java" => "Main.java",
-        _ => "",
-    }
-}
-
 fn default_basename(lang: &str) -> &str {
     match lang {
         "java" => "Main",
@@ -88,7 +78,7 @@ fn default_basename(lang: &str) -> &str {
 
 /// Resolve the primary source file and its basename from submitted files.
 ///
-/// Priority: entry_point config > default source filename match > first file.
+/// Priority: entry_point config > default source filename > matching extension > first file.
 fn resolve_primary<'a>(
     lang: &str,
     all_files: &[&'a str],
@@ -97,10 +87,19 @@ fn resolve_primary<'a>(
     let primary = if let Some(ep) = entry_point {
         all_files.iter().find(|f| **f == ep).copied().unwrap_or(ep)
     } else {
-        let default = default_source(lang);
+        let language = LANGUAGES.iter().find(|candidate| candidate.id == lang);
+        let default = language.map(|language| language.default_filename);
         all_files
             .iter()
-            .find(|f| **f == default)
+            .find(|file| Some(**file) == default)
+            .or_else(|| {
+                all_files.iter().find(|file| {
+                    let extension = Path::new(file).extension().and_then(|ext| ext.to_str());
+                    language.is_some_and(|language| {
+                        extension.is_some_and(|ext| language.extensions.contains(&ext))
+                    })
+                })
+            })
             .or(all_files.first())
             .copied()
             .unwrap_or_default()
