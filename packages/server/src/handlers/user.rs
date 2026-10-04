@@ -9,7 +9,8 @@ use sea_orm::*;
 use tracing::instrument;
 
 // visibility-bypass-audited: `list_users`/`get_user`/`update_user`/
-// `delete_user`/`assign_role`/`revoke_role` all require perm::USER_MANAGE,
+// `delete_user`/`assign_role`/`revoke_role`/`create_user`/`bulk_create_users`
+// all require perm::USER_MANAGE,
 // pinned by `non_admin_cannot_list_all_users` and
 // `user_cannot_modify_themselves_without_permission`
 // (tests/integration/user.rs). `contest`/`contest_user` here are only used
@@ -18,7 +19,11 @@ use tracing::instrument;
 use crate::entity::{contest, contest_user, refresh_token, role, role_permission, user, user_role};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::{AuthUser, FreshAuthUser};
+use crate::extractors::json::AppJson;
 use crate::extractors::path::AppPath;
+use crate::models::user::{
+    BulkCreateUsersRequest, CreateUserRequest, CreatedUserResponse, validate_create_users,
+};
 use crate::models::user::{RoleAssignmentRequest, UpdateUserRequest, UserResponse};
 use crate::state::AppState;
 use crate::utils::hash;
@@ -361,4 +366,109 @@ pub async fn revoke_role(
     txn.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post, path = "/", tag = "Users", operation_id = "createUser",
+    summary = "Create a user",
+    description = "Requires user:manage. Creates accounts with default roles and supplied or generated passwords. Bulk imports accept 1-100 entries and are atomic: a conflict or invalid entry creates no accounts. Existing accounts are never modified.",
+    request_body = CreateUserRequest,
+    responses(
+        (status = 201, description = "Users created with credentials", body = CreatedUserResponse),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 409, description = "Username taken (USERNAME_TAKEN)", body = ErrorBody),
+    ), security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload), fields(user_id = auth_user.user_id))]
+pub async fn create_user(
+    auth_user: FreshAuthUser,
+    State(state): State<AppState>,
+    AppJson(payload): AppJson<CreateUserRequest>,
+) -> Result<(StatusCode, Json<CreatedUserResponse>), AppError> {
+    auth_user.require_permission(perm::USER_MANAGE)?;
+    let created = create_accounts(&state, vec![payload]).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(
+            created
+                .into_iter()
+                .next()
+                .ok_or_else(|| AppError::Internal("Missing created account".into()))?,
+        ),
+    ))
+}
+
+#[utoipa::path(
+    post, path = "/bulk", tag = "Users", operation_id = "bulkCreateUsers",
+    summary = "Create users in bulk",
+    description = "Requires user:manage. Creates accounts with default roles and supplied or generated passwords. Bulk imports accept 1-100 entries and are atomic: a conflict or invalid entry creates no accounts. Existing accounts are never modified.",
+    request_body = BulkCreateUsersRequest,
+    responses(
+        (status = 201, description = "Users created with credentials", body = Vec<CreatedUserResponse>),
+        (status = 400, description = "Validation error (VALIDATION_ERROR)", body = ErrorBody),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
+        (status = 409, description = "Username taken (USERNAME_TAKEN)", body = ErrorBody),
+    ), security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, payload), fields(user_id = auth_user.user_id))]
+pub async fn bulk_create_users(
+    auth_user: FreshAuthUser,
+    State(state): State<AppState>,
+    AppJson(payload): AppJson<BulkCreateUsersRequest>,
+) -> Result<(StatusCode, Json<Vec<CreatedUserResponse>>), AppError> {
+    auth_user.require_permission(perm::USER_MANAGE)?;
+    let created = create_accounts(&state, payload.users).await?;
+    Ok((StatusCode::CREATED, Json(created)))
+}
+
+async fn create_accounts(
+    state: &AppState,
+    users: Vec<CreateUserRequest>,
+) -> Result<Vec<CreatedUserResponse>, AppError> {
+    validate_create_users(&users)?;
+    // Reject existing active usernames before doing expensive password hashing.
+    let names: Vec<_> = users
+        .iter()
+        .map(|u| u.username.trim().to_string())
+        .collect();
+    if user::Entity::find_active()
+        .filter(user::Column::Username.is_in(names))
+        .count(&state.db)
+        .await?
+        > 0
+    {
+        return Err(AppError::UsernameTaken);
+    }
+    let prepared = crate::services::user_accounts::prepare_accounts(
+        users
+            .into_iter()
+            .map(|u| (u.username, u.password))
+            .collect(),
+    )
+    .await?;
+    let txn = state.db.begin().await?;
+    let mut created = Vec::with_capacity(prepared.len());
+    for entry in prepared {
+        let user = crate::services::user_accounts::insert_account(
+            &txn,
+            entry.username,
+            entry.password_hash,
+        )
+        .await?;
+        created.push(CreatedUserResponse {
+            id: user.id,
+            username: user.username,
+            created_at: user.created_at,
+            roles: role::DEFAULT_ROLES
+                .iter()
+                .map(|r| (*r).to_owned())
+                .collect(),
+            password: entry.password,
+        });
+    }
+    txn.commit().await?;
+    Ok(created)
 }

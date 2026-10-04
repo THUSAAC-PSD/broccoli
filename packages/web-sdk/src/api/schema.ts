@@ -1928,7 +1928,31 @@ export interface paths {
      */
     get: operations['listUsers'];
     put?: never;
-    post?: never;
+    /**
+     * Create a user
+     * @description Requires user:manage. Creates accounts with default roles and supplied or generated passwords. Bulk imports accept 1-100 entries and are atomic: a conflict or invalid entry creates no accounts. Existing accounts are never modified.
+     */
+    post: operations['createUser'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/users/bulk': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Create users in bulk
+     * @description Requires user:manage. Creates accounts with default roles and supplied or generated passwords. Bulk imports accept 1-100 entries and are atomic: a conflict or invalid entry creates no accounts. Existing accounts are never modified.
+     */
+    post: operations['bulkCreateUsers'];
     delete?: never;
     options?: never;
     head?: never;
@@ -2169,6 +2193,9 @@ export interface components {
       already_enrolled: components['schemas']['BulkParticipantAdded'][];
       created: components['schemas']['BulkParticipantCreated'][];
       not_found: string[];
+    };
+    BulkCreateUsersRequest: {
+      users: components['schemas']['CreateUserRequest'][];
     };
     BulkDeleteContestProblemsRequest: {
       /**
@@ -2838,6 +2865,21 @@ export interface components {
       /** @example custom_pass123 */
       password?: string | null;
       /** @example charlie */
+      username: string;
+    };
+    /** @description Omit password to generate a random password. Accounts receive the default roles. */
+    CreateUserRequest: {
+      password?: string | null;
+      username: string;
+    };
+    /** @description Credentials are returned only in the creation response, never in user listings. */
+    CreatedUserResponse: {
+      /** Format: date-time */
+      created_at: string;
+      /** Format: int32 */
+      id: number;
+      password: string;
+      roles: string[];
       username: string;
     };
     CustomTestCaseInput: {
@@ -11146,6 +11188,126 @@ export interface operations {
       };
       /** @description Forbidden (PERMISSION_DENIED) */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  createUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateUserRequest'];
+      };
+    };
+    responses: {
+      /** @description Users created with credentials */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CreatedUserResponse'];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Username taken (USERNAME_TAKEN) */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  bulkCreateUsers: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BulkCreateUsersRequest'];
+      };
+    };
+    responses: {
+      /** @description Users created with credentials */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CreatedUserResponse'][];
+        };
+      };
+      /** @description Validation error (VALIDATION_ERROR) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Forbidden (PERMISSION_DENIED) */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Username taken (USERNAME_TAKEN) */
+      409: {
         headers: {
           [name: string]: unknown;
         };

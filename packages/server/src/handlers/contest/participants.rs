@@ -32,7 +32,7 @@ use tracing::instrument;
 // `hidden_participant_list_denies_non_manager_participant` and
 // `hidden_participant_list_still_readable_by_contest_manager`
 // (tests/integration/contest.rs).
-use crate::entity::{contest_user, role, user, user_role};
+use crate::entity::{contest_user, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::{AuthUser, FreshAuthUser};
 use crate::extractors::json::AppJson;
@@ -321,35 +321,14 @@ pub async fn bulk_add_participants(
     auth_user.require_permission(perm::CONTEST_MANAGE)?;
     validate_bulk_add_participants(&payload)?;
 
-    let mut hashed_entries: Vec<(String, String, String)> = Vec::new();
-    if !payload.create_users.is_empty() {
-        let entries: Vec<(String, String)> = payload
+    let hashed_entries = crate::services::user_accounts::prepare_accounts(
+        payload
             .create_users
             .iter()
-            .map(|e| {
-                let username = e.username.trim().to_string();
-                let plaintext = e
-                    .password
-                    .clone()
-                    .unwrap_or_else(|| crate::utils::password::generate_password(12));
-                (username, plaintext)
-            })
-            .collect();
-
-        hashed_entries = tokio::task::spawn_blocking(move || {
-            entries
-                .into_iter()
-                .map(|(username, plaintext)| {
-                    let hash = crate::utils::hash::hash_password(&plaintext)
-                        .map_err(|e| format!("Password hash error for '{username}': {e}"))?;
-                    Ok((username, plaintext, hash))
-                })
-                .collect::<Result<Vec<_>, String>>()
-        })
-        .await
-        .map_err(|e| AppError::Internal(format!("Password hashing task failed: {e}")))?
-        .map_err(AppError::Internal)?;
-    }
+            .map(|e| (e.username.clone(), e.password.clone()))
+            .collect(),
+    )
+    .await?;
 
     let txn = state.db.begin().await?;
     find_contest_for_update(&txn, contest_id).await?;
@@ -366,7 +345,7 @@ pub async fn bulk_add_participants(
     } else {
         let requested_usernames: Vec<String> = hashed_entries
             .iter()
-            .map(|(username, _, _)| username.clone())
+            .map(|entry| entry.username.clone())
             .collect();
         user::Entity::find_active()
             .filter(user::Column::Username.is_in(requested_usernames))
@@ -377,50 +356,34 @@ pub async fn bulk_add_participants(
             .collect::<std::collections::HashMap<_, _>>()
     };
 
-    for (username, plaintext, hash) in hashed_entries {
+    for entry in hashed_entries {
+        let username = entry.username;
         if let Some(&existing_user_id) = existing_created_user_map.get(&username) {
             users_to_enroll.push((existing_user_id, username));
             continue;
         }
 
-        let new_user = user::ActiveModel {
-            username: Set(username.clone()),
-            password: Set(hash),
-            created_at: Set(chrono::Utc::now()),
-            ..Default::default()
-        };
-
-        match new_user.insert(&txn).await {
+        match crate::services::user_accounts::insert_account(
+            &txn,
+            username.clone(),
+            entry.password_hash,
+        )
+        .await
+        {
             Ok(user) => {
-                for role_name in role::DEFAULT_ROLES {
-                    let role = role::Entity::find_by_id(role_name.to_string())
-                        .one(&txn)
-                        .await?
-                        .ok_or_else(|| {
-                            AppError::Internal(format!("Default role '{}' not found", role_name))
-                        })?;
-
-                    user_role::ActiveModel {
-                        user_id: Set(user.id),
-                        role: Set(role.name),
-                    }
-                    .insert(&txn)
-                    .await?;
-                }
-
                 created_response.push(BulkParticipantCreated {
                     user_id: user.id,
                     username: username.clone(),
-                    password: plaintext,
+                    password: entry.password,
                 });
                 users_to_enroll.push((user.id, username));
             }
-            Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
+            Err(AppError::UsernameTaken) => {
                 return Err(AppError::Validation(format!(
                     "User '{username}' was created concurrently; retry the bulk participant request"
                 )));
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e),
         }
     }
 

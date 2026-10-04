@@ -414,6 +414,26 @@ export const en: Record<string, string> = {
   'users.users.username': 'Username',
   'users.users.roles': 'Roles',
   'users.users.searchPlaceholder': 'Search users by name, id, or role...',
+  'users.create.title': 'Create users',
+  'users.create.single': 'Create user',
+  'users.create.bulk': 'Bulk import',
+  'users.create.description':
+    'New users receive the contestant role. Manage their roles after creation.',
+  'users.create.passwordHint':
+    'Leave blank to generate a password, or enter 8–128 bytes.',
+  'users.create.bulkHint':
+    'Import 1–100 usernames or objects with username and optional password. Existing usernames reject the entire import.',
+  'users.create.preview': '{count} users will be created.',
+  'users.create.suppliedPassword': 'Supplied password',
+  'users.create.confirm': 'Create all users',
+  'users.create.success': 'Created {count} users.',
+  'users.create.error': 'Failed to create users.',
+  'users.create.tooMany': 'Import at most 100 users at a time.',
+  'users.create.fileTooLarge': 'JSON files must be smaller than 100 KB.',
+  'users.create.credentialsHint':
+    'Save these credentials before closing. Passwords cannot be retrieved later.',
+  'users.create.download': 'Download credentials',
+  'users.create.done': 'Done',
   'users.users.empty': 'No users found.',
   'users.users.noRoles': 'No roles assigned.',
   'users.users.manageRoles': 'Manage Roles',

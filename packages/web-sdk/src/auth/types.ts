@@ -37,3 +37,5 @@ export const USER_PERMISSIONS = [
   DLQ_MANAGE,
   SYSTEM_VIEW,
 ];
+
+export type CreatedUser = components['schemas']['CreatedUserResponse'];

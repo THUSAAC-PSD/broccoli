@@ -11,26 +11,7 @@ pub struct RegisterRequest {
 }
 
 pub fn validate_register_request(payload: &RegisterRequest) -> Result<(), AppError> {
-    let username = payload.username.trim();
-    if username.is_empty() || username.chars().count() > 32 {
-        return Err(AppError::Validation(
-            "Username must be 1-32 characters".into(),
-        ));
-    }
-    if !username
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
-        return Err(AppError::Validation(
-            "Username must contain only letters, digits, and underscores".into(),
-        ));
-    }
-    if payload.password.len() < 8 || payload.password.len() > 128 {
-        return Err(AppError::Validation(
-            "Password must be 8-128 characters".into(),
-        ));
-    }
-    Ok(())
+    super::user::validate_account_credentials(&payload.username, Some(&payload.password))
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
