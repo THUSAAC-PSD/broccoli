@@ -112,6 +112,8 @@ pub(super) async fn apply_filter_to_judgement_response(
     let result_response =
         if response.status.is_terminal() || response.status == SubmissionStatus::Running {
             Some(JudgeResultResponse {
+                judgement_id: Some(response.id),
+                test_case_pagination: response.test_case_pagination.clone(),
                 verdict: response.verdict.clone(),
                 score: submission_score_for_status(&response.status, response.score),
                 time_used: response.time_used,
@@ -198,6 +200,8 @@ pub(super) async fn apply_filter_to_judgement_response(
     })?;
 
     if masked_result.is_null() {
+        obj.insert("test_case_pagination".into(), serde_json::Value::Null);
+        obj.insert("case_changes".into(), serde_json::Value::Null);
         obj.insert("verdict".into(), serde_json::Value::Null);
         obj.insert("score".into(), serde_json::Value::Null);
         obj.insert("time_used".into(), serde_json::Value::Null);
@@ -223,6 +227,13 @@ pub(super) async fn apply_filter_to_judgement_response(
             masked_result["error_message"].clone(),
         );
         obj.insert("finalized_at".into(), masked_result["judged_at"].clone());
+        obj.insert(
+            "test_case_pagination".into(),
+            masked_result["test_case_pagination"].clone(),
+        );
+        if masked_result["test_case_pagination"].is_null() {
+            obj.insert("case_changes".into(), serde_json::Value::Null);
+        }
         obj.insert(
             "test_case_results".into(),
             masked_result["test_case_results"].clone(),
@@ -258,6 +269,8 @@ fn _assert_judge_result_response_fields_are_exhaustively_spliced(r: JudgeResultR
         error_message: _,
         judged_at: _,
         test_case_results: _,
+        judgement_id: _,
+        test_case_pagination: _,
     } = r;
 }
 

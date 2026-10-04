@@ -70,6 +70,22 @@ pub struct SubmissionListQuery {
     pub sort_order: Option<String>,
 }
 
+/// Testcase results are always paged; expanded output is fetched for one result only.
+#[derive(Default, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct SubmissionResultQuery {
+    pub page: Option<u64>,
+    /// Maximum 20 results per response.
+    pub per_page: Option<u64>,
+    /// Optional comma-separated testcase IDs (at most 20), for subtask views.
+    pub test_case_ids: Option<String>,
+    /// Select one result, e.g. when opening its output dialog.
+    pub result_id: Option<i32>,
+    /// Larger output preview; requires result_id and still caps each field at 64 KiB.
+    #[serde(default)]
+    pub full_output: bool,
+}
+
 #[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SubmissionResponse {
     #[schema(example = 1)]
@@ -194,6 +210,8 @@ pub struct SubmissionListResponse {
 
 #[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct JudgeResultResponse {
+    #[serde(default)]
+    pub judgement_id: Option<i32>,
     #[schema(value_type = Option<String>, example = "Accepted")]
     pub verdict: Option<Verdict>,
     #[schema(example = 100.0)]
@@ -206,10 +224,15 @@ pub struct JudgeResultResponse {
     pub error_message: Option<String>,
     pub judged_at: Option<DateTime<Utc>>,
     pub test_case_results: Vec<TestCaseResultResponse>,
+    #[serde(default)]
+    pub test_case_pagination: Option<Pagination>,
 }
 
 #[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SubmissionJudgementResponse {
+    /// Number of testcase result changes relative to the current version (admins only).
+    #[serde(default)]
+    pub case_changes: Option<u64>,
     #[schema(example = 1)]
     pub id: i32,
     #[schema(example = 1)]
@@ -238,6 +261,8 @@ pub struct SubmissionJudgementResponse {
     pub created_at: DateTime<Utc>,
     pub finalized_at: Option<DateTime<Utc>>,
     pub test_case_results: Vec<TestCaseResultResponse>,
+    #[serde(default)]
+    pub test_case_pagination: Option<Pagination>,
 }
 
 #[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]

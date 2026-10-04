@@ -1798,6 +1798,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/submissions/{id}/judgements/{judgement_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get one judgement with a bounded testcase page */
+    get: operations['getSubmissionJudgement'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/submissions/{id}/judgements/{judgement_id}/apply': {
     parameters: {
       query?: never;
@@ -2704,7 +2721,12 @@ export interface components {
        * @example 2025-09-30T12:00:00Z
        */
       activate_time?: string | null;
-      /** @example ioi */
+      /**
+       * @description The contest type (format) that judges this contest's submissions.
+       *     Required: the server never picks one, because any "first registered"
+       *     choice depends on plugin names.
+       * @example ioi
+       */
       contest_type: string;
       /**
        * Format: date-time
@@ -2739,7 +2761,13 @@ export interface components {
       checker_format?: string;
       /** @example Given an array of integers `nums` and an integer `target`... */
       content: string;
-      /** @example ioi */
+      /**
+       * @description Contest type that judges submissions made outside any contest.
+       *     Required: the server never picks one, because any "first registered"
+       *     choice depends on plugin names and can land on a tournament format that
+       *     makes no sense for practice.
+       * @example ioi
+       */
       default_contest_type: string;
       /** @example false */
       is_public?: boolean | null;
@@ -3032,6 +3060,8 @@ export interface components {
       error_message?: string | null;
       /** Format: date-time */
       judged_at?: string | null;
+      /** Format: int32 */
+      judgement_id?: number | null;
       /**
        * Format: int32
        * @example 1024
@@ -3042,6 +3072,7 @@ export interface components {
        * @example 100
        */
       score?: number | null;
+      test_case_pagination?: null | components['schemas']['Pagination'];
       test_case_results: components['schemas']['TestCaseResultResponse'][];
       /**
        * Format: int32
@@ -3521,6 +3552,11 @@ export interface components {
       filename: string;
     };
     SubmissionJudgementResponse: {
+      /**
+       * Format: int64
+       * @description Number of testcase result changes relative to the current version (admins only).
+       */
+      case_changes?: number | null;
       compile_output?: string | null;
       /**
        * Format: date-time
@@ -3561,6 +3597,7 @@ export interface components {
       submission_id: number;
       /** @example worker-1 */
       target_worker_id?: string | null;
+      test_case_pagination?: null | components['schemas']['Pagination'];
       test_case_results: components['schemas']['TestCaseResultResponse'][];
       /**
        * Format: int32
@@ -3943,7 +3980,10 @@ export interface components {
        * @example 2025-09-30T12:00:00Z
        */
       activate_time?: string | null;
-      /** @example icpc */
+      /**
+       * @description Omit to keep the current type. A contest type cannot be removed.
+       * @example icpc
+       */
       contest_type?: string | null;
       /**
        * Format: date-time
@@ -10614,7 +10654,17 @@ export interface operations {
   };
   getSubmission: {
     parameters: {
-      query?: never;
+      query?: {
+        page?: number;
+        /** @description Maximum 20 results per response. */
+        per_page?: number;
+        /** @description Optional comma-separated testcase IDs (at most 20), for subtask views. */
+        test_case_ids?: string;
+        /** @description Select one result, e.g. when opening its output dialog. */
+        result_id?: number;
+        /** @description Larger output preview; requires result_id and still caps each field at 64 KiB. */
+        full_output?: boolean;
+      };
       header?: never;
       path: {
         /** @description Submission ID */
@@ -10631,6 +10681,15 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['SubmissionResponse'];
+        };
+      };
+      /** @description Invalid testcase page */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
         };
       };
       /** @description Unauthorized (TOKEN_MISSING, TOKEN_INVALID) */
@@ -10693,6 +10752,68 @@ export interface operations {
         };
       };
       /** @description Submission not found (NOT_FOUND) */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+    };
+  };
+  getSubmissionJudgement: {
+    parameters: {
+      query?: {
+        page?: number;
+        /** @description Maximum 20 results per response. */
+        per_page?: number;
+        /** @description Optional comma-separated testcase IDs (at most 20), for subtask views. */
+        test_case_ids?: string;
+        /** @description Select one result, e.g. when opening its output dialog. */
+        result_id?: number;
+        /** @description Larger output preview; requires result_id and still caps each field at 64 KiB. */
+        full_output?: boolean;
+      };
+      header?: never;
+      path: {
+        /** @description Submission ID */
+        id: number;
+        /** @description Judgement ID */
+        judgement_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Judgement details */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SubmissionJudgementResponse'];
+        };
+      };
+      /** @description Invalid result page */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ErrorBody'];
+        };
+      };
+      /** @description Judgement not found */
       404: {
         headers: {
           [name: string]: unknown;

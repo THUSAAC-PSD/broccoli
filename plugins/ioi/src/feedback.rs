@@ -125,6 +125,7 @@ fn none_level_mask_fields() -> Vec<String> {
         "result.compile_output".to_string(),
         "result.error_message".to_string(),
         "result.test_case_results".to_string(),
+        "result.test_case_pagination".to_string(),
     ]
 }
 
@@ -400,10 +401,15 @@ mod visibility_tests {
             "result.compile_output",
             "result.error_message",
             "result.test_case_results",
+            "result.test_case_pagination",
         ] {
             assert!(fields.contains(&f.to_string()), "missing field {f}");
         }
-        assert_eq!(fields.len(), 11, "no extra fields beyond the old blank set");
+        assert_eq!(
+            fields.len(),
+            12,
+            "includes pagination for hidden testcase feedback"
+        );
     }
 
     #[test]

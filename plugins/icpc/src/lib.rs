@@ -97,6 +97,7 @@ fn hidden_result_mask_fields() -> Vec<String> {
         "result.compile_output".to_string(),
         "result.error_message".to_string(),
         "result.test_case_results".to_string(),
+        "result.test_case_pagination".to_string(),
     ]
 }
 
@@ -285,6 +286,7 @@ mod filter_tests {
             "result.compile_output",
             "result.error_message",
             "result.test_case_results",
+            "result.test_case_pagination",
         ] {
             assert!(
                 fields.contains(&f.to_string()),
@@ -391,11 +393,12 @@ mod filter_tests {
                     "result.compile_output".to_string(),
                     "result.error_message".to_string(),
                     "result.test_case_results".to_string(),
+                    "result.test_case_pagination".to_string(),
                 ];
                 want.sort();
                 assert_eq!(
                     got.len(),
-                    11,
+                    12,
                     "no extra fields beyond the documented set: {got:?}"
                 );
                 assert_eq!(
@@ -735,11 +738,12 @@ mod filter_tests {
                     "result.compile_output".to_string(),
                     "result.error_message".to_string(),
                     "result.test_case_results".to_string(),
+                    "result.test_case_pagination".to_string(),
                 ];
                 want.sort();
                 assert_eq!(
                     got.len(),
-                    11,
+                    12,
                     "no extra fields beyond the documented set: {got:?}"
                 );
                 assert_eq!(

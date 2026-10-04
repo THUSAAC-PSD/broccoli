@@ -158,7 +158,22 @@ pub async fn read_test_case_body_preview(
     blob_hash: Option<&str>,
     blob_store: &dyn BlobStore,
 ) -> Result<String, AppError> {
-    let cap = RESPONSE_BODY_PREVIEW_BYTES;
+    read_test_case_body_preview_with_limit(
+        inline_text,
+        blob_hash,
+        blob_store,
+        RESPONSE_BODY_PREVIEW_BYTES,
+    )
+    .await
+}
+
+pub async fn read_test_case_body_preview_with_limit(
+    inline_text: &str,
+    blob_hash: Option<&str>,
+    blob_store: &dyn BlobStore,
+    cap: usize,
+) -> Result<String, AppError> {
+    let cap = cap.min(RESPONSE_BODY_PREVIEW_BYTES);
 
     let Some(hash) = blob_hash else {
         return Ok(preview_from_bytes(inline_text.as_bytes(), cap));
