@@ -64,7 +64,7 @@ use dispatch::{dispatch_before_submission_hooks, find_submission, fire_after_sub
 use filter::{apply_filter_to_judgement_response, apply_filter_to_list, apply_filter_to_response};
 use response::{
     VisibilityContext, build_judgement_response, build_submission_list_items,
-    build_submission_response,
+    build_submission_response, build_submission_response_with_cases,
 };
 
 #[utoipa::path(
@@ -415,9 +415,11 @@ pub async fn list_submissions(
     summary = "Get submission details",
     description = "Returns full details of a submission. Users can view their own submissions; users with `submission:view_all` permission can view any submission.",
     params(
-        ("id" = i32, Path, description = "Submission ID")
+        ("id" = i32, Path, description = "Submission ID"),
+        SubmissionResultQuery,
     ),
     responses(
+        (status = 400, description = "Invalid testcase page", body = ErrorBody),
         (status = 200, description = "Submission details", body = SubmissionResponse),
         (status = 401, description = "Unauthorized (TOKEN_MISSING, TOKEN_INVALID)", body = ErrorBody),
         (status = 403, description = "Forbidden (PERMISSION_DENIED)", body = ErrorBody),
@@ -425,11 +427,12 @@ pub async fn list_submissions(
     ),
     security(("jwt" = [])),
 )]
-#[instrument(skip(state, auth_user), fields(submission_id = %id))]
+#[instrument(skip(state, auth_user, query), fields(submission_id = %id))]
 pub async fn get_submission(
     auth_user: AuthUser,
     State(state): State<AppState>,
     AppPath(id): AppPath<i32>,
+    Query(query): Query<SubmissionResultQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     // The kernel OWNS the subject: one kernel per request per subject.
     let kernel = VisibilityKernel::new(&state, Subject::from_auth_user(&auth_user));
@@ -448,8 +451,14 @@ pub async fn get_submission(
 
     let sub = find_submission(&state.db, id).await?;
     let visibility = Some(VisibilityContext::from_auth_user(&auth_user));
-    let response =
-        build_submission_response(&state.db, &*state.blob_store, sub, visibility).await?;
+    let response = build_submission_response_with_cases(
+        &state.db,
+        &*state.blob_store,
+        sub,
+        visibility,
+        &query,
+    )
+    .await?;
 
     // The DTO reaches the response body only through `into_masked_json`
     // (inside `apply_filter_to_response`), so a `Redact` decision - host or
@@ -496,6 +505,43 @@ pub async fn list_submission_judgements(
     let sub = find_submission(&state.db, id).await?;
     let visibility = VisibilityContext::from_auth_user(&auth_user);
 
+    let judgements = submission_judgement::Entity::find()
+        .filter(submission_judgement::Column::SubmissionId.eq(sub.id))
+        .order_by_asc(submission_judgement::Column::Version)
+        .all(&state.db)
+        .await?;
+
+    // The full version history exposes in-progress / pending admin regrades and
+    // superseded verdicts. Only viewers who can rejudge (or see all submissions)
+    // may see the history; everyone else, including the submission owner, sees
+    // only the current published judgement. Gating this only in the web client
+    // would still leak the history to a direct API call.
+    let can_see_history =
+        visibility.has_view_all || auth_user.has_permission(perm::SUBMISSION_REJUDGE);
+    let judgements: Vec<_> = if can_see_history {
+        judgements
+    } else {
+        judgements.into_iter().filter(|j| j.is_current).collect()
+    };
+
+    let mut responses = Vec::with_capacity(judgements.len());
+    for judgement in judgements {
+        let response =
+            build_visible_judgement(&state, &kernel, &sub, &visibility, judgement, None).await?;
+        responses.push(response);
+    }
+
+    Ok(Json(responses))
+}
+
+async fn build_visible_judgement(
+    state: &AppState,
+    kernel: &VisibilityKernel<'_>,
+    sub: &submission::Model,
+    visibility: &VisibilityContext,
+    judgement: submission_judgement::Model,
+    query: Option<&SubmissionResultQuery>,
+) -> Result<serde_json::Value, AppError> {
     let problem_model = problem::Entity::find_by_id(sub.problem_id)
         .one(&state.db)
         .await?
@@ -527,48 +573,92 @@ pub async fn list_submission_judgements(
             .is_some_and(|c| c.show_compile_output);
     let show_test_details = visibility.has_view_all || problem_model.show_test_details;
 
-    let judgements = submission_judgement::Entity::find()
-        .filter(submission_judgement::Column::SubmissionId.eq(sub.id))
-        .order_by_asc(submission_judgement::Column::Version)
-        .all(&state.db)
-        .await?;
-
-    // The full version history exposes in-progress / pending admin regrades and
-    // superseded verdicts. Only viewers who can rejudge (or see all submissions)
-    // may see the history; everyone else, including the submission owner, sees
-    // only the current published judgement. Gating this only in the web client
-    // would still leak the history to a direct API call.
-    let can_see_history =
-        visibility.has_view_all || auth_user.has_permission(perm::SUBMISSION_REJUDGE);
-    let judgements: Vec<_> = if can_see_history {
-        judgements
-    } else {
-        judgements.into_iter().filter(|j| j.is_current).collect()
-    };
-
-    let mut responses = Vec::with_capacity(judgements.len());
-    for judgement in judgements {
-        let response = build_judgement_response(
-            &state.db,
-            &*state.blob_store,
-            judgement,
-            show_compile_output,
-            show_test_details,
-        )
-        .await?;
-        let response = apply_filter_to_judgement_response(
-            &kernel,
-            &sub,
-            &user_model,
-            &problem_model,
-            response,
-            &visibility,
-        )
-        .await?;
-        responses.push(response);
+    let mut response = build_judgement_response(
+        &state.db,
+        &*state.blob_store,
+        judgement,
+        show_compile_output,
+        show_test_details,
+        query,
+    )
+    .await?;
+    if visibility.has_view_all && !response.is_current {
+        let row = state.db.query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT COUNT(*) AS count FROM test_case_result r
+             LEFT JOIN test_case_result c ON c.test_case_id = r.test_case_id
+               AND c.judgement_id = (SELECT id FROM submission_judgement WHERE submission_id = $1 AND is_current)
+             WHERE r.judgement_id = $2 AND (c.id IS NULL OR
+               (r.verdict, r.score, r.time_used, r.memory_used, r.checker_output)
+               IS DISTINCT FROM (c.verdict, c.score, c.time_used, c.memory_used, c.checker_output))",
+            [sub.id.into(), response.id.into()],
+        )).await?;
+        response.case_changes = row
+            .map(|r| r.try_get::<i64>("", "count"))
+            .transpose()?
+            .map(|n| n as u64);
     }
-
-    Ok(Json(responses))
+    apply_filter_to_judgement_response(
+        kernel,
+        sub,
+        &user_model,
+        &problem_model,
+        response,
+        visibility,
+    )
+    .await
+}
+#[utoipa::path(
+    get,
+    path = "/{id}/judgements/{judgement_id}",
+    tag = "Submissions",
+    operation_id = "getSubmissionJudgement",
+    summary = "Get one judgement with a bounded testcase page",
+    params(
+        ("id" = i32, Path, description = "Submission ID"),
+        ("judgement_id" = i32, Path, description = "Judgement ID"),
+        SubmissionResultQuery,
+    ),
+    responses(
+        (status = 200, description = "Judgement details", body = SubmissionJudgementResponse),
+        (status = 400, description = "Invalid result page", body = ErrorBody),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 404, description = "Judgement not found", body = ErrorBody),
+    ),
+    security(("jwt" = [])),
+)]
+#[instrument(skip(state, auth_user, query))]
+pub async fn get_submission_judgement(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    AppPath((id, judgement_id)): AppPath<(i32, i32)>,
+    Query(query): Query<SubmissionResultQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let kernel = VisibilityKernel::new(&state, Subject::from_auth_user(&auth_user));
+    if kernel
+        .decide(Action::Read, Resource::Submission(id))
+        .await?
+        .is_denied()
+    {
+        return Err(AppError::NotFound("Submission not found".into()));
+    }
+    let sub = find_submission(&state.db, id).await?;
+    let visibility = VisibilityContext::from_auth_user(&auth_user);
+    let judgement = submission_judgement::Entity::find_by_id(judgement_id)
+        .filter(submission_judgement::Column::SubmissionId.eq(id))
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Judgement not found".into()))?;
+    if !judgement.is_current
+        && !visibility.has_view_all
+        && !auth_user.has_permission(perm::SUBMISSION_REJUDGE)
+    {
+        return Err(AppError::NotFound("Judgement not found".into()));
+    }
+    Ok(Json(
+        build_visible_judgement(&state, &kernel, &sub, &visibility, judgement, Some(&query))
+            .await?,
+    ))
 }
 
 #[utoipa::path(

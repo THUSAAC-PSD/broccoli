@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::AppError;
 
-#[derive(Serialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Pagination {
     #[schema(example = 1)]
     pub page: u64,

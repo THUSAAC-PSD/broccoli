@@ -956,7 +956,7 @@ mod judgement_history {
     }
 
     #[tokio::test]
-    async fn list_judgements_returns_each_version_with_its_results() {
+    async fn list_judgements_returns_summaries_and_loads_results_on_demand() {
         let app = TestApp::spawn().await;
         let admin_token = app
             .create_user_with_role("admin_jhist2", "pass1234", "admin")
@@ -974,15 +974,143 @@ mod judgement_history {
         let versions = res.body.as_array().expect("response should be an array");
         assert_eq!(versions.len(), 2);
         assert_eq!(versions[0]["version"], 10);
-        assert_eq!(versions[0]["test_case_results"][0]["score"], 40.0);
-        assert_eq!(versions[0]["test_case_results"][0]["input"], "1 2\n");
-        assert_eq!(
-            versions[0]["test_case_results"][0]["expected_output"],
-            "3\n"
-        );
+        assert_eq!(versions[0]["test_case_results"], json!([]));
+        assert_eq!(versions[0]["test_case_pagination"]["total"], 1);
+        assert_eq!(versions[0]["case_changes"], 1);
         assert_eq!(versions[1]["version"], 11);
         assert_eq!(versions[1]["is_current"], true);
-        assert_eq!(versions[1]["test_case_results"][0]["score"], 100.0);
+        let version_id = versions[0]["id"].as_i64().unwrap();
+        let detail = app
+            .get_with_token(
+                &format!(
+                    "{}/{version_id}",
+                    routes::submission_judgements(submission_id)
+                ),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(detail.status, 200, "{}", detail.body);
+        assert_eq!(detail.body["test_case_results"][0]["score"], 40.0);
+        assert_eq!(detail.body["test_case_results"][0]["input"], "1 2\n");
+        assert_eq!(
+            detail.body["test_case_results"][0]["expected_output"],
+            "3\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn testcase_pages_and_expanded_outputs_are_bounded_and_authorized() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("page_admin", "pass1234", "admin")
+            .await;
+        let owner = app
+            .create_authenticated_user("page_owner", "pass1234")
+            .await;
+        let stranger = app
+            .create_authenticated_user("page_stranger", "pass1234")
+            .await;
+        let problem_id = app.create_problem(&admin, "Paged results").await;
+        let (submission_id, old_id, current_id) =
+            seed_history(&app, "page_owner", problem_id).await;
+        let text = "x\n".repeat(10_000);
+        let mut result_id = 0;
+        let mut testcase_id = 0;
+        for position in 2..=42 {
+            let tc = test_case::ActiveModel {
+                problem_id: Set(problem_id),
+                input: Set(text.clone()),
+                expected_output: Set(text.clone()),
+                score: Set(1),
+                label: Set(format!("case-{position}")),
+                is_sample: Set(false),
+                position: Set(position),
+                created_at: Set(Utc::now()),
+                ..Default::default()
+            }
+            .insert(&app.db)
+            .await
+            .unwrap();
+            let result = test_case_result::ActiveModel {
+                submission_id: Set(submission_id),
+                judgement_id: Set(Some(current_id)),
+                test_case_id: Set(Some(tc.id)),
+                verdict: Set(Verdict::Accepted),
+                score: Set(1.0),
+                stdout: Set(Some(text.clone())),
+                stderr: Set(Some("界".repeat(100_000))),
+                checker_output: Set(Some(text.clone())),
+                created_at: Set(Utc::now()),
+                ..Default::default()
+            }
+            .insert(&app.db)
+            .await
+            .unwrap();
+            result_id = result.id;
+            testcase_id = tc.id;
+        }
+        let url = routes::submission(submission_id);
+        let first = app
+            .get_with_token(&format!("{url}?per_page=99999"), &admin)
+            .await;
+        assert_eq!(first.status, 200, "{}", first.body);
+        assert_eq!(
+            first.body["result"]["test_case_results"]
+                .as_array()
+                .unwrap()
+                .len(),
+            20
+        );
+        assert_eq!(first.body["result"]["test_case_pagination"]["total"], 42);
+        assert_eq!(first.body["result"]["test_case_pagination"]["per_page"], 20);
+        let second = app.get_with_token(&format!("{url}?page=2"), &admin).await;
+        assert_eq!(second.status, 200, "{}", second.body);
+        let cases = second.body["result"]["test_case_results"]
+            .as_array()
+            .unwrap();
+        assert_eq!(cases.len(), 20);
+        assert_ne!(
+            cases[0]["id"],
+            first.body["result"]["test_case_results"][0]["id"]
+        );
+        for field in ["input", "expected_output", "stdout", "checker_output"] {
+            assert_eq!(cases[0][field], "x\nx\nx\nx\nx\n… (truncated)");
+        }
+        let full_url = format!("{url}?result_id={result_id}&full_output=true");
+        let expanded = app.get_with_token(&full_url, &admin).await;
+        assert_eq!(expanded.status, 200, "{}", expanded.body);
+        let rows = expanded.body["result"]["test_case_results"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["stdout"], text);
+        assert!(rows[0]["stderr"].as_str().unwrap().len() <= 65556);
+        let hidden = app.get_with_token(&full_url, &owner).await;
+        assert_eq!(hidden.status, 200);
+        assert!(hidden.body["result"]["test_case_results"][0]["input"].is_null());
+        assert!(hidden.body["result"]["test_case_results"][0]["stdout"].is_null());
+        assert_eq!(app.get_with_token(&full_url, &stranger).await.status, 404);
+        assert_eq!(
+            app.get_with_token(&format!("{url}?full_output=true"), &admin)
+                .await
+                .status,
+            400
+        );
+        let selected = app
+            .get_with_token(&format!("{url}?test_case_ids={testcase_id}"), &admin)
+            .await;
+        assert_eq!(
+            selected.body["result"]["test_case_results"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let old_url = format!("{}/{old_id}", routes::submission_judgements(submission_id));
+        assert_eq!(app.get_with_token(&old_url, &owner).await.status, 404);
+        let old = app.get_with_token(&old_url, &admin).await;
+        assert_eq!(old.status, 200, "{}", old.body);
+        assert_eq!(old.body["test_case_pagination"]["total"], 1);
     }
 
     #[tokio::test]

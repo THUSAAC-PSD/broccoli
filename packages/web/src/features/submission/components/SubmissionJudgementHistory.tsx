@@ -6,7 +6,7 @@ import {
   SYSTEM_ADMIN,
 } from '@broccoli/web-sdk/permissions';
 import type { SubmissionJudgement } from '@broccoli/web-sdk/submission';
-import { Badge, Button } from '@broccoli/web-sdk/ui';
+import { Badge, Button, TextPreview } from '@broccoli/web-sdk/ui';
 import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -23,8 +23,8 @@ import { toast } from 'sonner';
 import { useSystemOverview } from '@/features/system/hooks/useSystemOverview';
 
 import { getVerdictBadge } from '../utils/verdict';
+import { SubmissionTestCases } from './SubmissionTestCases';
 import { testCaseDiffStatus } from './testCaseDiff';
-import { TestCaseRow } from './TestCaseRow';
 
 const PRESERVE_TARGET_WORKER = '__preserve__';
 
@@ -273,14 +273,15 @@ function JudgementRow({
     judgement.compile_output ||
     judgement.error_code ||
     judgement.error_message ||
-    judgement.test_case_results.length > 0;
-  const caseChanges = countCaseChanges(judgement, currentJudgement);
-  const currentResults = new Map(
-    (currentJudgement?.test_case_results ?? []).map((testCase, index) => [
-      testCaseKey(testCase, index),
-      testCase,
-    ]),
-  );
+    (judgement.test_case_pagination?.total ??
+      judgement.test_case_results.length) > 0;
+  const caseChanges = {
+    changed: judgement.case_changes ?? 0,
+    unknown:
+      judgement.case_changes == null && judgement.id !== currentJudgement?.id
+        ? (judgement.test_case_pagination?.total ?? 0)
+        : 0,
+  };
 
   return (
     <div className="py-3 text-sm">
@@ -373,43 +374,44 @@ function JudgementRow({
                 </div>
               )}
               {judgement.error_message && (
-                <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
-                  {judgement.error_message}
-                </pre>
+                <TextPreview
+                  label={t('result.systemMessage')}
+                  text={judgement.error_message}
+                />
               )}
               {judgement.compile_output && (
                 <div>
                   <div className="mb-1 text-xs font-medium text-muted-foreground">
                     {t('result.compileOutput')}
                   </div>
-                  <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
-                    {judgement.compile_output}
-                  </pre>
+                  <TextPreview
+                    label={t('result.compileOutput')}
+                    text={judgement.compile_output}
+                  />
                 </div>
               )}
             </div>
           )}
 
-          {judgement.test_case_results.length > 0 && (
+          {(judgement.test_case_pagination?.total ??
+            judgement.test_case_results.length) > 0 && (
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground">
                 {t('submissionDetail.resultDetails')}
               </div>
-              {judgement.test_case_results.map((testCase, index) => (
-                <div key={testCase.id} className="space-y-1">
+              <SubmissionTestCases
+                submissionId={judgement.submission_id}
+                judgementId={judgement.id}
+                live={!judgement.is_finalized}
+                status={judgement.status}
+                comparisonJudgementId={currentJudgement?.id}
+                renderDiff={(testCase, currentTestCase) => (
                   <TestCaseDiffNote
-                    currentTestCase={currentResults.get(
-                      testCaseKey(testCase, index),
-                    )}
                     testCase={testCase}
+                    currentTestCase={currentTestCase}
                   />
-                  <TestCaseRow
-                    testCase={testCase}
-                    index={index + 1}
-                    status={judgement.status}
-                  />
-                </div>
-              ))}
+                )}
+              />
             </div>
           )}
 
@@ -541,51 +543,9 @@ function TestCaseDiffNote({
   );
 }
 
-function testCaseKey(
-  testCase: SubmissionJudgement['test_case_results'][number],
-  index: number,
-) {
-  return testCase.test_case_id ?? index;
-}
-
 interface CaseChangeCounts {
   changed: number;
   unknown: number;
-}
-
-function countCaseChanges(
-  judgement: SubmissionJudgement,
-  currentJudgement: SubmissionJudgement | null,
-): CaseChangeCounts {
-  if (!currentJudgement || judgement.id === currentJudgement.id) {
-    return { changed: 0, unknown: 0 };
-  }
-
-  const currentResults = new Map(
-    currentJudgement.test_case_results.map((testCase, index) => [
-      testCaseKey(testCase, index),
-      testCase,
-    ]),
-  );
-
-  return judgement.test_case_results.reduce<CaseChangeCounts>(
-    (counts, testCase, index) => {
-      const currentTestCase = currentResults.get(testCaseKey(testCase, index));
-      if (!currentTestCase) {
-        return { ...counts, changed: counts.changed + 1 };
-      }
-
-      const status = testCaseDiffStatus(testCase, currentTestCase);
-      if (status === 'changed') {
-        return { ...counts, changed: counts.changed + 1 };
-      }
-      if (status === 'unknown') {
-        return { ...counts, unknown: counts.unknown + 1 };
-      }
-      return counts;
-    },
-    { changed: 0, unknown: 0 },
-  );
 }
 
 function formatDelta(

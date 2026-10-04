@@ -1,8 +1,10 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
-import type {
-  SubmissionStatus,
-  TestCaseResult,
+import {
+  type SubmissionStatus,
+  TestCaseOutput,
+  type TestCaseResult,
 } from '@broccoli/web-sdk/submission';
+import { Button } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 import {
   AlertCircle,
@@ -11,39 +13,10 @@ import {
   MinusCircle,
   XCircle,
 } from 'lucide-react';
+import { useState } from 'react';
 
 import type { VerdictKey } from './verdict-key';
 import { getVerdictKey } from './verdict-key';
-
-// Cap how much of each test-case text field we render. The server/worker keep up
-// to 64 KiB per field; painting that raw in a wrapping <pre> (times many cases)
-// janks the page, so the detail view shows a head slice with a truncation note.
-const MAX_OUTPUT_CHARS = 2000;
-
-function OutputBlock({ label, text }: { label: string; text: string }) {
-  const { t } = useTranslation();
-  const truncated = text.length > MAX_OUTPUT_CHARS;
-  const shown = truncated ? text.slice(0, MAX_OUTPUT_CHARS) : text;
-  return (
-    <div>
-      <div className="text-xs font-medium text-muted-foreground mb-1">
-        {label}
-      </div>
-      <pre className="text-xs bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-        {shown}
-        {truncated && (
-          <span className="text-muted-foreground italic">
-            {'\n'}
-            {t('result.outputTruncated', {
-              shown: MAX_OUTPUT_CHARS.toLocaleString(),
-              total: text.length.toLocaleString(),
-            })}
-          </span>
-        )}
-      </pre>
-    </div>
-  );
-}
 
 const VERDICT_CONFIG: Record<
   VerdictKey,
@@ -113,18 +86,25 @@ export function formatMemory(kb: number): string {
 export function TestCaseRow({
   testCase,
   index,
+  submissionId,
+  judgementId,
   status,
 }: {
   testCase: TestCaseResult;
   index: number;
-  /**
-   * Status of the submission/judgement this test case belongs to. Required
-   * so a masked (`null`) verdict can be told apart from a genuinely pending
-   * one -- see `getVerdictKey`.
-   */
+  submissionId: number;
+  judgementId?: number | null;
   status: SubmissionStatus;
 }) {
   const { t } = useTranslation();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const hasDetails = !!(
+    testCase.checker_output ||
+    testCase.input ||
+    testCase.expected_output ||
+    testCase.stdout ||
+    testCase.stderr
+  );
   const verdictKey = getVerdictKey(testCase.verdict, status);
   const config = VERDICT_CONFIG[verdictKey];
   const Icon = config.icon;
@@ -138,11 +118,6 @@ export function TestCaseRow({
             <div className="font-medium">
               {t('result.testCase', { id: String(index) })}
             </div>
-            {testCase.checker_output && (
-              <div className="text-xs text-muted-foreground mt-1">
-                {t('result.checkerOutput')}: {testCase.checker_output}
-              </div>
-            )}
           </div>
         </div>
         <div className="text-right text-sm text-muted-foreground">
@@ -160,26 +135,46 @@ export function TestCaseRow({
           )}
         </div>
       </div>
-      {(testCase.input ||
-        testCase.expected_output ||
-        testCase.stdout ||
-        testCase.stderr) && (
+      {hasDetails && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mx-3 mb-2"
+          aria-expanded={detailsOpen}
+          onClick={() => setDetailsOpen((open) => !open)}
+        >
+          {t(detailsOpen ? 'result.hideDetails' : 'result.showDetails')}
+        </Button>
+      )}
+      {hasDetails && detailsOpen && (
         <div className="px-3 pb-3 space-y-2">
-          {testCase.input && (
-            <OutputBlock label={t('result.input')} text={testCase.input} />
-          )}
-          {testCase.expected_output && (
-            <OutputBlock
-              label={t('result.expectedOutput')}
-              text={testCase.expected_output}
+          {(
+            [
+              'checker_output',
+              'input',
+              'expected_output',
+              'stdout',
+              'stderr',
+            ] as const
+          ).map((field) => (
+            <TestCaseOutput
+              key={field}
+              submissionId={submissionId}
+              judgementId={judgementId}
+              testCase={testCase}
+              field={field}
+              label={t(
+                {
+                  checker_output: 'result.checkerOutput',
+                  input: 'result.input',
+                  expected_output: 'result.expectedOutput',
+                  stdout: 'result.stdout',
+                  stderr: 'result.stderr',
+                }[field],
+              )}
             />
-          )}
-          {testCase.stdout && (
-            <OutputBlock label={t('result.stdout')} text={testCase.stdout} />
-          )}
-          {testCase.stderr && (
-            <OutputBlock label={t('result.stderr')} text={testCase.stderr} />
-          )}
+          ))}
         </div>
       )}
     </div>

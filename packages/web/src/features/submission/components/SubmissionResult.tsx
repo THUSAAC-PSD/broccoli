@@ -1,10 +1,11 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { Slot } from '@broccoli/web-sdk/slot';
 import type { Submission, SubmissionError } from '@broccoli/web-sdk/submission';
+import { TextPreview } from '@broccoli/web-sdk/ui';
 import { Timer, XCircle } from 'lucide-react';
 
 import { ReadOnlyCodeViewer } from './ReadOnlyCodeViewer';
-import { TestCaseRow } from './TestCaseRow';
+import { SubmissionTestCases } from './SubmissionTestCases';
 
 interface SubmissionResultProps {
   submission?: Submission | null;
@@ -79,9 +80,10 @@ export function SubmissionResult({
           <div className="text-sm font-medium mb-1">
             {t('result.compileOutput')}
           </div>
-          <pre className="text-xs bg-muted p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
-            {result.compile_output}
-          </pre>
+          <TextPreview
+            label={t('result.compileOutput')}
+            text={result.compile_output}
+          />
         </div>
       )}
 
@@ -89,9 +91,10 @@ export function SubmissionResult({
       {status === 'SystemError' && result?.error_message && (
         <div className="mb-4 text-sm text-destructive space-y-1">
           <div className="font-medium">{t('result.systemMessage')}</div>
-          <pre className="text-xs bg-muted p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
-            {result.error_message}
-          </pre>
+          <TextPreview
+            label={t('result.systemMessage')}
+            text={result.error_message}
+          />
         </div>
       )}
 
@@ -102,21 +105,22 @@ export function SubmissionResult({
         className="space-y-2"
         slotProps={{ submission, testCases }}
       >
-        {testCases.length > 0
-          ? testCases.map((tc, index) => (
-              <TestCaseRow
-                key={tc.id}
-                testCase={tc}
-                index={index + 1}
-                status={submission.status}
-              />
-            ))
-          : !isRunning &&
-            status === 'Judged' && (
-              <div className="text-center text-muted-foreground py-8">
-                {t('result.noResults')}
-              </div>
-            )}
+        {(result?.test_case_pagination?.total ?? testCases.length) > 0 ? (
+          <SubmissionTestCases
+            key={`${submission.id}:${result?.judgement_id}`}
+            submissionId={submission.id}
+            judgementId={result?.judgement_id}
+            live={isRunning}
+            status={submission.status}
+          />
+        ) : (
+          !isRunning &&
+          status === 'Judged' && (
+            <div className="text-center text-muted-foreground py-8">
+              {t('result.noResults')}
+            </div>
+          )
+        )}
       </Slot>
     </div>
   );

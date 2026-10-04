@@ -1,7 +1,12 @@
 import { useTranslation } from '@broccoli/web-sdk/i18n';
 import { useSlotPermissions } from '@broccoli/web-sdk/slot';
-import type { Submission, TestCaseResult } from '@broccoli/web-sdk/submission';
-import { Badge, Button } from '@broccoli/web-sdk/ui';
+import {
+  type Submission,
+  TestCaseOutput,
+  type TestCaseResult,
+  useTestCasePage,
+} from '@broccoli/web-sdk/submission';
+import { Badge, PaginatedList } from '@broccoli/web-sdk/ui';
 import { cn } from '@broccoli/web-sdk/utils';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -41,7 +46,6 @@ type DisplayTestCaseResult = TestCaseResult & {
 type DisplaySubtaskResult = {
   subtask: SubtaskInfo;
   score: number;
-  testCases: DisplayTestCaseResult[];
 };
 
 const METHOD_META: Record<string, { abbrKey: string; color: string }> = {
@@ -94,8 +98,6 @@ function verdictMeta(verdict: string | null | undefined) {
   return VERDICT_META[verdict] ?? UNKNOWN_VERDICT_META;
 }
 
-const DETAIL_PREVIEW_CHARS = 4096;
-
 function VerdictIcon({
   verdict,
   size = 14,
@@ -144,20 +146,6 @@ function formatKb(kb: number): string {
   return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
 }
 
-function formatCharCount(count: number): string {
-  if (count < 1000) {
-    return `${count}`;
-  }
-  if (count < 1_000_000) {
-    return `${(count / 1000).toFixed(count >= 10_000 ? 0 : 1)}K`;
-  }
-  return `${(count / 1_000_000).toFixed(count >= 10_000_000 ? 0 : 1)}M`;
-}
-
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
-
 function createPlaceholderTestCase(
   label: string,
   testCaseId: number | undefined,
@@ -174,165 +162,25 @@ function createPlaceholderTestCase(
   };
 }
 
-function buildStaticTestCaseList({
-  labels,
-  labelMap,
-  tcById,
-  subtaskIndex,
-}: {
-  labels: string[];
-  labelMap: Record<string, number>;
-  tcById: Map<number, TestCaseResult>;
-  subtaskIndex: number;
-}): DisplayTestCaseResult[] {
-  return labels.map((label, labelIndex) => {
-    const resolvedId =
-      labelMap[label] ??
-      (Number.isNaN(Number(label)) ? undefined : Number(label));
-    const actual = resolvedId != null ? tcById.get(resolvedId) : undefined;
-    if (actual) {
-      return actual;
-    }
-
-    return createPlaceholderTestCase(
-      label,
-      resolvedId,
-      -((subtaskIndex + 1) * 10000 + labelIndex + 1),
-      'Pending',
-    );
-  });
-}
-
-function getNormalizedTestCaseScore(
-  testCase: DisplayTestCaseResult,
-  maxScore: number | undefined,
-): number | null {
-  // A withheld (masked-to-null) score is treated the same as a placeholder:
-  // there is nothing to normalize, so it's excluded from the provisional
-  // average below rather than silently counted as 0.
-  if (testCase.isPlaceholder || testCase.score == null) {
-    return null;
-  }
-  if (!maxScore || maxScore <= 0) {
-    return testCase.verdict === 'Accepted' ? 1 : 0;
-  }
-  return clamp01(testCase.score / maxScore);
-}
-
-function computeProvisionalSubtaskScore(
-  subtask: SubtaskInfo,
-  testCases: DisplayTestCaseResult[],
-  testCaseMaxScores: Record<string, number>,
-): number {
-  const labels = subtask.test_cases ?? [];
-  if (labels.length === 0) {
-    return 0;
-  }
-
-  const normalized = labels.map((label, index) =>
-    getNormalizedTestCaseScore(testCases[index], testCaseMaxScores[label]),
-  );
-  const judged = normalized.filter((value): value is number => value != null);
-
-  if (judged.length === 0) {
-    return 0;
-  }
-
-  switch (subtask.scoring_method) {
-    case 'group_min':
-      return judged.every((value) => value >= 1) ? subtask.max_score : 0;
-    case 'group_mul':
-      return Number(
-        (
-          judged.reduce((product, value) => product * value, 1) *
-          subtask.max_score
-        ).toFixed(2),
-      );
-    case 'sum':
-    default:
-      return Number(
-        (
-          (normalized.reduce<number>((sum, value) => sum + (value ?? 0), 0) /
-            labels.length) *
-          subtask.max_score
-        ).toFixed(2),
-      );
-  }
-}
-
 function buildSubtaskResults({
   taskSubtasks,
   subtaskScores,
-  effectiveFeedback,
-  labelMap,
-  testCaseMaxScores,
-  allTestCases,
 }: {
   taskSubtasks: SubtaskInfo[];
   subtaskScores: SubtaskScoreEntry[] | null | undefined;
-  effectiveFeedback: string;
-  labelMap: Record<string, number>;
-  testCaseMaxScores: Record<string, number>;
-  allTestCases: TestCaseResult[];
 }): DisplaySubtaskResult[] {
-  const tcById = new Map<number, TestCaseResult>();
-  for (const testCase of allTestCases) {
-    // A withheld (masked-to-null) test_case_id can't be looked up by id;
-    // buildStaticTestCaseList's label lookup will fall through to a
-    // "Pending"-style placeholder for that label, same as an id that's
-    // simply missing from this batch.
-    if (testCase.test_case_id == null) continue;
-    tcById.set(testCase.test_case_id, testCase);
-  }
-
-  const subtaskCount = Math.max(
-    taskSubtasks.length,
-    subtaskScores?.length ?? 0,
-  );
-  const results: DisplaySubtaskResult[] = [];
-
-  for (let index = 0; index < subtaskCount; index += 1) {
-    const scoreEntry = subtaskScores?.[index];
-    const configSubtask = taskSubtasks[index];
-    if (!configSubtask && !scoreEntry) {
-      continue;
-    }
-
-    const subtask: SubtaskInfo = configSubtask ?? {
-      name: scoreEntry?.name ?? '',
-      scoring_method: scoreEntry?.scoring_method ?? 'sum',
-      max_score: scoreEntry?.max_score ?? 0,
-    };
-
-    const testCases =
-      effectiveFeedback === 'full' && subtask.test_cases?.length
-        ? buildStaticTestCaseList({
-            labels: subtask.test_cases,
-            labelMap,
-            tcById,
-            subtaskIndex: index,
-          })
-        : [];
-
-    const score =
-      scoreEntry?.score ??
-      (testCases.length > 0
-        ? computeProvisionalSubtaskScore(subtask, testCases, testCaseMaxScores)
-        : 0);
-
-    results.push({
-      subtask: {
-        name: subtask.name,
-        scoring_method: subtask.scoring_method,
-        max_score: subtask.max_score,
-        test_cases: subtask.test_cases,
+  const count = Math.max(taskSubtasks.length, subtaskScores?.length ?? 0);
+  return Array.from({ length: count }, (_, index) => {
+    const entry = subtaskScores?.[index];
+    return {
+      subtask: taskSubtasks[index] ?? {
+        name: entry?.name ?? '',
+        scoring_method: entry?.scoring_method ?? 'sum',
+        max_score: entry?.max_score ?? 0,
       },
-      score,
-      testCases,
-    });
-  }
-
-  return results;
+      score: entry?.score ?? 0,
+    };
+  });
 }
 
 function tcHasDetails(tc: TestCaseResult): boolean {
@@ -345,58 +193,14 @@ function tcHasDetails(tc: TestCaseResult): boolean {
   );
 }
 
-function DetailBlock({ label, content }: { label: string; content: string }) {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const isLarge = content.length > DETAIL_PREVIEW_CHARS;
-  const visibleContent =
-    isLarge && !expanded ? content.slice(0, DETAIL_PREVIEW_CHARS) : content;
-
-  return (
-    <div className="mb-2">
-      <div className="mb-1 flex items-center gap-2">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </div>
-        {isLarge && (
-          <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
-            {expanded
-              ? t('ioi.submission.detail.fullSize', {
-                  count: formatCharCount(content.length),
-                })
-              : t('ioi.submission.detail.previewSize', {
-                  preview: formatCharCount(DETAIL_PREVIEW_CHARS),
-                  total: formatCharCount(content.length),
-                })}
-          </span>
-        )}
-      </div>
-      <pre className="m-0 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted px-2.5 py-2 font-mono tabular-nums text-xs leading-[18px] text-foreground">
-        {visibleContent}
-      </pre>
-      {isLarge && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="mt-1 h-auto px-2 py-1 text-[11px] font-medium text-primary"
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded
-            ? t('ioi.submission.detail.hideFull')
-            : t('ioi.submission.detail.showFull')}
-        </Button>
-      )}
-    </div>
-  );
-}
-
 function TestCaseDetailPanel({
   tc,
   index,
+  submission,
 }: {
   tc: TestCaseResult;
   index: number;
+  submission: Submission;
 }) {
   const vm = verdictMeta(tc.verdict);
   const { t } = useTranslation();
@@ -434,139 +238,180 @@ function TestCaseDetailPanel({
           </span>
         )}
       </div>
-      {tc.checker_output && (
-        <DetailBlock
-          label={t('ioi.submission.detail.checkerOutput')}
-          content={tc.checker_output}
+      {(
+        [
+          'checker_output',
+          'stdout',
+          'stderr',
+          'input',
+          'expected_output',
+        ] as const
+      ).map((field) => (
+        <TestCaseOutput
+          key={field}
+          submissionId={submission.id}
+          judgementId={submission.result?.judgement_id}
+          testCase={tc}
+          field={field}
+          label={t(
+            {
+              checker_output: 'ioi.submission.detail.checkerOutput',
+              stdout: 'ioi.submission.detail.stdout',
+              stderr: 'ioi.submission.detail.stderr',
+              input: 'ioi.submission.detail.input',
+              expected_output: 'ioi.submission.detail.expectedOutput',
+            }[field],
+          )}
         />
-      )}
-      {tc.stdout && (
-        <DetailBlock
-          label={t('ioi.submission.detail.stdout')}
-          content={tc.stdout}
-        />
-      )}
-      {tc.stderr && (
-        <DetailBlock
-          label={t('ioi.submission.detail.stderr')}
-          content={tc.stderr}
-        />
-      )}
-      {tc.input && (
-        <DetailBlock
-          label={t('ioi.submission.detail.input')}
-          content={tc.input}
-        />
-      )}
-      {tc.expected_output && (
-        <DetailBlock
-          label={t('ioi.submission.detail.expectedOutput')}
-          content={tc.expected_output}
-        />
-      )}
+      ))}
     </div>
   );
 }
 
-function TestCaseResultList({ testCases }: { testCases: TestCaseResult[] }) {
+function TestCaseResultList({ submission }: { submission: Submission }) {
+  const [page, setPage] = useState(1);
+  const query = useTestCasePage({
+    submissionId: submission.id,
+    judgementId: submission.result?.judgement_id,
+    page,
+    live: submission.status === 'Running',
+  });
+  const testCases = query.data?.test_case_results ?? [];
+  const { t } = useTranslation();
   const [selectedTcIndex, setSelectedTcIndex] = useState<number | null>(null);
   const [hoveredTcIndex, setHoveredTcIndex] = useState<number | null>(null);
   const selectedTc =
-    selectedTcIndex != null ? testCases[selectedTcIndex] : null;
+    selectedTcIndex != null
+      ? testCases[selectedTcIndex - (page - 1) * 20]
+      : null;
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-0.5 px-2.5 py-2">
-        {testCases.map((tc, i) => {
-          const vm = verdictMeta(tc.verdict);
-          const clickable = tcHasDetails(tc);
-          const isSelected = selectedTcIndex === i;
-          const tcScore = tc.score ?? 0;
-          const tcScoreColor =
-            tc.verdict === 'Accepted'
-              ? '#10b981'
-              : tcScore > 0
-                ? '#f59e0b'
-                : '#6b7280';
+      {query.isLoading && (
+        <p className="p-3 text-xs text-muted-foreground">
+          {t('result.loadingOutput')}
+        </p>
+      )}
+      {query.isError && (
+        <p className="p-3 text-xs text-destructive">
+          {t('result.caseLoadError')}
+        </p>
+      )}
+      <PaginatedList
+        items={testCases}
+        pagination={query.data?.pagination}
+        loading={query.isFetching}
+        onPageChange={(nextPage) => {
+          setPage(nextPage);
+          setSelectedTcIndex(null);
+          setHoveredTcIndex(null);
+        }}
+      >
+        {(cases, offset) => (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-0.5 px-2.5 py-2">
+            {cases.map((tc, pageIndex) => {
+              const i = offset + pageIndex;
+              const vm = verdictMeta(tc.verdict);
+              const clickable = tcHasDetails(tc);
+              const isSelected = selectedTcIndex === i;
+              const tcScore = tc.score ?? 0;
+              const tcScoreColor =
+                tc.verdict === 'Accepted'
+                  ? '#10b981'
+                  : tcScore > 0
+                    ? '#f59e0b'
+                    : '#6b7280';
 
-          return (
-            <div
-              key={tc.id}
-              role={clickable ? 'button' : undefined}
-              tabIndex={clickable ? 0 : undefined}
-              onClick={
-                clickable
-                  ? () => setSelectedTcIndex(isSelected ? null : i)
-                  : undefined
-              }
-              onKeyDown={
-                clickable
-                  ? (e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setSelectedTcIndex(isSelected ? null : i);
-                      }
-                    }
-                  : undefined
-              }
-              onMouseEnter={clickable ? () => setHoveredTcIndex(i) : undefined}
-              onMouseLeave={
-                clickable ? () => setHoveredTcIndex(null) : undefined
-              }
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-all duration-150',
-                clickable ? 'cursor-pointer' : 'cursor-default',
-              )}
-              style={{
-                background:
-                  isSelected || hoveredTcIndex === i ? `${vm.color}20` : vm.bg,
-                outline: isSelected ? `1.5px solid ${vm.color}66` : 'none',
-                borderBottom: clickable
-                  ? `1.5px solid ${isSelected ? vm.color + '66' : vm.color + '30'}`
-                  : 'none',
-              }}
-            >
-              <VerdictIcon verdict={tc.verdict} size={14} />
-              <span className="text-[11px] text-muted-foreground">
-                #{i + 1}
-              </span>
-              {tc.score != null && (
-                <span
-                  className="font-mono tabular-nums text-[10px] font-semibold"
-                  style={{ color: tcScoreColor }}
-                >
-                  {tc.score}
-                </span>
-              )}
-              <span className="flex-1" />
-              {tc.time_used != null && (
-                <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
-                  {formatMs(tc.time_used)}
-                </span>
-              )}
-              {tc.memory_used != null && (
-                <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
-                  {formatKb(tc.memory_used)}
-                </span>
-              )}
-              {clickable && (
-                <ChevronDown
-                  size={10}
-                  color={vm.color}
-                  className="shrink-0 opacity-50 transition-transform duration-200"
+              return (
+                <div
+                  key={tc.id}
+                  role={clickable ? 'button' : undefined}
+                  tabIndex={clickable ? 0 : undefined}
+                  onClick={
+                    clickable
+                      ? () => setSelectedTcIndex(isSelected ? null : i)
+                      : undefined
+                  }
+                  onKeyDown={
+                    clickable
+                      ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedTcIndex(isSelected ? null : i);
+                          }
+                        }
+                      : undefined
+                  }
+                  onMouseEnter={
+                    clickable ? () => setHoveredTcIndex(i) : undefined
+                  }
+                  onMouseLeave={
+                    clickable ? () => setHoveredTcIndex(null) : undefined
+                  }
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-all duration-150',
+                    clickable ? 'cursor-pointer' : 'cursor-default',
+                  )}
                   style={{
-                    transform: isSelected ? 'rotate(180deg)' : 'rotate(0deg)',
+                    background:
+                      isSelected || hoveredTcIndex === i
+                        ? `${vm.color}20`
+                        : vm.bg,
+                    outline: isSelected ? `1.5px solid ${vm.color}66` : 'none',
+                    borderBottom: clickable
+                      ? `1.5px solid ${isSelected ? vm.color + '66' : vm.color + '30'}`
+                      : 'none',
                   }}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
+                >
+                  <VerdictIcon verdict={tc.verdict} size={14} />
+                  <span className="text-[11px] text-muted-foreground">
+                    #{i + 1}
+                  </span>
+                  {tc.score != null && (
+                    <span
+                      className="font-mono tabular-nums text-[10px] font-semibold"
+                      style={{ color: tcScoreColor }}
+                    >
+                      {tc.score}
+                    </span>
+                  )}
+                  <span className="flex-1" />
+                  {tc.time_used != null && (
+                    <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
+                      {formatMs(tc.time_used)}
+                    </span>
+                  )}
+                  {tc.memory_used != null && (
+                    <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
+                      {formatKb(tc.memory_used)}
+                    </span>
+                  )}
+                  {clickable && (
+                    <ChevronDown
+                      size={10}
+                      color={vm.color}
+                      className="shrink-0 opacity-50 transition-transform duration-200"
+                      style={{
+                        transform: isSelected
+                          ? 'rotate(180deg)'
+                          : 'rotate(0deg)',
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </PaginatedList>
 
       {selectedTc && selectedTcIndex != null && (
         <div className="px-2.5 pb-2.5">
-          <TestCaseDetailPanel tc={selectedTc} index={selectedTcIndex} />
+          <TestCaseDetailPanel
+            tc={selectedTc}
+            index={selectedTcIndex}
+            submission={submission}
+          />
         </div>
       )}
     </div>
@@ -608,17 +453,48 @@ function TotalScoreSummary({
 function SubtaskCard({
   subtask,
   score,
-  testCases,
+  submission,
+  labelMap,
   feedbackLevel,
   index,
 }: {
   subtask: SubtaskInfo;
   score: number;
-  testCases: TestCaseResult[];
+  submission: Submission;
+  labelMap: Record<string, number>;
   feedbackLevel: string;
   index: number;
 }) {
-  const [listExpanded, setListExpanded] = useState(false);
+  const [page, setPage] = useState(1);
+  const labels = subtask.test_cases ?? [];
+  const offset = (page - 1) * 20;
+  const pageLabels = labels.slice(offset, offset + 20);
+  const ids = pageLabels.flatMap((label) => {
+    const id = labelMap[label] ?? Number(label);
+    return Number.isInteger(id) && id > 0 ? [id] : [];
+  });
+  const query = useTestCasePage({
+    submissionId: submission.id,
+    judgementId: submission.result?.judgement_id,
+    testCaseIds: ids,
+    enabled: feedbackLevel === 'full',
+    live: submission.status === 'Running',
+  });
+  const results = new Map(
+    query.data?.test_case_results.map((tc) => [tc.test_case_id, tc]),
+  );
+  const testCases = pageLabels.map((label, i) => {
+    const id = labelMap[label] ?? Number(label);
+    return (
+      results.get(id) ??
+      createPlaceholderTestCase(
+        label,
+        Number.isNaN(id) ? undefined : id,
+        -((index + 1) * 10000 + offset + i + 1),
+        'Pending',
+      )
+    );
+  });
   const [selectedTcIndex, setSelectedTcIndex] = useState<number | null>(null);
   const [hoveredTcIndex, setHoveredTcIndex] = useState<number | null>(null);
   const maxScore = subtask.max_score;
@@ -636,13 +512,8 @@ function SubtaskCard({
     color: methodRaw.color,
   };
 
-  const INITIAL_VISIBLE = 6;
-  const showExpand = testCases.length > INITIAL_VISIBLE;
-  const visibleTCs = listExpanded
-    ? testCases
-    : testCases.slice(0, INITIAL_VISIBLE);
   const selectedTc =
-    selectedTcIndex != null ? testCases[selectedTcIndex] : null;
+    selectedTcIndex != null ? testCases[selectedTcIndex - offset] : null;
 
   return (
     <div
@@ -691,128 +562,136 @@ function SubtaskCard({
       </div>
 
       {/* Test cases (full feedback only) */}
-      {feedbackLevel === 'full' && testCases.length > 0 && (
+      {feedbackLevel === 'full' && labels.length > 0 && (
         <div className="px-2.5 py-2">
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-0.5">
-            {visibleTCs.map((tc, i) => {
-              const vm = verdictMeta(tc.verdict);
-              const clickable = tcHasDetails(tc);
-              const isSelected = selectedTcIndex === i;
-              const tcScore = tc.score ?? 0;
-              const tcScoreColor =
-                tc.verdict === 'Accepted'
-                  ? '#10b981'
-                  : tcScore > 0
-                    ? '#f59e0b'
-                    : '#6b7280';
-              return (
-                <div
-                  key={tc.id}
-                  role={clickable ? 'button' : undefined}
-                  tabIndex={clickable ? 0 : undefined}
-                  onClick={
-                    clickable
-                      ? () => setSelectedTcIndex(isSelected ? null : i)
-                      : undefined
-                  }
-                  onKeyDown={
-                    clickable
-                      ? (e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            setSelectedTcIndex(isSelected ? null : i);
-                          }
-                        }
-                      : undefined
-                  }
-                  className={cn(
-                    'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-all duration-150',
-                    clickable ? 'cursor-pointer' : 'cursor-default',
-                  )}
-                  style={{
-                    background:
-                      isSelected || hoveredTcIndex === i
-                        ? `${vm.color}20`
-                        : vm.bg,
-                    outline: isSelected ? `1.5px solid ${vm.color}66` : 'none',
-                    borderBottom: clickable
-                      ? `1.5px solid ${isSelected ? vm.color + '66' : vm.color + '30'}`
-                      : 'none',
-                  }}
-                  onMouseEnter={
-                    clickable ? () => setHoveredTcIndex(i) : undefined
-                  }
-                  onMouseLeave={
-                    clickable ? () => setHoveredTcIndex(null) : undefined
-                  }
-                >
-                  <VerdictIcon verdict={tc.verdict} size={14} />
-                  <span className="text-[11px] text-muted-foreground">
-                    #{i + 1}
-                  </span>
-                  {tc.score != null && (
-                    <span
-                      className="font-mono tabular-nums text-[10px] font-semibold"
-                      style={{ color: tcScoreColor }}
-                    >
-                      {tc.score}
-                    </span>
-                  )}
-                  <span className="flex-1" />
-                  {tc.time_used != null && (
-                    <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
-                      {formatMs(tc.time_used)}
-                    </span>
-                  )}
-                  {tc.memory_used != null && (
-                    <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
-                      {formatKb(tc.memory_used)}
-                    </span>
-                  )}
-                  {clickable && (
-                    <ChevronDown
-                      size={10}
-                      color={vm.color}
-                      className="shrink-0 opacity-50 transition-transform duration-200"
+          {query.isError && (
+            <p className="p-2 text-xs text-destructive">
+              {t('result.caseLoadError')}
+            </p>
+          )}
+          <PaginatedList
+            items={testCases}
+            pagination={{
+              page,
+              per_page: 20,
+              total: labels.length,
+              total_pages: Math.ceil(labels.length / 20),
+            }}
+            loading={query.isFetching}
+            onPageChange={(nextPage) => {
+              setPage(nextPage);
+              setSelectedTcIndex(null);
+              setHoveredTcIndex(null);
+            }}
+          >
+            {(cases, offset) => (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-0.5">
+                {cases.map((tc, pageIndex) => {
+                  const i = offset + pageIndex;
+                  const vm = verdictMeta(tc.verdict);
+                  const clickable = tcHasDetails(tc);
+                  const isSelected = selectedTcIndex === i;
+                  const tcScore = tc.score ?? 0;
+                  const tcScoreColor =
+                    tc.verdict === 'Accepted'
+                      ? '#10b981'
+                      : tcScore > 0
+                        ? '#f59e0b'
+                        : '#6b7280';
+                  return (
+                    <div
+                      key={tc.id}
+                      role={clickable ? 'button' : undefined}
+                      tabIndex={clickable ? 0 : undefined}
+                      onClick={
+                        clickable
+                          ? () => setSelectedTcIndex(isSelected ? null : i)
+                          : undefined
+                      }
+                      onKeyDown={
+                        clickable
+                          ? (e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setSelectedTcIndex(isSelected ? null : i);
+                              }
+                            }
+                          : undefined
+                      }
+                      className={cn(
+                        'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-all duration-150',
+                        clickable ? 'cursor-pointer' : 'cursor-default',
+                      )}
                       style={{
-                        transform: isSelected
-                          ? 'rotate(180deg)'
-                          : 'rotate(0deg)',
+                        background:
+                          isSelected || hoveredTcIndex === i
+                            ? `${vm.color}20`
+                            : vm.bg,
+                        outline: isSelected
+                          ? `1.5px solid ${vm.color}66`
+                          : 'none',
+                        borderBottom: clickable
+                          ? `1.5px solid ${isSelected ? vm.color + '66' : vm.color + '30'}`
+                          : 'none',
                       }}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                      onMouseEnter={
+                        clickable ? () => setHoveredTcIndex(i) : undefined
+                      }
+                      onMouseLeave={
+                        clickable ? () => setHoveredTcIndex(null) : undefined
+                      }
+                    >
+                      <VerdictIcon verdict={tc.verdict} size={14} />
+                      <span className="text-[11px] text-muted-foreground">
+                        #{i + 1}
+                      </span>
+                      {tc.score != null && (
+                        <span
+                          className="font-mono tabular-nums text-[10px] font-semibold"
+                          style={{ color: tcScoreColor }}
+                        >
+                          {tc.score}
+                        </span>
+                      )}
+                      <span className="flex-1" />
+                      {tc.time_used != null && (
+                        <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
+                          {formatMs(tc.time_used)}
+                        </span>
+                      )}
+                      {tc.memory_used != null && (
+                        <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
+                          {formatKb(tc.memory_used)}
+                        </span>
+                      )}
+                      {clickable && (
+                        <ChevronDown
+                          size={10}
+                          color={vm.color}
+                          className="shrink-0 opacity-50 transition-transform duration-200"
+                          style={{
+                            transform: isSelected
+                              ? 'rotate(180deg)'
+                              : 'rotate(0deg)',
+                          }}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </PaginatedList>
 
           {/* Expandable detail panel for selected test case */}
           {selectedTc && selectedTcIndex != null && (
             <div className="mt-1.5">
-              <TestCaseDetailPanel tc={selectedTc} index={selectedTcIndex} />
+              <TestCaseDetailPanel
+                tc={selectedTc}
+                index={selectedTcIndex}
+                submission={submission}
+              />
             </div>
-          )}
-
-          {showExpand && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-1 h-auto px-2.5 py-1 text-[11px] font-medium text-primary"
-              onClick={() => {
-                if (
-                  listExpanded &&
-                  selectedTcIndex != null &&
-                  selectedTcIndex >= INITIAL_VISIBLE
-                ) {
-                  setSelectedTcIndex(null);
-                }
-                setListExpanded(!listExpanded);
-              }}
-            >
-              {listExpanded
-                ? t('ioi.submission.showLess')
-                : t('ioi.submission.showAll', { count: testCases.length })}
-            </Button>
           )}
         </div>
       )}
@@ -938,7 +817,14 @@ export function IoiSubmissionResult({
     visibility?.effectiveFeedback === 'subtask_scores' ||
     visibility?.effectiveFeedback === 'full';
   const subtaskScoresQuery = useQuery<SubtaskScoresResponse>({
-    queryKey: ['ioi-subtask-scores', contestId, submission?.id],
+    queryKey: [
+      'ioi-subtask-scores',
+      contestId,
+      submission?.id,
+      submission?.judge_epoch,
+      submission?.status,
+    ],
+    refetchInterval: submission?.status === 'Running' ? 1000 : false,
     enabled: !!contestId && !!submission?.id && isIoi && feedbackNeedsSubtasks,
     queryFn: () => api.getSubmissionSubtaskScores(contestId!, submission!.id),
     retry: 2,
@@ -995,15 +881,9 @@ export function IoiSubmissionResult({
   const taskSubtasks = taskConfig.subtasks ?? [];
   const subtaskScores = subtaskScoresData?.subtasks;
   const labelMap: Record<string, number> = taskConfig.label_map ?? {};
-  const testCaseMaxScores: Record<string, number> =
-    taskConfig.test_case_max_scores ?? {};
   const subtaskResults = buildSubtaskResults({
     taskSubtasks,
     subtaskScores,
-    effectiveFeedback,
-    labelMap,
-    testCaseMaxScores,
-    allTestCases,
   });
 
   if (effectiveFeedback === 'none') {
@@ -1046,7 +926,10 @@ export function IoiSubmissionResult({
   if (subtaskResults.length === 0) {
     const totalScore = submission.result.score ?? 0;
 
-    if (effectiveFeedback === 'full' && allTestCases.length > 0) {
+    if (
+      effectiveFeedback === 'full' &&
+      (submission.result.test_case_pagination?.total ?? allTestCases.length) > 0
+    ) {
       return (
         <div className="flex flex-col gap-2">
           <TotalScoreSummary
@@ -1054,7 +937,10 @@ export function IoiSubmissionResult({
             maxScore={configMaxScore}
             tokened={visibility.usesTokenMode && isTokened}
           />
-          <TestCaseResultList testCases={allTestCases} />
+          <TestCaseResultList
+            key={`${submission.id}:${submission.result.judgement_id}`}
+            submission={submission}
+          />
         </div>
       );
     }
@@ -1100,25 +986,21 @@ export function IoiSubmissionResult({
       </div>
 
       {/* Subtask cards */}
-      {subtaskResults.map(
-        (
-          r: {
-            subtask: SubtaskInfo;
-            score: number;
-            testCases: TestCaseResult[];
-          },
-          i: number,
-        ) => (
-          <SubtaskCard
-            key={i}
-            subtask={r.subtask}
-            score={r.score}
-            testCases={r.testCases}
-            feedbackLevel={effectiveFeedback}
-            index={i}
-          />
-        ),
-      )}
+      <PaginatedList items={subtaskResults} pageSize={5}>
+        {(subtasks, offset) =>
+          subtasks.map((r, i) => (
+            <SubtaskCard
+              key={`${submission.id}:${submission.result!.judgement_id}:${offset + i}`}
+              subtask={r.subtask}
+              score={r.score}
+              submission={submission}
+              labelMap={labelMap}
+              feedbackLevel={effectiveFeedback}
+              index={offset + i}
+            />
+          ))
+        }
+      </PaginatedList>
 
       {/* Resource usage footer */}
       {(submission.result.time_used != null ||
