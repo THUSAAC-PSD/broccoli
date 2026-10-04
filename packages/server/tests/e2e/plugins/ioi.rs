@@ -363,46 +363,53 @@ async fn ioi_feedback_organiser_without_submission_view_all_sees_unredacted_judg
     .expect("insert judgement test case result");
 
     let judgements_path = format!("/api/v1/submissions/{sub_id}/judgements");
+    let detail_path = format!("{judgements_path}/{}", judgement_model.id);
 
-    // Baseline: with `feedback_level: none`, even the owning contestant sees
-    // their score and test case results blanked.
-    let contestant_res = app.get_with_token(&judgements_path, &contestant).await;
+    // History is a lightweight summary for every viewer. The pagination
+    // metadata still follows the IOI feedback policy.
+    let contestant_history = app.get_with_token(&judgements_path, &contestant).await;
     assert_eq!(
-        contestant_res.status, 200,
-        "Contestant judgement history failed: {}",
-        contestant_res.text
+        contestant_history.status, 200,
+        "{}",
+        contestant_history.text
     );
-    assert_eq!(contestant_res.body[0]["score"], serde_json::Value::Null);
+    assert_eq!(contestant_history.body[0]["score"], serde_json::Value::Null);
     assert_eq!(
-        contestant_res.body[0]["test_case_results"]
-            .as_array()
-            .map(Vec::len),
-        Some(0),
-        "the owning contestant should also have test case rows hidden under feedback_level none: {}",
-        contestant_res.text
+        contestant_history.body[0]["test_case_pagination"],
+        serde_json::Value::Null
+    );
+    let manager_history = app.get_with_token(&judgements_path, &manage_only).await;
+    assert_eq!(manager_history.status, 200, "{}", manager_history.text);
+    assert_eq!(manager_history.body[0]["score"], json!(100.0));
+    assert_eq!(manager_history.body[0]["test_case_results"], json!([]));
+    assert_eq!(
+        manager_history.body[0]["test_case_pagination"]["total"],
+        json!(1)
     );
 
-    // A viewer with `contest:manage` but not `submission:view_all` must see
-    // the unredacted judgement history - this is the branch this fix adds.
-    let manage_only_res = app.get_with_token(&judgements_path, &manage_only).await;
+    // Expanding a version loads one page and must preserve the same policy.
+    let contestant_res = app.get_with_token(&detail_path, &contestant).await;
+    assert_eq!(contestant_res.status, 200, "{}", contestant_res.text);
+    assert_eq!(contestant_res.body["score"], serde_json::Value::Null);
+    assert_eq!(contestant_res.body["test_case_results"], json!([]));
     assert_eq!(
-        manage_only_res.status, 200,
-        "contest:manage-only judgement history read failed: {}",
-        manage_only_res.text
+        contestant_res.body["test_case_pagination"],
+        serde_json::Value::Null
     );
+    let manage_only_res = app.get_with_token(&detail_path, &manage_only).await;
+    assert_eq!(manage_only_res.status, 200, "{}", manage_only_res.text);
+    assert_eq!(manage_only_res.body["score"], json!(100.0));
     assert_eq!(
-        manage_only_res.body[0]["score"].as_f64(),
-        Some(100.0),
-        "a viewer with contest:manage but not submission:view_all must see the raw score: {}",
-        manage_only_res.text
-    );
-    assert_eq!(
-        manage_only_res.body[0]["test_case_results"]
+        manage_only_res.body["test_case_results"]
             .as_array()
             .map(Vec::len),
         Some(1),
-        "a viewer with contest:manage but not submission:view_all must see test case rows: {}",
+        "a viewer with contest:manage must see testcase rows on expansion: {}",
         manage_only_res.text
+    );
+    assert_eq!(
+        manage_only_res.body["test_case_pagination"]["total"],
+        json!(1)
     );
 }
 
@@ -519,34 +526,26 @@ async fn ioi_feedback_filter_subtask_scores_redacts_per_test_case_verdict() {
     .await
     .expect("insert judgement result");
 
-    let admin_res = app
-        .get_with_token(&format!("/api/v1/submissions/{sub_id}/judgements"), &admin)
-        .await;
+    let history_path = format!("/api/v1/submissions/{sub_id}/judgements");
+    for token in [&admin, &contestant] {
+        let history = app.get_with_token(&history_path, token).await;
+        assert_eq!(history.status, 200, "{}", history.text);
+        assert_eq!(history.body[0]["test_case_results"], json!([]));
+        assert_eq!(history.body[0]["test_case_pagination"]["total"], json!(1));
+    }
+    let detail_path = format!("{history_path}/{}", judgement.id);
+    let admin_res = app.get_with_token(&detail_path, &admin).await;
+    assert_eq!(admin_res.status, 200, "{}", admin_res.text);
     assert_eq!(
-        admin_res.status, 200,
-        "Admin judgement history failed: {}",
+        admin_res.body["test_case_results"][0]["verdict"],
+        json!("Accepted"),
+        "Admin version details should retain the raw testcase verdict: {}",
         admin_res.text
     );
-    assert_eq!(
-        admin_res.body[0]["test_case_results"][0]["verdict"],
-        serde_json::Value::String("Accepted".to_string()),
-        "Admin history should retain the raw per-test-case verdict: {}",
-        admin_res.text
-    );
+    let contestant_res = app.get_with_token(&detail_path, &contestant).await;
+    assert_eq!(contestant_res.status, 200, "{}", contestant_res.text);
 
-    let contestant_res = app
-        .get_with_token(
-            &format!("/api/v1/submissions/{sub_id}/judgements"),
-            &contestant,
-        )
-        .await;
-    assert_eq!(
-        contestant_res.status, 200,
-        "Contestant judgement history failed: {}",
-        contestant_res.text
-    );
-
-    let test_case_results = contestant_res.body[0]["test_case_results"]
+    let test_case_results = contestant_res.body["test_case_results"]
         .as_array()
         .expect("test_case_results should be an array");
     assert!(

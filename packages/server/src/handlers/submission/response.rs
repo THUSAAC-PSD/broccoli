@@ -4,6 +4,7 @@ use broccoli_server_sdk::permissions as perm;
 use chrono::Utc;
 use common::SubmissionStatus;
 use common::storage::BlobStore;
+use sea_orm::prelude::Expr;
 use sea_orm::*;
 
 // visibility-bypass-audited: these DTO-building helpers are the pre-kernel
@@ -16,9 +17,13 @@ use crate::entity::{
 };
 use crate::error::AppError;
 use crate::extractors::auth::AuthUser;
+use crate::models::shared::Pagination;
 use crate::models::submission::*;
 use crate::utils::judging::files_from_json;
-use crate::utils::test_case_body::read_test_case_body_preview;
+use crate::utils::test_case_body::{
+    RESPONSE_BODY_PREVIEW_BYTES, read_test_case_body_preview_with_limit,
+};
+use common::Verdict;
 
 pub(super) async fn build_submission_list_items(
     db: &DatabaseConnection,
@@ -96,12 +101,22 @@ impl VisibilityContext {
         }
     }
 }
+pub(super) const RESULT_PAGE_SIZE: u64 = 20;
+const RESULT_PREVIEW_CHARS: usize = 240;
+const RESULT_PREVIEW_LINES: usize = 5;
 
 #[derive(FromQueryResult)]
-struct TestCaseMeta {
+struct ResultRow {
     id: i32,
-    is_sample: bool,
-    position: i32,
+    test_case_id: Option<i32>,
+    verdict: Verdict,
+    score: f64,
+    time_used: Option<i32>,
+    memory_used: Option<i32>,
+    stdout: Option<String>,
+    stderr: Option<String>,
+    checker_output: Option<String>,
+    is_sample: Option<bool>,
 }
 
 #[derive(FromQueryResult)]
@@ -113,57 +128,236 @@ struct TestCaseIoData {
     expected_output_blob_hash: Option<String>,
 }
 
-#[derive(Clone)]
-struct MaterializedTestCaseIoData {
-    input: String,
-    expected_output: String,
+fn output_preview(text: String, full: bool) -> String {
+    let char_limit = if full {
+        RESPONSE_BODY_PREVIEW_BYTES
+    } else {
+        RESULT_PREVIEW_CHARS
+    };
+    let line_limit = if full {
+        usize::MAX
+    } else {
+        RESULT_PREVIEW_LINES
+    };
+    let mut end = 0;
+    let mut lines = 1;
+    for (count, (index, ch)) in text.char_indices().enumerate() {
+        if count >= char_limit
+            || (ch == '\n' && lines >= line_limit)
+            || index + ch.len_utf8() > RESPONSE_BODY_PREVIEW_BYTES
+        {
+            break;
+        }
+        if ch == '\n' {
+            lines += 1;
+        }
+        end = index + ch.len_utf8();
+    }
+    let mut preview = text[..end].to_owned();
+    if end < text.len() {
+        preview.push_str("\n… (truncated)");
+    }
+    preview
 }
 
-async fn load_test_case_io_data(
-    db: &DatabaseConnection,
-    io_ids: Vec<i32>,
-    blob_store: &dyn BlobStore,
-) -> Result<HashMap<i32, MaterializedTestCaseIoData>, AppError> {
-    if io_ids.is_empty() {
-        return Ok(HashMap::new());
+fn result_selection(query: &SubmissionResultQuery) -> Result<(u64, u64, u64, Vec<i32>), AppError> {
+    if query.full_output && query.result_id.is_none() {
+        return Err(AppError::Validation(
+            "full_output requires result_id".into(),
+        ));
     }
+    let page = std::cmp::max(query.page.unwrap_or(1), 1);
+    let size = if query.result_id.is_some() {
+        1
+    } else {
+        query
+            .per_page
+            .unwrap_or(RESULT_PAGE_SIZE)
+            .clamp(1, RESULT_PAGE_SIZE)
+    };
+    let offset = (page - 1)
+        .checked_mul(size)
+        .filter(|n| *n <= i64::MAX as u64)
+        .ok_or_else(|| AppError::Validation("Testcase page is too large".into()))?;
+    let ids = match query.test_case_ids.as_deref() {
+        None => vec![],
+        Some(raw) => {
+            // Bound parsing as well as the SQL IN list.
+            if raw.len() > 240 {
+                return Err(AppError::Validation("Too many testcase IDs".into()));
+            }
+            let ids = raw
+                .split(',')
+                .map(|id| {
+                    id.parse::<i32>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| AppError::Validation("Invalid testcase ID".into()))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if ids.len() > RESULT_PAGE_SIZE as usize {
+                return Err(AppError::Validation(
+                    "At most 20 testcase IDs are allowed".into(),
+                ));
+            }
+            ids
+        }
+    };
+    Ok((page, size, offset, ids))
+}
 
-    let rows = test_case::Entity::find()
-        .filter(test_case::Column::Id.is_in(io_ids))
+async fn load_result_page(
+    db: &DatabaseConnection,
+    blob_store: &dyn BlobStore,
+    submission_id: i32,
+    judgement_id: Option<i32>,
+    show_test_details: bool,
+    query: Option<&SubmissionResultQuery>,
+) -> Result<(Vec<TestCaseResultResponse>, Pagination), AppError> {
+    let default_query = SubmissionResultQuery::default();
+    let (page, size, offset, ids) = result_selection(query.unwrap_or(&default_query))?;
+    let mut select = test_case_result::Entity::find()
+        .filter(test_case_result::Column::SubmissionId.eq(submission_id));
+    if let Some(id) = judgement_id {
+        select = select.filter(test_case_result::Column::JudgementId.eq(Some(id)));
+    }
+    if !ids.is_empty() {
+        select = select.filter(test_case_result::Column::TestCaseId.is_in(ids));
+    }
+    if let Some(id) = query.and_then(|q| q.result_id) {
+        select = select.filter(test_case_result::Column::Id.eq(id));
+    }
+    let total = select.clone().count(db).await?;
+    let pagination = Pagination {
+        page,
+        per_page: size,
+        total,
+        total_pages: total.div_ceil(size),
+    };
+    // Version history loads summaries only, without reading any testcase text.
+    let Some(query) = query else {
+        return Ok((vec![], pagination));
+    };
+    let full = query.full_output;
+    let cap = if full {
+        RESPONSE_BODY_PREVIEW_BYTES
+    } else {
+        RESULT_PREVIEW_CHARS
+    };
+    let mut select = select
+        .join(
+            JoinType::LeftJoin,
+            test_case_result::Relation::TestCase.def(),
+        )
         .select_only()
-        .column(test_case::Column::Id)
-        .column(test_case::Column::Input)
-        .column(test_case::Column::ExpectedOutput)
-        .column(test_case::Column::InputBlobHash)
-        .column(test_case::Column::ExpectedOutputBlobHash)
-        .into_model::<TestCaseIoData>()
+        .columns([
+            test_case_result::Column::Id,
+            test_case_result::Column::TestCaseId,
+            test_case_result::Column::Verdict,
+            test_case_result::Column::Score,
+            test_case_result::Column::TimeUsed,
+            test_case_result::Column::MemoryUsed,
+        ])
+        .column_as(test_case::Column::IsSample, "is_sample");
+    for (column, alias) in [
+        ("stdout", "stdout"),
+        ("stderr", "stderr"),
+        ("checker_output", "checker_output"),
+    ] {
+        select = select.column_as(
+            Expr::cust(format!("CASE WHEN {show_test_details} OR COALESCE(test_case.is_sample, false) THEN LEFT(test_case_result.{column}, {}) ELSE NULL END", cap + 1)),
+            alias,
+        );
+    }
+    let rows = select
+        .order_by_asc(test_case::Column::Position)
+        .order_by_asc(test_case_result::Column::Id)
+        .offset(offset)
+        .limit(size)
+        .into_model::<ResultRow>()
         .all(db)
         .await?;
-
-    let mut out = HashMap::with_capacity(rows.len());
-    for row in rows {
-        // Bounded preview, not the full blob: a status poll must never pull tens
-        // of MB of test data per test case into memory (that serializes into a
-        // multi-GB response and OOM-kills the server under concurrent polling).
-        let input =
-            read_test_case_body_preview(&row.input, row.input_blob_hash.as_deref(), blob_store)
-                .await?;
-        let expected_output = read_test_case_body_preview(
+    let io_ids: Vec<_> = rows
+        .iter()
+        .filter(|r| show_test_details || r.is_sample == Some(true))
+        .filter_map(|r| r.test_case_id)
+        .collect();
+    let io_rows = if io_ids.is_empty() {
+        vec![]
+    } else {
+        test_case::Entity::find()
+            .filter(test_case::Column::Id.is_in(io_ids))
+            .select_only()
+            .column(test_case::Column::Id)
+            .column_as(Expr::cust(format!("LEFT(input, {})", cap + 1)), "input")
+            .column_as(
+                Expr::cust(format!("LEFT(expected_output, {})", cap + 1)),
+                "expected_output",
+            )
+            .column(test_case::Column::InputBlobHash)
+            .column(test_case::Column::ExpectedOutputBlobHash)
+            .into_model::<TestCaseIoData>()
+            .all(db)
+            .await?
+    };
+    let mut io = HashMap::new();
+    for row in io_rows {
+        let input = read_test_case_body_preview_with_limit(
+            &row.input,
+            row.input_blob_hash.as_deref(),
+            blob_store,
+            cap,
+        )
+        .await?;
+        let expected = read_test_case_body_preview_with_limit(
             &row.expected_output,
             row.expected_output_blob_hash.as_deref(),
             blob_store,
+            cap,
         )
         .await?;
-        out.insert(
+        io.insert(
             row.id,
-            MaterializedTestCaseIoData {
-                input,
-                expected_output,
-            },
+            (output_preview(input, full), output_preview(expected, full)),
         );
     }
-
-    Ok(out)
+    let results = rows
+        .into_iter()
+        .map(|r| {
+            let show_io = show_test_details || r.is_sample == Some(true);
+            let (input, expected_output) = r
+                .test_case_id
+                .and_then(|id| io.get(&id))
+                .map(|(a, b)| (Some(a.clone()), Some(b.clone())))
+                .unwrap_or_default();
+            TestCaseResultResponse {
+                id: r.id,
+                test_case_id: r.test_case_id,
+                verdict: Some(r.verdict),
+                score: Some(r.score),
+                time_used: r.time_used,
+                memory_used: r.memory_used,
+                input,
+                expected_output,
+                stdout: if show_io {
+                    r.stdout.map(|s| output_preview(s, full))
+                } else {
+                    None
+                },
+                stderr: if show_io {
+                    r.stderr.map(|s| output_preview(s, full))
+                } else {
+                    None
+                },
+                checker_output: if show_io {
+                    r.checker_output.map(|s| output_preview(s, full))
+                } else {
+                    None
+                },
+            }
+        })
+        .collect();
+    Ok((results, pagination))
 }
 
 pub(super) async fn build_submission_response(
@@ -171,6 +365,23 @@ pub(super) async fn build_submission_response(
     blob_store: &dyn BlobStore,
     sub: submission::Model,
     visibility: Option<VisibilityContext>,
+) -> Result<SubmissionResponse, AppError> {
+    build_submission_response_with_cases(
+        db,
+        blob_store,
+        sub,
+        visibility,
+        &SubmissionResultQuery::default(),
+    )
+    .await
+}
+
+pub(super) async fn build_submission_response_with_cases(
+    db: &DatabaseConnection,
+    blob_store: &dyn BlobStore,
+    sub: submission::Model,
+    visibility: Option<VisibilityContext>,
+    query: &SubmissionResultQuery,
 ) -> Result<SubmissionResponse, AppError> {
     let user_model = user::Entity::find_by_id(sub.user_id)
         .one(db)
@@ -220,92 +431,20 @@ pub(super) async fn build_submission_response(
             .one(db)
             .await?
             .map(|j| j.id);
-        let mut results_query = test_case_result::Entity::find()
-            .filter(test_case_result::Column::SubmissionId.eq(sub.id));
-        if let Some(judgement_id) = current_judgement_id {
-            results_query =
-                results_query.filter(test_case_result::Column::JudgementId.eq(Some(judgement_id)));
-        }
-        let results = results_query.all(db).await?;
-
-        let tc_ids: Vec<i32> = results.iter().filter_map(|r| r.test_case_id).collect();
-        let tc_meta: HashMap<i32, TestCaseMeta> = if tc_ids.is_empty() {
-            HashMap::new()
-        } else {
-            test_case::Entity::find()
-                .filter(test_case::Column::Id.is_in(tc_ids.clone()))
-                .select_only()
-                .column(test_case::Column::Id)
-                .column(test_case::Column::IsSample)
-                .column(test_case::Column::Position)
-                .into_model::<TestCaseMeta>()
-                .all(db)
-                .await?
-                .into_iter()
-                .map(|tc| (tc.id, tc))
-                .collect()
-        };
-
-        let mut results_with_pos: Vec<_> = results
-            .into_iter()
-            .map(|r| {
-                let pos = r
-                    .test_case_id
-                    .and_then(|tc_id| tc_meta.get(&tc_id))
-                    .map_or(i32::MAX, |m| m.position);
-                (r, pos)
-            })
-            .collect();
-        results_with_pos.sort_by_key(|(_, pos)| *pos);
-
-        let io_ids: Vec<i32> = if has_view_all || problem_model.show_test_details {
-            tc_ids
-        } else {
-            tc_meta
-                .values()
-                .filter(|m| m.is_sample)
-                .map(|m| m.id)
-                .collect()
-        };
-        let io_data = load_test_case_io_data(db, io_ids, blob_store).await?;
-
-        let test_case_results = results_with_pos
-            .into_iter()
-            .map(|(result, _)| {
-                let is_sample = result
-                    .test_case_id
-                    .and_then(|tc_id| tc_meta.get(&tc_id))
-                    .is_some_and(|m| m.is_sample);
-                let show_io = has_view_all || problem_model.show_test_details || is_sample;
-
-                let (tc_input, tc_expected) = if show_io {
-                    let io = result.test_case_id.and_then(|tc_id| io_data.get(&tc_id));
-                    (
-                        io.map(|d| d.input.clone()),
-                        io.map(|d| d.expected_output.clone()),
-                    )
-                } else {
-                    (None, None)
-                };
-
-                TestCaseResultResponse {
-                    id: result.id,
-                    verdict: Some(result.verdict),
-                    score: Some(result.score),
-                    time_used: result.time_used,
-                    memory_used: result.memory_used,
-                    test_case_id: result.test_case_id,
-                    input: tc_input,
-                    expected_output: tc_expected,
-                    stdout: if show_io { result.stdout } else { None },
-                    stderr: if show_io { result.stderr } else { None },
-                    checker_output: if show_io { result.checker_output } else { None },
-                }
-            })
-            .collect();
+        let (test_case_results, pagination) = load_result_page(
+            db,
+            blob_store,
+            sub.id,
+            current_judgement_id,
+            has_view_all || problem_model.show_test_details,
+            Some(query),
+        )
+        .await?;
 
         if is_running {
             Some(JudgeResultResponse {
+                judgement_id: current_judgement_id,
+                test_case_pagination: Some(pagination),
                 verdict: None,
                 score: None,
                 time_used: None,
@@ -317,6 +456,8 @@ pub(super) async fn build_submission_response(
             })
         } else {
             Some(JudgeResultResponse {
+                judgement_id: current_judgement_id,
+                test_case_pagination: Some(pagination),
                 verdict: sub.verdict,
                 score: submission_score_for_status(&sub.status, sub.score),
                 time_used: sub.time_used,
@@ -369,90 +510,21 @@ pub(super) async fn build_judgement_response(
     judgement: submission_judgement::Model,
     show_compile_output: bool,
     show_test_details: bool,
+    query: Option<&SubmissionResultQuery>,
 ) -> Result<SubmissionJudgementResponse, AppError> {
-    let results = test_case_result::Entity::find()
-        .filter(test_case_result::Column::JudgementId.eq(Some(judgement.id)))
-        .all(db)
-        .await?;
-
-    let tc_ids: Vec<i32> = results.iter().filter_map(|r| r.test_case_id).collect();
-    let tc_meta: HashMap<i32, TestCaseMeta> = if tc_ids.is_empty() {
-        HashMap::new()
-    } else {
-        test_case::Entity::find()
-            .filter(test_case::Column::Id.is_in(tc_ids.clone()))
-            .select_only()
-            .column(test_case::Column::Id)
-            .column(test_case::Column::IsSample)
-            .column(test_case::Column::Position)
-            .into_model::<TestCaseMeta>()
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|tc| (tc.id, tc))
-            .collect()
-    };
-
-    let mut results_with_pos: Vec<_> = results
-        .into_iter()
-        .map(|r| {
-            let pos = r
-                .test_case_id
-                .and_then(|tc_id| tc_meta.get(&tc_id))
-                .map_or(i32::MAX, |m| m.position);
-            (r, pos)
-        })
-        .collect();
-    results_with_pos.sort_by_key(|(_, pos)| *pos);
-
-    let io_ids: Vec<i32> = if show_test_details {
-        tc_ids
-    } else {
-        tc_meta
-            .values()
-            .filter(|m| m.is_sample)
-            .map(|m| m.id)
-            .collect()
-    };
-    let io_data = load_test_case_io_data(db, io_ids, blob_store).await?;
-
-    let test_case_results = results_with_pos
-        .into_iter()
-        .map(|(result, _)| {
-            let is_sample = result
-                .test_case_id
-                .and_then(|tc_id| tc_meta.get(&tc_id))
-                .is_some_and(|m| m.is_sample);
-            let show_io = show_test_details || is_sample;
-
-            let (tc_input, tc_expected) = if show_io {
-                let io = result.test_case_id.and_then(|tc_id| io_data.get(&tc_id));
-                (
-                    io.map(|d| d.input.clone()),
-                    io.map(|d| d.expected_output.clone()),
-                )
-            } else {
-                (None, None)
-            };
-
-            TestCaseResultResponse {
-                id: result.id,
-                verdict: Some(result.verdict),
-                score: Some(result.score),
-                time_used: result.time_used,
-                memory_used: result.memory_used,
-                test_case_id: result.test_case_id,
-                input: tc_input,
-                expected_output: tc_expected,
-                stdout: if show_io { result.stdout } else { None },
-                stderr: if show_io { result.stderr } else { None },
-                checker_output: if show_io { result.checker_output } else { None },
-            }
-        })
-        .collect();
+    let (test_case_results, pagination) = load_result_page(
+        db,
+        blob_store,
+        judgement.submission_id,
+        Some(judgement.id),
+        show_test_details,
+        query,
+    )
+    .await?;
     let score = submission_score_for_status(&judgement.status, judgement.score);
 
     Ok(SubmissionJudgementResponse {
+        case_changes: None,
         id: judgement.id,
         submission_id: judgement.submission_id,
         version: judgement.version,
@@ -482,6 +554,7 @@ pub(super) async fn build_judgement_response(
         target_worker_id: judgement.target_worker_id,
         created_at: judgement.created_at,
         finalized_at: judgement.finalized_at,
+        test_case_pagination: Some(pagination),
         test_case_results,
     })
 }
@@ -494,5 +567,61 @@ pub(super) fn submission_score_for_status(
         score
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod result_page_tests {
+    use super::*;
+
+    #[test]
+    fn short_lines_and_unicode_are_bounded() {
+        let preview = output_preview("x\n".repeat(10_000), false);
+        assert_eq!(preview, "x\nx\nx\nx\nx\n… (truncated)");
+        let preview = output_preview("界".repeat(10_000), false);
+        assert_eq!(
+            preview.chars().take_while(|c| *c != '\n').count(),
+            RESULT_PREVIEW_CHARS
+        );
+        let expanded = output_preview("界".repeat(100_000), true);
+        assert!(expanded.len() <= RESPONSE_BODY_PREVIEW_BYTES + 20);
+        assert!(expanded.ends_with("… (truncated)"));
+        assert_eq!(output_preview("short\ntext".into(), false), "short\ntext");
+    }
+
+    #[test]
+    fn result_queries_cannot_remove_the_bounds() {
+        let query = SubmissionResultQuery {
+            per_page: Some(u64::MAX),
+            ..Default::default()
+        };
+        assert_eq!(result_selection(&query).unwrap().1, RESULT_PAGE_SIZE);
+        let query = SubmissionResultQuery {
+            page: Some(u64::MAX),
+            ..Default::default()
+        };
+        assert!(result_selection(&query).is_err());
+        let query = SubmissionResultQuery {
+            full_output: true,
+            ..Default::default()
+        };
+        assert!(result_selection(&query).is_err());
+        let query = SubmissionResultQuery {
+            full_output: true,
+            result_id: Some(1),
+            per_page: Some(1000),
+            ..Default::default()
+        };
+        assert_eq!(result_selection(&query).unwrap().1, 1);
+        let query = SubmissionResultQuery {
+            test_case_ids: Some(
+                (1..=21)
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+            ..Default::default()
+        };
+        assert!(result_selection(&query).is_err());
     }
 }

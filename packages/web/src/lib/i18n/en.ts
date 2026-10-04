@@ -1,4 +1,18 @@
 export const en: Record<string, string> = {
+  'result.expandOutput': 'Expand',
+  'result.outputDialogHint':
+    'Scroll to inspect the output. Very large output is limited to a 64 KiB preview.',
+  'result.loadingOutput': 'Loading output…',
+  'result.outputLoadError': 'Could not load output.',
+  'result.retryOutput': 'Retry',
+  'result.caseLoadError': 'Could not load testcase results.',
+  'result.showDetails': 'Show details',
+  'result.hideDetails': 'Hide details',
+  'list.pagination': 'Pagination',
+  'list.range': '{start}–{end} of {total}',
+  'list.previous': 'Previous',
+  'list.next': 'Next',
+
   // App
   'app.name': 'Broccoli OJ',
   'app.tagline': 'Online Judge',

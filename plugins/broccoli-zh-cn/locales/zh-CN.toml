@@ -478,3 +478,18 @@
 
 # Common
 'common.cancel' = '取消'
+
+
+'list.pagination' = '分页'
+'list.range' = '第 {start}–{end} 项，共 {total} 项'
+'list.previous' = '上一页'
+'list.next' = '下一页'
+'result.showDetails' = '显示详情'
+'result.hideDetails' = '隐藏详情'
+
+'result.expandOutput' = '展开'
+'result.outputDialogHint' = '滚动查看输出。超大输出最多显示 64 KiB 的预览。'
+'result.loadingOutput' = '正在加载输出…'
+'result.outputLoadError' = '无法加载输出。'
+'result.retryOutput' = '重试'
+'result.caseLoadError' = '无法加载测试点结果。'
