@@ -29,12 +29,12 @@ import { Search, Upload, UserMinus, UserPlus, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-// -- Types --
+import {
+  normalizeBulkUsers,
+  type ParsedBulkUser,
+} from '@/features/user-management/lib/bulk-users';
 
-type ParsedBulkUser = {
-  username: string;
-  password?: string;
-};
+// -- Types --
 
 type UserPreviewItem = {
   id: number;
@@ -51,60 +51,6 @@ type ParticipantItem = {
 };
 
 // -- Helpers --
-
-function normalizeBulkUsers(input: unknown): ParsedBulkUser[] {
-  if (!Array.isArray(input)) {
-    throw new Error('admin.bulkParticipantsInvalidJson');
-  }
-
-  const users: ParsedBulkUser[] = [];
-  const seen = new Set<string>();
-
-  for (const item of input) {
-    let username = '';
-    let password: string | undefined;
-
-    if (typeof item === 'string') {
-      username = item.trim();
-    } else if (item && typeof item === 'object') {
-      const record = item as { username?: unknown; password?: unknown };
-      username =
-        typeof record.username === 'string' ? record.username.trim() : '';
-      if (typeof record.password === 'string' && record.password.trim()) {
-        password = record.password;
-      }
-    }
-
-    if (!username) {
-      throw new Error('admin.bulkParticipantsInvalidUsername');
-    }
-
-    if (username.length > 32 || !/^[A-Za-z0-9_]+$/.test(username)) {
-      throw new Error('admin.bulkParticipantsInvalidUsername');
-    }
-
-    if (
-      password !== undefined &&
-      (password.length < 8 || password.length > 128)
-    ) {
-      throw new Error('admin.bulkParticipantsInvalidPassword');
-    }
-
-    const key = username.toLowerCase();
-    if (seen.has(key)) {
-      throw new Error('admin.bulkParticipantsDuplicate');
-    }
-    seen.add(key);
-
-    users.push({ username, password });
-  }
-
-  if (users.length === 0) {
-    throw new Error('admin.bulkParticipantsEmpty');
-  }
-
-  return users;
-}
 
 async function fetchParticipants(apiClient: ApiClient, contestId: number) {
   const { data, error } = await apiClient.GET('/contests/{id}/participants', {

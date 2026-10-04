@@ -225,6 +225,8 @@ fn auth_rate_limit_error_response(error: GovernorError) -> Response<Body> {
 fn user_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(handlers::user::list_users))
+        .routes(routes!(handlers::user::create_user))
+        .routes(routes!(handlers::user::bulk_create_users))
         .routes(routes!(handlers::user::get_user))
         .routes(routes!(handlers::user::delete_user))
         .routes(routes!(handlers::user::update_user))

@@ -372,3 +372,323 @@ mod role_management {
         assert_eq!(res.status, 403);
     }
 }
+
+mod user_creation {
+    use super::*;
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+    use server::entity::user;
+
+    #[tokio::test]
+    async fn manager_can_create_user_with_default_roles_and_supplied_password() {
+        let app = TestApp::spawn().await;
+        let manager = app
+            .create_user_with_permissions("manager", "securepass", &["user:manage"])
+            .await;
+        let response = app
+            .post_with_token(
+                routes::USERS,
+                &json!({"username": "  new_user  ", "password": " supplied_pass "}),
+                &manager,
+            )
+            .await;
+        assert_eq!(response.status, 201, "{}", response.text);
+        assert_eq!(response.body["username"], "new_user");
+        assert_eq!(response.body["roles"], json!(["contestant"]));
+        assert!(response.body["created_at"].is_string());
+        let login = app
+            .post_without_token(
+                routes::LOGIN,
+                &json!({"username": "new_user", "password": " supplied_pass "}),
+            )
+            .await;
+        assert_eq!(login.status, 200, "{}", login.text);
+        assert_eq!(login.body["roles"], json!(["contestant"]));
+        let stored = user::Entity::find_by_id(response.id())
+            .one(&app.db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(stored.password, " supplied_pass ");
+        let list = app.get_with_token(routes::USERS, &manager).await;
+        assert!(
+            list.body
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|u| u.get("password").is_none())
+        );
+    }
+
+    #[tokio::test]
+    async fn bulk_create_returns_working_generated_and_supplied_credentials() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "securepass", "admin")
+            .await;
+        let response = app.post_with_token("/api/v1/users/bulk", &json!({"users": [
+            {"username": "generated"}, {"username": "supplied", "password": "custom_pass123"}
+        ]}), &admin).await;
+        assert_eq!(response.status, 201, "{}", response.text);
+        let users = response.body.as_array().unwrap();
+        assert_eq!(users.len(), 2);
+        assert_eq!(users[0]["password"].as_str().unwrap().len(), 16);
+        assert_eq!(users[1]["password"], "custom_pass123");
+        for user in users {
+            let login = app
+                .post_without_token(
+                    routes::LOGIN,
+                    &json!({"username": user["username"], "password": user["password"]}),
+                )
+                .await;
+            assert_eq!(login.status, 200, "{}", login.text);
+            assert_eq!(login.body["roles"], json!(["contestant"]));
+        }
+    }
+
+    #[tokio::test]
+    async fn creation_requires_user_manage_and_authentication() {
+        let app = TestApp::spawn().await;
+        let contestant = app
+            .create_authenticated_user("contestant", "securepass")
+            .await;
+        let role_manager = app
+            .create_user_with_permissions("role_manager", "securepass", &["role:manage"])
+            .await;
+        for (path, body) in [
+            (routes::USERS, json!({"username": "forbidden"})),
+            (
+                "/api/v1/users/bulk",
+                json!({"users": [{"username": "forbidden"}]}),
+            ),
+        ] {
+            assert_eq!(app.post_without_token(path, &body).await.status, 401);
+            for token in [&contestant, &role_manager] {
+                let response = app.post_with_token(path, &body, token).await;
+                assert_eq!(response.status, 403, "{}", response.text);
+                assert_eq!(response.body["code"], "PERMISSION_DENIED");
+            }
+        }
+        assert_eq!(
+            user::Entity::find()
+                .filter(user::Column::Username.eq("forbidden"))
+                .count(&app.db)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_batches_create_no_users() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "securepass", "admin")
+            .await;
+        let invalid_batches = vec![
+            json!([]),
+            json!([
+                {"username": "valid"}, {"username": "bad-name"}
+            ]),
+            json!([
+                {"username": "duplicate"}, {"username": " Duplicate "}
+            ]),
+            json!([
+                {"username": "valid"}, {"username": "other", "password": "short"}
+            ]),
+            json!([
+                {"username": "valid"}, {"username": "other", "password": "é".repeat(65)}
+            ]),
+            json!(
+                (0..101)
+                    .map(|i| json!({"username": format!("user_{i}")}))
+                    .collect::<Vec<_>>()
+            ),
+        ];
+        for users in invalid_batches {
+            let response = app
+                .post_with_token("/api/v1/users/bulk", &json!({"users": users}), &admin)
+                .await;
+            assert_eq!(response.status, 400, "{}", response.text);
+            assert_eq!(response.body["code"], "VALIDATION_ERROR");
+        }
+        assert_eq!(user::Entity::find().count(&app.db).await.unwrap(), 1);
+        for body in [
+            json!({"username": ""}),
+            json!({"username": "x".repeat(33)}),
+            json!({"username": "invalid name"}),
+            json!({"username": "valid", "password": ""}),
+        ] {
+            assert_eq!(
+                app.post_with_token(routes::USERS, &body, &admin)
+                    .await
+                    .status,
+                400
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_user_conflicts_never_modify_credentials_or_create_partial_batch() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "securepass", "admin")
+            .await;
+        app.create_authenticated_user("existing", "original_pass")
+            .await;
+        for (path, body) in [
+            (
+                routes::USERS,
+                json!({"username": "existing", "password": "replacement_pass"}),
+            ),
+            (
+                "/api/v1/users/bulk",
+                json!({"users": [
+                    {"username": "fresh"}, {"username": "existing", "password": "replacement_pass"}
+                ]}),
+            ),
+        ] {
+            let response = app.post_with_token(path, &body, &admin).await;
+            assert_eq!(response.status, 409, "{}", response.text);
+            assert_eq!(response.body["code"], "USERNAME_TAKEN");
+        }
+        assert!(
+            user::Entity::find()
+                .filter(user::Column::Username.eq("fresh"))
+                .one(&app.db)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let login = app
+            .post_without_token(
+                routes::LOGIN,
+                &json!({"username": "existing", "password": "original_pass"}),
+            )
+            .await;
+        assert_eq!(login.status, 200);
+    }
+
+    #[tokio::test]
+    async fn failed_role_assignment_rolls_back_new_account() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "securepass", "admin")
+            .await;
+        server::entity::role_permission::Entity::delete_many()
+            .filter(server::entity::role_permission::Column::Role.eq("contestant"))
+            .exec(&app.db)
+            .await
+            .unwrap();
+        server::entity::role::Entity::delete_by_id("contestant")
+            .exec(&app.db)
+            .await
+            .unwrap();
+        let response = app
+            .post_with_token(routes::USERS, &json!({"username": "rolled_back"}), &admin)
+            .await;
+        assert_eq!(response.status, 500, "{}", response.text);
+        assert!(
+            user::Entity::find()
+                .filter(user::Column::Username.eq("rolled_back"))
+                .one(&app.db)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn bulk_insert_failure_rolls_back_earlier_accounts() {
+        use sea_orm::{ConnectionTrait, DbBackend, Statement};
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "securepass", "admin")
+            .await;
+        // Simulate a constraint failure after the early username check, on the
+        // second insert, to exercise rollback of the first account and its roles.
+        app.db.execute_raw(Statement::from_string(DbBackend::Postgres, r#"
+            CREATE FUNCTION reject_late_account() RETURNS trigger AS $$
+            BEGIN
+                IF NEW.username = 'late_conflict' THEN
+                    RAISE EXCEPTION 'simulated concurrent username collision' USING ERRCODE = '23505';
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+        "#)).await.unwrap();
+        app.db
+            .execute_raw(Statement::from_string(
+                DbBackend::Postgres,
+                r#"
+            CREATE TRIGGER reject_late_account BEFORE INSERT ON "user"
+            FOR EACH ROW EXECUTE FUNCTION reject_late_account();
+        "#,
+            ))
+            .await
+            .unwrap();
+        let response = app
+            .post_with_token(
+                "/api/v1/users/bulk",
+                &json!({"users": [
+                    {"username": "first_account"}, {"username": "late_conflict"}
+                ]}),
+                &admin,
+            )
+            .await;
+        assert_eq!(response.status, 409, "{}", response.text);
+        assert_eq!(response.body["code"], "USERNAME_TAKEN");
+        assert_eq!(user::Entity::find().count(&app.db).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn stale_manager_token_cannot_create_accounts() {
+        use sea_orm::{ActiveModelTrait, Set};
+        let app = TestApp::spawn().await;
+        let manager = app
+            .create_user_with_permissions("manager", "securepass", &["user:manage"])
+            .await;
+        let id = app.get_with_token(routes::ME, &manager).await.id();
+        let mut account: user::ActiveModel = user::Entity::find_by_id(id)
+            .one(&app.db)
+            .await
+            .unwrap()
+            .unwrap()
+            .into();
+        account.credentials_changed_at = Set(chrono::Utc::now() + chrono::Duration::seconds(5));
+        account.update(&app.db).await.unwrap();
+        for (path, body) in [
+            (routes::USERS, json!({"username": "forbidden"})),
+            (
+                "/api/v1/users/bulk",
+                json!({"users": [{"username": "forbidden"}]}),
+            ),
+        ] {
+            let response = app.post_with_token(path, &body, &manager).await;
+            assert_eq!(response.status, 401, "{}", response.text);
+            assert_eq!(response.body["code"], "TOKEN_INVALID");
+        }
+    }
+
+    #[tokio::test]
+    async fn admin_can_reuse_a_soft_deleted_username() {
+        let app = TestApp::spawn().await;
+        let admin = app
+            .create_user_with_role("admin", "securepass", "admin")
+            .await;
+        let old = app
+            .create_authenticated_user("reusable", "original_pass")
+            .await;
+        let id = app.get_with_token(routes::ME, &old).await.id();
+        assert_eq!(
+            app.delete_with_token(&routes::user(id), &admin)
+                .await
+                .status,
+            204
+        );
+        let response = app
+            .post_with_token(routes::USERS, &json!({"username": "reusable"}), &admin)
+            .await;
+        assert_eq!(response.status, 201, "{}", response.text);
+        assert_ne!(response.id(), id);
+    }
+}

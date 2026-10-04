@@ -478,3 +478,21 @@
 
 # Common
 'common.cancel' = '取消'
+
+# Admin user creation
+'users.create.title' = '创建用户'
+'users.create.single' = '创建用户'
+'users.create.bulk' = '批量导入'
+'users.create.description' = '新用户默认获得参赛者角色。创建后可管理其角色。'
+'users.create.passwordHint' = '留空以生成密码，或输入 8–128 字节的密码。'
+'users.create.bulkHint' = '导入 1–100 个用户名或包含 username 和可选 password 的对象。若有已存在的用户名，整个导入将被拒绝。'
+'users.create.preview' = '将创建 {count} 个用户。'
+'users.create.suppliedPassword' = '指定密码'
+'users.create.confirm' = '创建全部用户'
+'users.create.success' = '已创建 {count} 个用户。'
+'users.create.error' = '创建用户失败。'
+'users.create.tooMany' = '每次最多导入 100 个用户。'
+'users.create.fileTooLarge' = 'JSON 文件必须小于 100 KB。'
+'users.create.credentialsHint' = '关闭前请保存这些凭据。之后无法再次查看密码。'
+'users.create.download' = '下载凭据'
+'users.create.done' = '完成'

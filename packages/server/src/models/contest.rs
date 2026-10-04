@@ -409,30 +409,7 @@ pub fn validate_bulk_add_participants(req: &BulkAddParticipantsRequest) -> Resul
                 entry.username.trim()
             )));
         }
-        let username = entry.username.trim();
-        if username.chars().count() > 32 {
-            return Err(AppError::Validation(format!(
-                "Username '{}' must be 1-32 characters",
-                username
-            )));
-        }
-        if !username
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
-        {
-            return Err(AppError::Validation(format!(
-                "Username '{}' must contain only letters, digits, and underscores",
-                username
-            )));
-        }
-        if let Some(ref pw) = entry.password
-            && (pw.len() < 8 || pw.len() > 128)
-        {
-            return Err(AppError::Validation(format!(
-                "Password for '{}' must be 8-128 characters",
-                username
-            )));
-        }
+        super::user::validate_account_credentials(&entry.username, entry.password.as_deref())?;
     }
 
     Ok(())

@@ -27,7 +27,7 @@ use crate::config::ServerConfig;
 // (`authenticated_user_can_retrieve_their_profile`) - all in
 // tests/integration/auth.rs. There is no `Resource::User` in the kernel this
 // could route through.
-use crate::entity::{refresh_token, role, role_permission, user, user_role};
+use crate::entity::{refresh_token, role, role_permission, user};
 use crate::error::{AppError, ErrorBody};
 use crate::extractors::auth::AuthUser;
 use crate::extractors::json::AppJson;
@@ -95,38 +95,19 @@ pub async fn register(
 ) -> Result<impl IntoResponse, AppError> {
     validate_register_request(&payload)?;
 
-    let username = payload.username.trim().to_string();
-
-    let hash = hash::hash_password(&payload.password)
-        .map_err(|e| AppError::Internal(format!("Password hash error: {}", e)))?;
-
+    let prepared = crate::services::user_accounts::prepare_accounts(vec![(
+        payload.username,
+        Some(payload.password),
+    )])
+    .await?;
+    let entry = prepared
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::Internal("Missing prepared account".into()))?;
     let txn = state.db.begin().await?;
-
-    let new_user = user::ActiveModel {
-        username: Set(username),
-        password: Set(hash),
-        created_at: Set(chrono::Utc::now()),
-        ..Default::default()
-    };
-
-    let user = new_user.insert(&txn).await.map_err(|e| match e.sql_err() {
-        Some(SqlErr::UniqueConstraintViolation(_)) => AppError::UsernameTaken,
-        _ => AppError::from(e),
-    })?;
-
-    for role_name in role::DEFAULT_ROLES {
-        let role = role::Entity::find_by_id(role_name.to_string())
-            .one(&txn)
-            .await?
-            .ok_or_else(|| AppError::Internal(format!("Default role '{}' not found", role_name)))?;
-
-        user_role::ActiveModel {
-            user_id: Set(user.id),
-            role: Set(role.name),
-        }
-        .insert(&txn)
-        .await?;
-    }
+    let user =
+        crate::services::user_accounts::insert_account(&txn, entry.username, entry.password_hash)
+            .await?;
 
     txn.commit().await?;
     Ok((StatusCode::CREATED, Json(RegisterResponse::from(user))))

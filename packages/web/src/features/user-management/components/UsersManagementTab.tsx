@@ -13,11 +13,18 @@ import {
 } from '@broccoli/web-sdk/ui';
 import { formatDateTime } from '@broccoli/web-sdk/utils';
 import { useQueryClient } from '@tanstack/react-query';
-import { MoreHorizontal, Pencil, ShieldCheck, Trash2 } from 'lucide-react';
+import {
+  MoreHorizontal,
+  Pencil,
+  ShieldCheck,
+  Trash2,
+  UserPlus,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { fetchUsersTable } from '@/features/user-management/api/fetch-users-table';
+import { CreateUsersDialog } from '@/features/user-management/components/CreateUsersDialog';
 import { EditUserDialog } from '@/features/user-management/components/EditUserDialog';
 import { ManageUserRolesDialog } from '@/features/user-management/components/ManageUserRolesDialog';
 import type { ManagedUserRow } from '@/features/user-management/types';
@@ -136,6 +143,7 @@ export function UsersManagementTab() {
     defaultSortOrder: 'desc',
   });
 
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<ManagedUserRow>();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [roleUser, setRoleUser] = useState<ManagedUserRow>();
@@ -187,6 +195,12 @@ export function UsersManagementTab() {
         queryKey={['admin-users']}
         fetchFn={fetchUsersTable}
         searchable
+        toolbar={
+          <Button onClick={() => setCreateDialogOpen(true)}>
+            <UserPlus className="mr-2 h-4 w-4" />
+            {t('users.create.title')}
+          </Button>
+        }
         searchPlaceholder={t('users.users.searchPlaceholder')}
         defaultPerPage={20}
         defaultSortBy="created_at"
@@ -197,6 +211,10 @@ export function UsersManagementTab() {
         onSearchChange={table.setSearch}
         onSortChange={table.setSort}
       />
+
+      {createDialogOpen && (
+        <CreateUsersDialog onOpenChange={setCreateDialogOpen} />
+      )}
 
       <EditUserDialog
         user={editingUser}
