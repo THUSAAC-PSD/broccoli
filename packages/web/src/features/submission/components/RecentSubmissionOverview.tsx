@@ -6,8 +6,8 @@ import type {
 } from '@broccoli/web-sdk/submission';
 import { Badge } from '@broccoli/web-sdk/ui';
 import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
-import { useNavigate } from 'react-router';
 
+import { useSubmissionNavigation } from '@/features/submission/hooks/use-submission-navigation';
 import type { SubmissionEntry } from '@/features/submission/hooks/use-submissions';
 
 import { getSubmissionScoreDisplay } from '../utils/score-display';
@@ -79,7 +79,7 @@ export function RecentSubmissionOverview({
   linkBuilder,
 }: RecentSubmissionOverviewProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { openSubmission } = useSubmissionNavigation();
 
   // Bucket fan-out entries by groupKey so they render together as a single
   // comparison strip rather than N independent overview rows. Single-target
@@ -215,7 +215,8 @@ export function RecentSubmissionOverview({
               className={`grid grid-cols-[auto_1fr] items-start gap-3 rounded-md border bg-muted/20 p-3 ${canOpen ? 'cursor-pointer transition-colors hover:bg-muted/30' : ''}`}
               onClick={
                 canOpen
-                  ? () => navigate(linkBuilder(row.submissionId as number))
+                  ? () =>
+                      openSubmission(linkBuilder(row.submissionId as number))
                   : undefined
               }
               onKeyDown={
@@ -223,7 +224,7 @@ export function RecentSubmissionOverview({
                   ? (event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        navigate(linkBuilder(row.submissionId as number));
+                        openSubmission(linkBuilder(row.submissionId as number));
                       }
                     }
                   : undefined

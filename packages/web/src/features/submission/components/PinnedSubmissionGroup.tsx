@@ -6,8 +6,8 @@ import {
 } from '@broccoli/web-sdk/submission';
 import { Badge } from '@broccoli/web-sdk/ui';
 import { AlertTriangle, Loader2, Pin } from 'lucide-react';
-import { useNavigate } from 'react-router';
 
+import { useSubmissionNavigation } from '@/features/submission/hooks/use-submission-navigation';
 import type { SubmissionEntry } from '@/features/submission/hooks/use-submissions';
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
 
@@ -40,7 +40,7 @@ function buildRow(entry: SubmissionEntry): Row {
 
 export function PinnedSubmissionGroup({ entries, linkBuilder }: Props) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { openSubmission } = useSubmissionNavigation();
 
   const rows = entries
     .map(buildRow)
@@ -106,7 +106,7 @@ export function PinnedSubmissionGroup({ entries, linkBuilder }: Props) {
                 canOpen ? 'cursor-pointer hover:bg-muted/40' : ''
               }`}
               onClick={() =>
-                canOpen && navigate(linkBuilder(submissionId as number))
+                canOpen && openSubmission(linkBuilder(submissionId as number))
               }
               role={canOpen ? 'link' : undefined}
               tabIndex={canOpen ? 0 : undefined}
@@ -115,7 +115,7 @@ export function PinnedSubmissionGroup({ entries, linkBuilder }: Props) {
                   ? (e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        navigate(linkBuilder(submissionId as number));
+                        openSubmission(linkBuilder(submissionId as number));
                       }
                     }
                   : undefined

@@ -11,6 +11,7 @@ import { AppLayout } from '@/components/AppLayout';
 import { SlotPermissionsBridge } from '@/components/SlotPermissionsBridge';
 import { appConfig } from '@/config';
 import { ContestProvider } from '@/features/contest/contexts/contest-context';
+import { SubmissionNavigationProvider } from '@/features/submission/contexts/submission-navigation-context';
 import { en } from '@/lib/i18n/en';
 import { queryClient } from '@/lib/query-client';
 
@@ -30,9 +31,11 @@ export default function AppShell() {
                     backendUrl={appConfig.plugin.backendUrl}
                     lazyPlugins={lazyPlugins}
                   >
-                    <AppLayout>
-                      <Outlet />
-                    </AppLayout>
+                    <SubmissionNavigationProvider>
+                      <AppLayout>
+                        <Outlet />
+                      </AppLayout>
+                    </SubmissionNavigationProvider>
                     <ThemeToaster richColors closeButton />
                   </PluginRegistryProvider>
                 </SlotPermissionsBridge>

@@ -11,6 +11,7 @@ import { useSearchParams } from 'react-router';
 
 import type { EditorFile } from '@/components/CodeEditor';
 import { useContestProblems } from '@/features/contest/hooks/use-contest-problems';
+import { useRestoreSubmissionScroll } from '@/features/submission/hooks/use-submission-navigation';
 import { useSubmissions } from '@/features/submission/hooks/use-submissions';
 
 import { ProblemCodingTab } from './ProblemCodingTab';
@@ -94,6 +95,7 @@ export default function ProblemView({
     },
   });
 
+  useRestoreSubmissionScroll(!isLoading);
   const { data: contestProblems = [] } = useContestProblems(contestId);
 
   const { data: submissionHistory = [] } = useQuery<SubmissionSummary[]>({

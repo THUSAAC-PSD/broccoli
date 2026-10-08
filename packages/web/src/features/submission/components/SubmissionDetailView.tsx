@@ -3,9 +3,17 @@ import { isTerminalStatus } from '@broccoli/web-sdk/submission';
 import { Badge } from '@broccoli/web-sdk/ui';
 import { formatRelativeDatetime } from '@broccoli/web-sdk/utils';
 import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import { useSubmissionDetail } from '@/features/submission/hooks/use-submission-detail';
+import {
+  usePreviousLocationKey,
+  useSubmissionReturn,
+} from '@/features/submission/hooks/use-submission-navigation';
+import {
+  submissionReturnState,
+  type SubmissionReturnTarget,
+} from '@/features/submission/utils/navigation';
 import { getSubmissionScoreDisplay } from '@/features/submission/utils/score-display';
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
 
@@ -26,12 +34,15 @@ export function SubmissionDetailView({
   const { t } = useTranslation();
   const { submission, isLoading, error } = useSubmissionDetail(submissionId);
 
-  const backTo = contestId ? `/contests/${contestId}/submissions` : '/';
+  const returnTarget = useSubmissionReturn(submission, isLoading, contestId);
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-4">
+        <BackLink target={returnTarget} />
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
       </div>
     );
   }
@@ -39,7 +50,7 @@ export function SubmissionDetailView({
   if (error || !submission) {
     return (
       <div className="space-y-4">
-        <BackLink to={backTo} />
+        <BackLink target={returnTarget} />
         <div className="flex flex-col items-center gap-3 py-20">
           <AlertCircle className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
@@ -67,7 +78,7 @@ export function SubmissionDetailView({
 
   return (
     <div className="space-y-6">
-      <BackLink to={backTo} />
+      <BackLink target={returnTarget} />
 
       {/* Header card */}
       <div className="rounded-lg border bg-card">
@@ -185,15 +196,46 @@ function MetaItem({
   );
 }
 
-function BackLink({ to }: { to: string }) {
+function BackLink({ target }: { target: SubmissionReturnTarget | null }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const previousKey = usePreviousLocationKey();
+
+  if (!target) {
+    return (
+      <span
+        role="status"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
+      >
+        <Loader2 className="h-4 w-4 animate-spin" />
+        {t('admin.loading')}
+      </span>
+    );
+  }
+
   return (
     <Link
-      to={to}
+      to={target.to}
+      replace
+      state={submissionReturnState(target)}
+      onClick={(event) => {
+        if (
+          target.source &&
+          previousKey === target.source.locationKey &&
+          event.button === 0 &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.shiftKey &&
+          !event.altKey
+        ) {
+          event.preventDefault();
+          navigate(-1);
+        }
+      }}
       className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
     >
       <ArrowLeft className="h-4 w-4" />
-      {t('submissionDetail.backToList')}
+      {t(target.labelKey)}
     </Link>
   );
 }

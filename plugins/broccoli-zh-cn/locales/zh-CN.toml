@@ -52,6 +52,16 @@
 'error.desc.default' = '发生了一些错误。'
 'error.backToHome' = '回到首页'
 
+# Submission detail navigation
+'submissionDetail.backToList' = '返回提交列表'
+'submissionDetail.backToAllSubmissions' = '返回全部提交'
+'submissionDetail.backToContestSubmissions' = '返回比赛提交'
+'submissionDetail.backToCoding' = '返回代码编辑'
+'submissionDetail.backToOverview' = '返回概览'
+'submissionDetail.viewAllSubmissions' = '查看全部提交'
+'submissionDetail.viewContestSubmissions' = '查看比赛提交'
+'submissionDetail.openProblem' = '打开题目'
+
 # Problem description
 'problem.title' = '题目'
 'problem.description' = '题目描述'

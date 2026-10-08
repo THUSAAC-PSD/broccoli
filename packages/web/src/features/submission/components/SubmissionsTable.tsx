@@ -19,6 +19,10 @@ import {
 import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 
+import {
+  useRestoreSubmissionScroll,
+  useSubmissionNavigation,
+} from '@/features/submission/hooks/use-submission-navigation';
 import { getVerdictBadge } from '@/features/submission/utils/verdict';
 
 import { SubmissionResult } from './SubmissionResult';
@@ -131,6 +135,7 @@ export function SubmissionsTable({
   onToggleSelectVisible,
 }: SubmissionsTableProps) {
   const { t } = useTranslation();
+  useRestoreSubmissionScroll();
   const [expandedId, setExpandedId] = useState<number | null>(
     autoExpandId ?? null,
   );
@@ -282,6 +287,7 @@ function SubmissionRow({
   rowClassName?: string;
 }) {
   const { t } = useTranslation();
+  const { onSubmissionClick } = useSubmissionNavigation();
   const { label: verdictLabel, variant: verdictVariant } = getVerdictBadge(
     submission.verdict ?? null,
     submission.status,
@@ -303,7 +309,9 @@ function SubmissionRow({
           {linkBuilder ? (
             <Link
               to={linkBuilder(submission)}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(event) =>
+                onSubmissionClick(event, linkBuilder(submission))
+              }
               className="inline-flex items-center gap-0.5 text-xs font-mono text-primary/60 hover:text-primary transition-colors group"
               title={t('submissions.viewDetails')}
             >
@@ -361,7 +369,9 @@ function SubmissionRow({
                 {linkBuilder ? (
                   <Link
                     to={linkBuilder(submission)}
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(event) =>
+                      onSubmissionClick(event, linkBuilder(submission))
+                    }
                     className="inline-flex items-center gap-0.5 text-[10px] font-mono text-primary/60 hover:text-primary transition-colors group"
                   >
                     #{submission.id}

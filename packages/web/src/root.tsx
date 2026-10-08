@@ -7,6 +7,7 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 import sharedDepsMap from 'virtual:shared-deps-map';
 
 import { ErrorReporter } from '@/components/error-reporter';
+import { getSubmissionScrollKey } from '@/features/submission/utils/navigation';
 import { reportError, reportVitals } from '@/lib/telemetry';
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -79,7 +80,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        <ScrollRestoration />
+        <ScrollRestoration getKey={getSubmissionScrollKey} />
         <Scripts />
       </body>
     </html>
