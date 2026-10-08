@@ -54,12 +54,12 @@ export function TextPreview({
           </Button>
         )}
       </div>
-      <pre className="max-h-28 overflow-auto whitespace-pre rounded bg-muted p-2 text-xs">
+      <pre className="max-h-28 max-w-full overflow-auto whitespace-pre rounded bg-muted p-2 text-xs">
         {preview}
         {truncated && '…'}
       </pre>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="flex max-h-[85vh] min-h-0 flex-col sm:max-w-4xl">
+        <DialogContent className="flex max-h-[85vh] min-h-0 min-w-0 flex-col sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>{label}</DialogTitle>
             <DialogDescription>
@@ -117,7 +117,7 @@ function OutputDialogBody({
           </Button>
         </div>
       ) : (
-        <pre className="min-h-0 max-h-[65vh] overflow-auto whitespace-pre rounded bg-muted p-3 text-xs">
+        <pre className="min-h-0 min-w-0 max-h-[65vh] max-w-full overflow-auto whitespace-pre rounded bg-muted p-3 text-xs">
           {query.data}
         </pre>
       )}
