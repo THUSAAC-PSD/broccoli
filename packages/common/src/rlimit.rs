@@ -69,7 +69,7 @@ pub fn raise_nofile_limit() -> NofileRaise {
     // macOS rejects a soft limit above OPEN_MAX even when the hard limit is
     // RLIM_INFINITY; cap there so the call succeeds instead of failing whole.
     #[cfg(target_os = "macos")]
-    let target = target.min(libc::OPEN_MAX as libc::rlim_t);
+    let target = target.min(10240).max(lim.rlim_cur);
     lim.rlim_cur = target;
     // SAFETY: `lim` is a valid `rlimit` with soft <= hard.
     if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &lim) } != 0 {
