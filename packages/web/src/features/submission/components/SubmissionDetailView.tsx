@@ -77,7 +77,7 @@ export function SubmissionDetailView({
     : `/problems/${submission.problem_id}`;
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <BackLink target={returnTarget} />
 
       {/* Header card */}
@@ -118,7 +118,7 @@ export function SubmissionDetailView({
               </span>
             </MetaItem>
             <MetaItem label={t('submissionDetail.language')}>
-              <Badge variant="outline" className="font-mono">
+              <Badge variant="outline" className="max-w-full font-mono">
                 {submission.language}
               </Badge>
             </MetaItem>
@@ -131,7 +131,7 @@ export function SubmissionDetailView({
               <MetaItem label={t('submissionDetail.pinnedWorker')}>
                 <Badge
                   variant="outline"
-                  className="font-mono text-primary/80"
+                  className="max-w-full font-mono text-primary/80"
                   title={t('submissionDetail.pinnedWorkerHint')}
                 >
                   {submission.target_worker_id}
@@ -187,11 +187,11 @@ function MetaItem({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-0.5">
+    <div className="min-w-0 space-y-0.5">
       <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
         {label}
       </div>
-      <div>{children}</div>
+      <div className="[overflow-wrap:anywhere]">{children}</div>
     </div>
   );
 }

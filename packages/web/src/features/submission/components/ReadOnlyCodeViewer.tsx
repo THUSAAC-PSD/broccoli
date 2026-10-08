@@ -122,7 +122,7 @@ export function ReadOnlyCodeViewer({
         <div className="overflow-hidden">
           {/* Multi-file tabs */}
           {files.length > 1 && (
-            <div className="flex gap-0 border-b border-border bg-muted/30">
+            <div className="flex gap-0 overflow-x-auto border-b border-border bg-muted/30">
               {files.map((file, i) => (
                 <button
                   key={file.filename}
@@ -132,7 +132,7 @@ export function ReadOnlyCodeViewer({
                     setActiveIndex(i);
                   }}
                   className={cn(
-                    'border-b-2 px-3 py-1.5 font-mono text-xs transition-colors',
+                    'shrink-0 border-b-2 px-3 py-1.5 font-mono text-xs transition-colors',
                     i === activeIndex
                       ? 'border-primary text-foreground bg-background'
                       : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50',
